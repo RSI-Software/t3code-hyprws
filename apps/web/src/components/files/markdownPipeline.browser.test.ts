@@ -44,6 +44,13 @@ describe("markdown rich editor pipeline", () => {
     expect(await roundTrip(markdown)).toBe(markdown);
   });
 
+  it("keeps escaped dollars from becoming math after a save", async () => {
+    const markdown = "\\$5 and \\$6\n\n\\$5 then $x$\n\nCosts $5 then *\\$6*\n";
+    const saved = await roundTrip(markdown);
+    expect(await roundTrip(saved)).toBe(saved);
+    expect(saved).toBe("\\$5 and \\$6\n\n\\$5 then $x$\n\nCosts \\$5 then *$6*\n");
+  });
+
   it("keeps tight lists and task lists tight", async () => {
     const markdown = "- first\n- second\n\nParagraph.\n\n- [ ] open\n- [x] done\n";
     expect(await roundTrip(markdown)).toBe(markdown);

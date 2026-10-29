@@ -4,8 +4,33 @@ import type { Node as ProseNode } from "@milkdown/prose/model";
 import { NodeSelection, Plugin, TextSelection } from "@milkdown/prose/state";
 import { Decoration, DecorationSet } from "@milkdown/prose/view";
 import { $inputRule, $nodeSchema, $prose, $remark, $view } from "@milkdown/utils";
+import type { Nodes, Root } from "mdast";
 import remarkMath from "remark-math";
 import type { Processor } from "unified";
+
+// Stands in for `$` that must stay escaped, since stringify's `safe` would also escape a `\`.
+const escapedDollar = "\uE000";
+const phrasingBlocks = new Set(["paragraph", "heading", "tableCell"]);
+
+// Text whose `$` could pair with a later `$` in its block would open math on reparse.
+function markPairableDollars(node: Nodes, later = { dollar: false }): boolean {
+  if (phrasingBlocks.has(node.type)) later = { dollar: false };
+  if (node.type === "inlineMath") later.dollar = true;
+  let marked = false;
+  if (node.type === "text" && node.value.includes("$")) {
+    if (later.dollar || node.value.indexOf("$") !== node.value.lastIndexOf("$")) {
+      node.value = node.value.replaceAll("$", escapedDollar);
+      marked = true;
+    }
+    later.dollar = true;
+  }
+  if ("children" in node) {
+    for (const child of node.children.toReversed()) {
+      marked = markPairableDollars(child, later) || marked;
+    }
+  }
+  return marked;
+}
 
 // remark-math escapes every `$` in text, which would rewrite prices on each save.
 function remarkFileMath(this: Processor) {
@@ -16,6 +41,12 @@ function remarkFileMath(this: Processor) {
       (pattern) => !(pattern.character === "$" && pattern.inConstruct === "phrasing"),
     );
   }
+  const compile = this.compiler;
+  if (!compile) return;
+  this.compiler = (tree, file) => {
+    if (!markPairableDollars(tree as Root)) return compile(tree, file);
+    return String(compile(tree, file)).replaceAll(escapedDollar, "\\$");
+  };
 }
 
 const mathRemark = $remark("remarkFileMath", () => remarkFileMath);
