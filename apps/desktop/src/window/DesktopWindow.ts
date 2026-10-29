@@ -364,18 +364,19 @@ export const make = Effect.gen(function* () {
   const requestTargetWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash)); // fork-hook: multi-window/window-targets-request-target
   const captureRevealWindow = withSnapShotRevealTarget(requestTargetWindow); // fork-hook: multi-window/window-targets-capture-reveal-target
 
-  const preserveGuestZoomsFork = yield* WindowDispatch.makeWindowGuestZoomsFork; // fork-hook: multi-window/window-zoom-factory
+  const previewForWindowFork = yield* WindowDispatch.makeWindowPreviewFork; // fork-hook: multi-window/window-zoom-factory
   const zoomWindow = Effect.fn("desktop.window.zoomWindow")(function* (
     window: Electron.BrowserWindow,
     direction: MainWindowZoomDirection,
   ) {
+    const previewManager = yield* previewForWindowFork(window); // fork-hook: multi-window/window-id-zoom
     const webContents = window.webContents;
-    yield* preserveGuestZoomsFork(window, () => {
-      webContents.setZoomLevel(
-        direction === "reset" ? 0 : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
-      );
-    }); // fork-hook: multi-window/window-id-zoom
+    webContents.setZoomLevel(
+      direction === "reset" ? 0 : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
+    );
     if (environment.platform === "darwin") syncMacosWindowButtons(window);
+    // App zoom propagates to guests; restore each preview's own zoom.
+    yield* previewManager.reapplyZoom();
   });
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
