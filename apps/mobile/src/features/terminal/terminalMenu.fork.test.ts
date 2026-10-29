@@ -37,6 +37,7 @@ function makeKnownSession(input: {
       terminalId: input.terminalId,
     },
     state: {
+      grid: null,
       summary: input.cwd
         ? {
             threadId: "thread-1",

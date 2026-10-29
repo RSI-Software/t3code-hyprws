@@ -106,7 +106,7 @@ import {
 import { createTerminalPasteSession } from "./terminalPaste";
 import { cacheTerminalGridSize, getCachedTerminalGridSize } from "./terminalUiState";
 import { getKeyboardShowEpoch, subscribeKeyboardShowing } from "./terminalKeyboardShowing";
-import { useLocalKnownSessionsFork } from "./localTerminalSessions.fork"; // fork-hook: zmux-estate/local-known-sessions
+import { useLocalKnownSessionsFork } from "./localTerminalSessions.fork"; // fork-hook: zmux-estate/local-terminal-sessions-import
 import { updatePreferences } from "../../persistence/imperative"; // fork-hook: zmux-estate/terminal-setup-preferences-import
 import { useTerminalSetupPreferencesFork } from "./terminalSetupPreferences.fork"; // fork-hook: zmux-estate/terminal-setup-preferences-import
 import {
@@ -356,10 +356,10 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   // made once, from the first session list that has one, so the terminal shown
   // does not change under the user as sessions come and go.
   const [bootstrapTerminalId, setBootstrapTerminalId] = useState<string | null>(null);
-  const localSessionsFork = useLocalKnownSessionsFork(knownSessions.sessions); // fork-hook: zmux-estate/local-known-sessions
+  const localSessionsFork = useLocalKnownSessionsFork(knownSessions.sessions); // fork-hook: zmux-estate/local-terminal-bootstrap
   const runningSession = knownSessions.sessions
-    ? (pickRunningTerminalSessionForBootstrap(localSessionsFork) ?? // fork-hook: zmux-estate/local-known-sessions
-      (access.canOperate ? null : (knownSessions.sessions[0] ?? null)))
+    ? (pickRunningTerminalSessionForBootstrap(localSessionsFork) ?? // fork-hook: zmux-estate/local-terminal-bootstrap
+      (access.canOperate ? null : (localSessionsFork[0] ?? null))) // fork-hook: zmux-estate/local-terminal-bootstrap
     : null;
   if (
     requestedTerminalId === null &&
@@ -444,7 +444,7 @@ function ThreadTerminal(props: {
     isPending: sessionsPending,
     error: sessionsError,
   } = props.knownSessions;
-  const localKnownSessions = useLocalKnownSessionsFork(knownSessions); // fork-hook: zmux-estate/local-known-sessions
+  const localKnownSessions = useLocalKnownSessionsFork(knownSessions); // fork-hook: zmux-estate/local-terminal-sessions
   const insets = useSafeAreaInsets();
   const nativeColumnMetrics = useNativeColumnLayoutMetrics();
   const contentTopInset = useContentTopInset();
@@ -518,7 +518,7 @@ function ThreadTerminal(props: {
   const fontSize = appearance.terminalFontSize;
   const terminalKey = `${selectedThread.environmentId}:${selectedThread.id}:${terminalId}`;
   const activeKnownSession =
-    knownSessions?.find((session) => session.target.terminalId === terminalId) ?? null;
+    localKnownSessions.find((session) => session.target.terminalId === terminalId) ?? null; // fork-hook: zmux-estate/local-terminal-sessions
   const hasTerminalTarget = props.hasExplicitTerminalId || activeKnownSession !== null;
   const [pendingLaunch] = useState<PendingTerminalLaunch | null>(() =>
     takePendingTerminalLaunch({
@@ -709,7 +709,7 @@ function ThreadTerminal(props: {
     (isKeyboardVisible ? keyboardHeight : 0) + (isAccessoryVisible ? TERMINAL_ACCESSORY_HEIGHT : 0);
 
   const terminalMenuSessions: ReadonlyArray<TerminalMenuSession> = buildTerminalMenuSessions({
-    knownSessions: knownSessions ?? [],
+    knownSessions: localKnownSessions, // fork-hook: zmux-estate/local-terminal-menu
     workspaceRoot: selectedThreadProject?.workspaceRoot ?? null,
     currentSession: {
       terminalId,
