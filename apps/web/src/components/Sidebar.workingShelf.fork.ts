@@ -10,14 +10,18 @@ import {
 export function applySidebarThreadGroupsFork(
   items: SidebarListItem[],
   input: {
+    readonly pinnedKeys?: readonly string[];
     readonly activeKeys: readonly string[] | null;
+    readonly snoozedKeys?: readonly string[];
     readonly workingKeys: readonly string[] | undefined;
     readonly activeGroups: readonly SidebarThreadGroupSpan[];
   },
 ): void {
   for (const [section, keys, marker] of [
+    ["pinned", input.pinnedKeys ?? null, "pinned-header"],
     ["active", input.activeKeys, "active-placeholder"],
     ["working", input.workingKeys ?? [], "working-header"],
+    ["snoozed", input.snoozedKeys ?? null, "snoozed-header"],
   ] as const) {
     if (keys === null) continue;
     for (let index = items.length - 1; index >= 0; index--) {
