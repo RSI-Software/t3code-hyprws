@@ -402,6 +402,7 @@ interface ManagedSessionIdentity {
 }
 
 interface TerminalStartInput {
+  readonly env?: Readonly<Record<string, string>>; // fork-hook: zmux-estate/start-runtime-env
   readonly cwd: string;
   readonly worktreePath?: string | null;
   readonly cols: number;
@@ -2202,11 +2203,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     });
   });
 
-  const applySharedGrid = Effect.fnUntraced(function* (threadId: string, terminalId: string) {
-    const session = yield* getSession(threadId, terminalId);
+  const applySharedGrid = Effect.fnUntraced(function* (
+    threadId: string,
+    terminalId: string,
+    attachmentId?: string,
+  ) {
+    const session = yield* getSession(threadId, terminalId, attachmentId); // fork-hook: zmux-estate/shared-grid-session
     if (Option.isNone(session)) return;
     const process = session.value.process;
-    const shared = sharedViewerGrid(toSessionKey(threadId, terminalId));
+    const shared = sharedViewerGrid(toSessionKey(threadId, terminalId, attachmentId)); // fork-hook: zmux-estate/shared-grid-key
     if (
       !process ||
       session.value.status !== "running" ||
@@ -2216,7 +2221,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       return;
     }
     yield* resizeSession(session.value, process, shared.cols, shared.rows);
-  });
+  }); // fork-hook: zmux-estate/shared-grid-attachment
 
   const clearKillFiber = Effect.fn("terminal.clearKillFiber")(function* (
     process: PtyAdapter.PtyProcess | null,
@@ -3718,8 +3723,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         yield* startSession(
           session,
           {
-            threadId: session.threadId,
-            terminalId: session.terminalId,
             cwd: session.cwd,
             worktreePath: session.worktreePath,
             cols: session.cols,
@@ -4224,10 +4227,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const terminalId = requestedInput.terminalId;
     yield* assertValidCwd(requestedInput.cwd);
 
-    const sessionKey = toSessionKey(requestedInput.threadId, terminalId);
+    const sessionKey = toSessionKey(
+      requestedInput.threadId,
+      terminalId,
+      requestedInput.attachmentId,
+    ); // fork-hook: zmux-estate/open-session-key
     const input = withSharedGrid(sessionKey, requestedInput);
     const attachmentId = input.attachmentId ?? null;
-    const existing = yield* getSession(input.threadId, terminalId);
+    const existing = yield* getSession(input.threadId, terminalId, attachmentId); // fork-hook: zmux-estate/open-session-lookup
     if (Option.isNone(existing)) {
       yield* flushPersist(input.threadId, terminalId, attachmentId);
       const inherited = yield* readHistory(input.threadId, terminalId, attachmentId); // fork-hook: zmux-estate/attachment-history-read
@@ -4314,9 +4321,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       runtimeEnvChanged ||
       liveSession.worktreePath !== nextWorktreePath;
     const nextStartInput: TerminalStartInput = {
-      threadId: input.threadId,
-      terminalId,
-      ...(attachmentId ? { attachmentId } : {}),
       cwd: input.cwd,
       worktreePath: nextWorktreePath,
       cols: targetCols,
@@ -4447,10 +4451,23 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       resolveLaunchInputEnvironment(input).pipe(Effect.flatMap(openLocked)),
     );
 
-  const openOrAttachForStream = Effect.fnUntraced(function* (requestedInput: TerminalAttachInput) {
+  const openOrAttachForStream = Effect.fnUntraced(function* (
+    requestedInput: TerminalAttachInput,
+    onAttachmentAcquired: () => void,
+  ) {
     const terminalId = requestedInput.terminalId;
-    const input = withSharedGrid(toSessionKey(requestedInput.threadId, terminalId), requestedInput);
-    const existing = yield* getSession(input.threadId, terminalId);
+    const input = withSharedGrid(
+      toSessionKey(requestedInput.threadId, terminalId, requestedInput.attachmentId),
+      requestedInput,
+    );
+    let existing = yield* getSession(input.threadId, terminalId, input.attachmentId);
+    if (Option.isNone(existing)) {
+      existing = yield* restoreRetainedManagedSession(
+        input.threadId,
+        terminalId,
+        input.attachmentId,
+      );
+    }
 
     if (Option.isNone(existing)) {
       if (input.resume && closedSessionKeys.has(toSessionKey(input.threadId, terminalId))) {
@@ -4670,14 +4687,19 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     viewer: string,
     grid: TerminalGrid | null,
   ) => {
-    const sessionKey = toSessionKey(input.threadId, input.terminalId);
+    const sessionKey = toSessionKey(input.threadId, input.terminalId, input.attachmentId); // fork-hook: zmux-estate/shared-grid-viewer-key
     retainViewer(sessionKey, viewer, grid);
     let retained = true;
     return () => {
       if (!retained) return;
       retained = false;
       if (releaseViewer(sessionKey, viewer)) {
-        runFork(withThreadLock(input.threadId, applySharedGrid(input.threadId, input.terminalId)));
+        runFork(
+          withThreadLock(
+            input.threadId,
+            applySharedGrid(input.threadId, input.terminalId, input.attachmentId),
+          ),
+        ); // fork-hook: zmux-estate/shared-grid-viewer-release
       }
     };
   };
@@ -4690,16 +4712,17 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   ) => {
     const viewer = viewerId ?? `stream:${++anonymousViewerCount}`;
     let detach = () => {};
-    const initial = Effect.suspend(() => {
-      detach = retainViewerOnce(
-        input,
-        viewer,
-        input.cols !== undefined && input.rows !== undefined
-          ? { cols: input.cols, rows: input.rows }
-          : null,
-      );
-      return openOrAttachForStream(input);
-    });
+    const initial = (onAttachmentAcquired: () => void) =>
+      Effect.suspend(() => {
+        detach = retainViewerOnce(
+          input,
+          viewer,
+          input.cols !== undefined && input.rows !== undefined
+            ? { cols: input.cols, rows: input.rows }
+            : null,
+        );
+        return openOrAttachForStream(input, onAttachmentAcquired);
+      }); // fork-hook: zmux-estate/stream-attachment-open
     return streamSession(
       input,
       initial,
@@ -4872,16 +4895,16 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     input: TerminalResizeInput,
     viewerId: string | undefined,
   ) {
-    const sessionKey = toSessionKey(input.threadId, input.terminalId);
+    const sessionKey = toSessionKey(input.threadId, input.terminalId, input.attachmentId); // fork-hook: zmux-estate/shared-grid-resize-key
     const viewer =
       viewerId === undefined ? undefined : terminalViewers.get(sessionKey)?.get(viewerId);
     if (viewer) {
       viewer.grid = { cols: input.cols, rows: input.rows };
-      return yield* applySharedGrid(input.threadId, input.terminalId);
+      return yield* applySharedGrid(input.threadId, input.terminalId, input.attachmentId); // fork-hook: zmux-estate/shared-grid-resize
     }
     // A caller that is not attached cannot override the viewers that are.
     if (sharedViewerGrid(sessionKey)) return;
-    const session = yield* getSession(input.threadId, input.terminalId);
+    const session = yield* getSession(input.threadId, input.terminalId, input.attachmentId); // fork-hook: zmux-estate/shared-grid-resize-session
     if (Option.isNone(session)) {
       return;
     }
