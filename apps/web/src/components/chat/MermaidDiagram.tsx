@@ -318,3 +318,11 @@ function DiagramError({
     </div>
   );
 }
+export {
+  detectDiagramType,
+  loadCore,
+  loadDiagramType,
+  loadMath,
+  sanitizeDiagramSvg,
+  sanitizeMathDiagramSvg,
+}; // fork-hook: markdown-editing/editor-mermaid
