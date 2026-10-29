@@ -12,6 +12,13 @@
   }
 }
 
+/* markdown-editing: `==text==` and `<mark>` in the rich editor and the file preview. */
+:is(.t3-markdown-editor__prose, .chat-markdown) mark {
+  border-radius: 0.15rem;
+  background: color-mix(in srgb, var(--color-yellow-400) 40%, transparent);
+  color: inherit;
+}
+
 /* upstream-fixes: the fallback context menu (contextMenuFallback.ts) caps its
    list at 24rem, so a long thread menu scrolls in any window. Let it use the
    viewport height instead; it still scrolls when the window is shorter. The
