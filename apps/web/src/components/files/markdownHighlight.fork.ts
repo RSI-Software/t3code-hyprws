@@ -1,6 +1,7 @@
 import type { MilkdownPlugin } from "@milkdown/ctx";
 import { $markSchema, $remark } from "@milkdown/utils";
 import type { Data, Processor } from "unified";
+import { escapeOpener } from "./remarkEscapes.fork";
 import { type Highlight, remarkHighlight } from "./remarkHighlight.fork";
 
 type Handlers = NonNullable<NonNullable<Data["toMarkdownExtensions"]>[number]["handlers"]>;
@@ -14,7 +15,11 @@ const writeHighlight: NonNullable<Handlers["highlight"]> = (
 
 function remarkHighlightMarkdown(this: Processor) {
   const data = this.data();
-  (data.toMarkdownExtensions ??= []).push({ handlers: { highlight: writeHighlight } });
+  (data.toMarkdownExtensions ??= []).push({
+    handlers: { highlight: writeHighlight },
+    // An opener with a closer later in the same text; a closer in a sibling text is not seen.
+    unsafe: [escapeOpener("=", "(?==\\S(?:[^]*?\\S)?==)")],
+  });
   return remarkHighlight();
 }
 

@@ -40,6 +40,7 @@ describe("markdown rich editor pipeline", () => {
       '<div align="center">\n\n<div>\n\nNested\n\n</div>\n\n</div>\n',
       "==Marked== ==**bold**== and a == b == c\n",
       ":rocket: :+1: and :nope: at 10:30:00\n",
+      "\\==x== and \\:rocket:\n",
     ].join("\n");
     expect(await roundTrip(markdown)).toBe(markdown);
   });

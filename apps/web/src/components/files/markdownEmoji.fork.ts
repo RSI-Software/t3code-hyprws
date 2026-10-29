@@ -2,15 +2,24 @@ import type { MilkdownPlugin } from "@milkdown/ctx";
 import { InputRule } from "@milkdown/prose/inputrules";
 import { $inputRule, $nodeSchema, $remark } from "@milkdown/utils";
 import type { Data, Processor } from "unified";
+import { nameToEmoji } from "gemoji";
+import { escapeOpener } from "./remarkEscapes.fork";
 import { type Emoji, emojiFor, remarkEmoji } from "./remarkEmoji.fork";
 
 type Handlers = NonNullable<NonNullable<Data["toMarkdownExtensions"]>[number]["handlers"]>;
+
+const SHORTCODE_NAMES = Object.keys(nameToEmoji)
+  .map((name) => name.replaceAll("+", "\\+"))
+  .join("|");
 
 const writeEmoji: NonNullable<Handlers["emoji"]> = (node: Emoji) => `:${node.name}:`;
 
 function remarkEmojiMarkdown(this: Processor) {
   const data = this.data();
-  (data.toMarkdownExtensions ??= []).push({ handlers: { emoji: writeEmoji } });
+  (data.toMarkdownExtensions ??= []).push({
+    handlers: { emoji: writeEmoji },
+    unsafe: [escapeOpener(":", `(?=(?:${SHORTCODE_NAMES}):)`)],
+  });
   return remarkEmoji();
 }
 
