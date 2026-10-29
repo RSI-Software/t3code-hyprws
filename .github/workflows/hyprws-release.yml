@@ -7,8 +7,9 @@ name: hyprws Release
 # finds a completed run instead of racing it). Scheduled fallbacks and
 # nightly manual dispatches publish v<next>-hyprws-nightly.<date>.<run> from
 # hyprws.
-# Upstream release.yml stays disabled on the fork; mirror its job shape, setup,
+# Upstream release.yml stays disabled on the fork; mirror its build shape, setup,
 # and action versions here on every rebase (docs/fork/internals/fork-delta.md).
+# Its release test jobs stay out: the gate requires a green hyprws CI instead.
 
 on:
   workflow_run:
@@ -51,55 +52,38 @@ permissions:
   contents: read
 
 jobs:
+  # Runs first, as upstream's resolve_commit does, so an idle schedule skips
+  # preflight's install. A tip that already carries a nightly tag has nothing new.
   check_changes:
     name: Check for changes since last nightly
-    needs: preflight
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       has_changes: ${{ steps.check.outputs.has_changes }}
     steps:
-      - name: Checkout hyprws
-        uses: actions/checkout@v6
-        with:
-          ref: hyprws
-          fetch-depth: 0
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
       - id: check
-        name: Compare hyprws to last nightly tag
-        shell: bash
+        name: Compare hyprws to the nightly tags
         env:
-          PREVIOUS_TAG: ${{ needs.preflight.outputs.previous_tag }}
+          REMOTE: https://github.com/${{ github.repository }}.git
         run: |
-          last_nightly_tag="$PREVIOUS_TAG"
-          if [[ -z "$last_nightly_tag" ]]; then
-            echo "No previous hyprws nightly tag found. Proceeding with release."
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if ! git merge-base --is-ancestor "$last_nightly_tag" HEAD; then
-            echo "$last_nightly_tag is not on the current hyprws history. Proceeding after trunk rewrite."
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          last_nightly_sha=$(git rev-parse "$last_nightly_tag^{commit}")
-          head_sha=$(git rev-parse HEAD)
-          if [[ "$last_nightly_sha" == "$head_sha" ]]; then
-            echo "No changes on hyprws since $last_nightly_tag. Skipping."
+          head_sha=$(git ls-remote "$REMOTE" refs/heads/hyprws | cut -f1)
+          if git ls-remote --tags "$REMOTE" | grep -E "^${head_sha}\s+refs/tags/v.*-hyprws-nightly\." ; then
+            echo "hyprws $head_sha already has a nightly. Skipping."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Changes detected on hyprws since $last_nightly_tag ($last_nightly_sha → $head_sha). Proceeding."
+            echo "hyprws $head_sha has no nightly yet. Proceeding."
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # A workflow_run fires on every hyprws CI conclusion; only a green one can cut.
   preflight:
     name: Preflight
+    needs: check_changes
+    if: |
+      !cancelled() &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -177,10 +161,7 @@ jobs:
       # on an older commit, or a trunk that advanced past the tag, closes the
       # gate: the cut stays shut and this step fails with the reason.
       # Missing or red means no cut: the step fails and the build never runs.
-      # A workflow_run trigger, in contrast, fires for every hyprws CI
-      # conclusion including red ones; a non-success triggering run skips
-      # the cut without failing the step, since the CI run being red is the
-      # expected reason not to release, not a gate malfunction.
+      # Only a push run counts: a pull_request run may skip unaffected jobs.
       - id: release_gate
         name: Gate the cut on the lease push and a green hyprws CI
         uses: actions/github-script@v8
@@ -199,22 +180,6 @@ jobs:
               await core.summary.addHeading('Release gate: closed').addRaw(reason).write();
               core.setFailed(reason);
             };
-            // A workflow_run trigger fires for every hyprws CI conclusion,
-            // not only green ones. A red or cancelled hyprws CI is an
-            // expected reason to skip the cut, not a release-gate failure,
-            // so this branch skips without failing the step.
-            const skip = async (reason) => {
-              core.setOutput('gate_proceed', 'false');
-              await core.summary.addHeading('Release gate: skipped').addRaw(reason).write();
-              core.info(reason);
-            };
-            if (context.eventName === 'workflow_run' && context.payload.workflow_run.conclusion !== 'success') {
-              await skip(
-                `skip: hyprws CI on ${context.payload.workflow_run.head_sha} concluded ` +
-                `${context.payload.workflow_run.conclusion}, not success`,
-              );
-              return;
-            }
             let trunkTip;
             try {
               execSync('git fetch --no-tags origin hyprws', { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -227,7 +192,7 @@ jobs:
             }
             const conclusion = await github.paginate(
               github.rest.actions.listWorkflowRunsForRepo,
-              { ...context.repo, head_sha: releaseSha, per_page: 100 },
+              { ...context.repo, head_sha: releaseSha, event: 'push', per_page: 100 },
             ).then((runs) =>
               runs.find((run) => run.name === 'hyprws CI' && run.head_sha === releaseSha)?.conclusion ?? null,
             );
@@ -311,200 +276,17 @@ jobs:
         name: Resolve delta revision
         run: node scripts/fork-release-delta-rev.ts --base upstream/main --head HEAD --github-output
 
-  # Release checks run beside the build, as upstream's release.yml does
-  # (its quality, test, and test_server jobs), and publish waits on every one.
-  # The package split and per-test budget follow hyprws-ci.yml, which tunes
-  # them for GitHub-hosted runners instead of upstream's Blacksmith runners.
-  quality:
-    name: Release quality checks
-    needs: [preflight, check_changes]
-    if: |
-      !failure() && !cancelled() && needs.preflight.result == 'success' &&
-      needs.preflight.outputs.gate_proceed == 'true' &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
-      - name: Check
-        run: vp check
-
-      - name: Typecheck
-        run: vp run typecheck
-  test:
-    name: Release tests
-    needs: [preflight, check_changes]
-    if: |
-      !failure() && !cancelled() && needs.preflight.result == 'success' &&
-      needs.preflight.outputs.gate_proceed == 'true' &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
-      - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
-      - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/web' --filter '!@t3tools/scripts' --filter '!@t3tools/monorepo' test --testTimeout=60000
-  test_web:
-    name: Release web tests
-    needs: [preflight, check_changes]
-    if: |
-      !failure() && !cancelled() && needs.preflight.result == 'success' &&
-      needs.preflight.outputs.gate_proceed == 'true' &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-
-      # The web package's browser project runs React tests in headless Chromium.
-      - name: Install Chromium for web browser tests
-        run: node apps/web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
-
-      - name: Test
-        # Upstream's release-link tests assume `GITHUB_REPOSITORY` names upstream.
-        env:
-          T3CODE_DESKTOP_UPDATE_REPOSITORY: pingdotgg/t3code
-        run: vp run --filter @t3tools/web test --testTimeout=60000
-  test_scripts:
-    name: Release scripts tests
-    needs: [preflight, check_changes]
-    if: |
-      !failure() && !cancelled() && needs.preflight.result == 'success' &&
-      needs.preflight.outputs.gate_proceed == 'true' &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-          fetch-depth: 0
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
-      - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
-      # upstream-client-compat.fork.test.ts decodes fork payloads with the
-      # contracts at `git merge-base HEAD upstream/main`.
-      - name: Fetch upstream
-        run: |
-          git remote add upstream https://github.com/pingdotgg/t3code.git
-          git fetch --no-tags upstream main
-
-      - name: Test
-        run: vp run --filter @t3tools/scripts test
-  test_server:
-    name: Release server tests ${{ matrix.shard }}
-    needs: [preflight, check_changes]
-    if: |
-      !failure() && !cancelled() && needs.preflight.result == 'success' &&
-      needs.preflight.outputs.gate_proceed == 'true' &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-
-      - name: Install Chromium for server browser integration tests
-        run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
-
-      - name: Test
-        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
-
+  # The release gate already requires a green push run of hyprws CI on this
+  # sha, a superset of upstream's release quality and test jobs; rerunning
+  # them here would retest the same commit.
   build:
     name: Build Linux x64
     outputs:
       expected_assets: ${{ steps.assets.outputs.expected_assets }}
-    needs: [preflight, check_changes]
+    needs: preflight
     if: |
       !failure() && !cancelled() && needs.preflight.result == 'success' &&
-      needs.preflight.outputs.gate_proceed == 'true' &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
+      needs.preflight.outputs.gate_proceed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -626,8 +408,8 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [preflight, build, quality, test, test_web, test_scripts, test_server]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_scripts.result == 'success' && needs.test_server.result == 'success' }}
+    needs: [preflight, build]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
