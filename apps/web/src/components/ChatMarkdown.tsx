@@ -120,6 +120,7 @@ import {
   showExternalLinkContextMenu,
 } from "./chat/externalLinkContextMenu";
 import { useGitHubDestinationLinkFork } from "./chat/GitHubDestinationLink.fork"; // fork-hook: github-issues/chat-markdown-github-destination-import
+import { withStyledHtml } from "@t3tools/shared/markdownStyledHtml.fork"; // fork-hook: markdown-editing/chat-markdown-styled-html-import
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -236,6 +237,7 @@ interface ChatMarkdownProps {
   className?: string;
   lineBreaks?: boolean;
   parseRawHtml?: boolean;
+  styledHtml?: boolean; // fork-hook: markdown-editing/chat-markdown-styled-html-prop
   onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
   onRunShellCommand?: ((command: string) => void) | undefined;
   imageBaseDir?: string | undefined;
@@ -393,6 +395,10 @@ const CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS = [
   rehypeHeadingIds,
   rehypeTextDirection,
 ] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+
+const CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS = withStyledHtml(
+  CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS,
+); // fork-hook: markdown-editing/chat-markdown-styled-html-plugins
 
 const CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS = [
   rehypeHeadingIds,
@@ -1783,6 +1789,9 @@ function ChatMarkdown({
                 ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
                 : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS
             }
+            {...(props.styledHtml && parseRawHtml
+              ? { rehypePlugins: CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS }
+              : {})} // fork-hook: markdown-editing/chat-markdown-styled-html-select
             shared={!uncachedPlugins}
             cache={!props.isStreaming}
           />

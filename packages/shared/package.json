@@ -163,6 +163,10 @@
       "types": "./src/threadEnvMode.fork.ts",
       "import": "./src/threadEnvMode.fork.ts"
     },
+    "./markdownStyledHtml.fork": {
+      "types": "./src/markdownStyledHtml.fork.ts",
+      "import": "./src/markdownStyledHtml.fork.ts"
+    },
     "./windowTitle.fork": {
       "types": "./src/windowTitle.fork.ts",
       "import": "./src/windowTitle.fork.ts"
