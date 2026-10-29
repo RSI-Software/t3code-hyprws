@@ -189,12 +189,55 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
 
 const HTML_SCOPE_CLASS_NAME = "t3-markdown-editor__html-content";
 
-// Open-only fragments such as `<details>` sanitize to nothing visible; they keep the source text.
-function renderedHtml(value: string): DocumentFragment | null {
-  const fragment = DOMPurify.sanitize(value, { RETURN_DOM_FRAGMENT: true, FORCE_BODY: true });
-  if (!fragment.textContent?.trim() && !fragment.querySelector("img, svg, hr, video, picture")) {
-    return null;
+const VOID_HTML_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "source",
+  "track",
+  "wbr",
+]);
+
+// Markdown splits `<details>` and similar blocks at blank lines; a half keeps its source text.
+function isBalancedHtml(value: string): boolean {
+  const open: string[] = [];
+  const markup = value.replace(/<!--[\s\S]*?-->|<(script|style)\b[\s\S]*?<\/\1\s*>/gi, "");
+  for (const [, closing, name, selfClosing] of markup.matchAll(
+    /<(\/?)([a-z][\w-]*)\b[^>]*?(\/?)>/gi,
+  )) {
+    const tag = name!.toLowerCase();
+    if (VOID_HTML_TAGS.has(tag) || selfClosing) continue;
+    if (!closing) open.push(tag);
+    else if (open.pop() !== tag) return false;
   }
+  return open.length === 0;
+}
+
+// Top-layer attributes would let an island escape `contain: paint` and cover the app.
+const TOP_LAYER_ATTRIBUTES = [
+  "popover",
+  "popovertarget",
+  "popovertargetaction",
+  "command",
+  "commandfor",
+  "interestfor",
+];
+
+function renderedHtml(value: string): DocumentFragment | null {
+  if (!isBalancedHtml(value)) return null;
+  const fragment = DOMPurify.sanitize(value, {
+    RETURN_DOM_FRAGMENT: true,
+    FORCE_BODY: true,
+    FORBID_ATTR: TOP_LAYER_ATTRIBUTES,
+  });
+  if (!fragment.hasChildNodes()) return null;
   fragment.querySelectorAll("style").forEach((style) => {
     style.textContent = scopeMarkdownCss(style.textContent ?? "", `.${HTML_SCOPE_CLASS_NAME}`);
   });

@@ -44,12 +44,14 @@ describe("rich Markdown editor raw HTML", () => {
     const html = [
       "<style>",
       "#poster .chip{color:rgb(1, 2, 3)}",
+      "@property --t3-probe{syntax:'*';inherits:false;initial-value:7px}",
       "} body{color:rgb(4, 5, 6)} @scope{",
       "</style>",
-      '<div id="poster"><span class="chip" onclick="alert(1)">Chip</span><script>alert(1)</script></div>',
+      '<div id="poster"><span class="chip" onclick="alert(1)">Chip</span><b popover>Pop</b><script>alert(1)</script></div>',
     ].join("\n");
+    const bar = '<div id="bar" style="height:6px;background:rgb(7, 8, 9)"></div>';
     await using screen = await render(
-      editor(`# Doc\n\n${html}\n\nPress <kbd>K</kbd>\n`, onChange),
+      editor(`# Doc\n\n${html}\n\n${bar}\n\nPress <kbd>K</kbd>\n`, onChange),
       {
         router: false,
       },
@@ -65,6 +67,9 @@ describe("rich Markdown editor raw HTML", () => {
     expect(getComputedStyle(document.body).color).not.toBe("rgb(4, 5, 6)");
     expect(chip.hasAttribute("onclick")).toBe(false);
     expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("[popover]")).toBeNull();
+    expect(getComputedStyle(document.body).getPropertyValue("--t3-probe")).toBe("");
+    expect(container.querySelector("#bar")).not.toBeNull();
     expect(container.textContent).toContain("<kbd>");
     expect(onChange).not.toHaveBeenCalled();
   });
