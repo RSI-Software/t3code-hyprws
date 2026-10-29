@@ -17,6 +17,7 @@ import {
   resolvePierreIconForEntry,
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
+import { codeBlockTitle } from "./markdownSyntax.fork";
 import { resolveRichMarkdownEditorLinkMeta } from "./richMarkdownEditorLinks";
 
 // The chat file-mention chip look, owned here because the editor decorates raw DOM and
@@ -152,7 +153,7 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
     const renderLanguage = () => {
       const language = String(node.attrs["language"] || "text");
       dom.dataset["language"] = language;
-      languageText.textContent = language;
+      languageText.textContent = codeBlockTitle(String(node.attrs["meta"] ?? "")) ?? language;
       languageLabel.querySelector("svg")?.remove();
       const icon = iconElement(syntheticFileNameForLanguageId(language), theme.current);
       if (icon) languageLabel.prepend(icon);
@@ -173,9 +174,11 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
       contentDOM,
       update(nextNode) {
         if (nextNode.type !== node.type) return false;
-        const languageChanged = nextNode.attrs["language"] !== node.attrs["language"];
+        const labelChanged =
+          nextNode.attrs["language"] !== node.attrs["language"] ||
+          nextNode.attrs["meta"] !== node.attrs["meta"];
         node = nextNode;
-        if (languageChanged) renderLanguage();
+        if (labelChanged) renderLanguage();
         return true;
       },
       stopEvent(event) {

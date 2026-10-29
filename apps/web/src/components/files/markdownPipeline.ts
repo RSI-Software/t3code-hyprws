@@ -5,6 +5,7 @@ import { commonmark } from "@milkdown/preset-commonmark";
 import { gfm } from "@milkdown/preset-gfm";
 
 import { frontmatterRemark, frontmatterSchema } from "./markdownFrontmatter";
+import { codeBlockMetaSchema } from "./markdownSyntax.fork";
 import { bulletListSpreadFix, listItemSpreadFix } from "./markdownSerializerFixes";
 import { preserveTableDelimiter } from "./markdownTableDelimiter.fork";
 
@@ -22,6 +23,7 @@ export function markdownPipeline(editor: Editor): Editor {
     })
     .use(commonmark)
     .use(gfm)
+    .use(codeBlockMetaSchema)
     .use(bulletListSpreadFix)
     .use(listItemSpreadFix)
     .use(frontmatterRemark)

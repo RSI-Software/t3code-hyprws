@@ -25,6 +25,11 @@ describe("markdown rich editor pipeline", () => {
     expect(await roundTrip(markdown)).toBe(markdown);
   });
 
+  it("preserves GitHub syntax the editor renders", async () => {
+    const markdown = '```ts title="app.ts"\nconst ready = true;\n```\n';
+    expect(await roundTrip(markdown)).toBe(markdown);
+  });
+
   it("keeps tight lists and task lists tight", async () => {
     const markdown = "- first\n- second\n\nParagraph.\n\n- [ ] open\n- [x] done\n";
     expect(await roundTrip(markdown)).toBe(markdown);
