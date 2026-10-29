@@ -39,6 +39,7 @@ describe("markdown rich editor pipeline", () => {
       "<details>\n<summary>More</summary>\n\n- Markdown **inside**\n\n</details>\n",
       '<div align="center">\n\n<div>\n\nNested\n\n</div>\n\n</div>\n',
       "==Marked== ==**bold**== and a == b == c\n",
+      ":rocket: :+1: and :nope: at 10:30:00\n",
     ].join("\n");
     expect(await roundTrip(markdown)).toBe(markdown);
   });
@@ -150,6 +151,33 @@ describe("markdown rich editor pipeline", () => {
       caretAt("Plain");
       await userEvent.keyboard("[[!TIP] ");
       expect(editor.action(getMarkdown())).toBe("> Read this.\n\n> [!TIP]\n> Plain\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("turns typed shortcodes into emoji", async () => {
+    await using root = Object.assign(document.body.appendChild(document.createElement("div")), {
+      [Symbol.asyncDispose]: async () => root.remove(),
+    });
+    const editor = await markdownPipeline(
+      Editor.make().config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(defaultValueCtx, "Hi `x`\n");
+      }),
+    ).create();
+    // Without it, typed spaces arrive as non-breaking spaces.
+    root.style.whiteSpace = "pre-wrap";
+    try {
+      const view = editor.action((ctx) => ctx.get(editorViewCtx));
+      view.dispatch(view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)));
+      view.focus();
+      await userEvent.keyboard(":tada:");
+      expect(editor.action(getMarkdown())).toBe("Hi `x:tada:`\n");
+      view.dispatch(view.state.tr.removeStoredMark(view.state.schema.marks["inlineCode"]!));
+      await userEvent.keyboard(" :tada: :nope:");
+      expect(root.querySelector('[data-emoji="tada"]')?.textContent).toBe("🎉");
+      expect(editor.action(getMarkdown())).toBe("Hi `x:tada:` :tada: :nope:\n");
     } finally {
       await editor.destroy();
     }
