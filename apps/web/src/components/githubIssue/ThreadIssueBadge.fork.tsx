@@ -4,7 +4,8 @@ import { CircleHelpIcon } from "lucide-react";
 import type { MouseEvent, ReactElement } from "react";
 
 import { cn } from "../../lib/utils";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { LinkedBadgeTooltipPopupFork } from "../LinkedBadgeTooltipPopup.fork";
+import { Tooltip, TooltipTrigger } from "../ui/tooltip";
 import { githubIssueStatePresentation } from "./githubIssuePresentation";
 
 const UNKNOWN_PRESENTATION = {
@@ -61,16 +62,9 @@ export function ThreadIssueBadgeFork({
           </span>
         </span>
       </TooltipTrigger>
-      <TooltipPopup
-        side="top"
-        sideOffset={0}
-        variant="glass"
-        className="pointer-events-auto w-80 max-w-[calc(100vw-2rem)] text-left whitespace-normal"
-      >
-        <div className="-mx-1 max-h-[calc(var(--available-height)-0.5rem-2px)] overflow-y-auto overscroll-contain px-1">
-          <ThreadIssuesMiniListFork issues={links} />
-        </div>
-      </TooltipPopup>
+      <LinkedBadgeTooltipPopupFork>
+        <ThreadIssuesMiniListFork issues={links} />
+      </LinkedBadgeTooltipPopupFork>
     </Tooltip>
   );
 }
