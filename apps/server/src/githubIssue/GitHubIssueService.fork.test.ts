@@ -98,6 +98,46 @@ describe("GitHubIssueService summary", () => {
   );
 });
 
+describe("GitHubIssueService isPullRequest", () => {
+  it.effect("is true only for a confirmed pull request, false when GitHub cannot answer", () =>
+    Effect.gen(function* () {
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
+        call.variables?.["number"] === 3
+          ? Effect.fail(
+              new GitHubRequestPolicy.GitHubApiResponseError({
+                host: "ghe.acme.test",
+                operation: "isPullRequest",
+                status: 502,
+              }),
+            )
+          : Effect.succeed(
+              JSON.stringify({
+                data: {
+                  repository: {
+                    issueOrPullRequest: {
+                      __typename: call.variables?.["number"] === 1 ? "PullRequest" : "Issue",
+                    },
+                  },
+                },
+              }),
+            ),
+      );
+      const service = yield* makeService([], graphql);
+      const kinds = yield* Effect.forEach([1, 2, 3], (number) =>
+        service.isPullRequest({ host: "ghe.acme.test", repository: "acme/web", number }),
+      );
+
+      assert.deepStrictEqual(kinds, [true, false, false]);
+      assert.strictEqual(graphql.mock.calls[0]?.[0].host, "ghe.acme.test");
+      assert.deepStrictEqual(graphql.mock.calls[0]?.[0].variables, {
+        owner: "acme",
+        name: "web",
+        number: 1,
+      });
+    }),
+  );
+});
+
 // One GraphQL read attaches the children's close reasons the detail read omits, fired only when
 // a closed child exists (RSI-Software/t3code-hyprws#1461).
 describe("GitHubIssueService detail sub-issue reasons", () => {
