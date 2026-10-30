@@ -119,6 +119,8 @@ import { InlineButton } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { ThreadIssueBadgeFork } from "../githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
 import { ThreadHoverCardIssuesFork } from "../githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-hover-card-issues-import
+import { ThreadArtifactBadgeFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
+import { ThreadHoverCardArtifactsFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-hover-card-artifacts-import
 import { Menu, MenuItem, MenuItemDetail, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
@@ -270,6 +272,7 @@ function SidebarThreadTooltip({
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   const issuesFork = <ThreadHoverCardIssuesFork issues={thread.issues} />; // fork-hook: github-issues/thread-hover-card-issues
+  const artifactsFork = <ThreadHoverCardArtifactsFork artifacts={thread.artifacts} />; // fork-hook: thread-artifacts/thread-hover-card-artifacts
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -368,6 +371,7 @@ function SidebarThreadTooltip({
           </div>
         ) : null}
         {issuesFork /* fork-hook: github-issues/thread-hover-card-issues */}
+        {artifactsFork /* fork-hook: thread-artifacts/thread-hover-card-artifacts */}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
@@ -1110,6 +1114,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       }}
     />
   ) : null; // fork-hook: github-issues/thread-issue-badge
+  const artifactBadgeFork = thread.artifacts?.length ? (
+    <ThreadArtifactBadgeFork
+      render={<InlineButton />}
+      artifacts={thread.artifacts}
+      onOpenList={() => {
+        useRightPanelStore.getState().open(threadRef, "thread-artifacts");
+        if (!props.isRouteThread) onThreadActivate(threadRef);
+      }}
+    />
+  ) : null; // fork-hook: thread-artifacts/thread-artifact-badge
   const terminalStatusIcon = (
     <ThreadTerminalStatusButton
       threadRef={threadRef}
@@ -1182,6 +1196,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     !showsScratchMachine &&
     prBadge === null &&
     issueBadgeFork === null && // fork-hook: github-issues/thread-issue-badge
+    artifactBadgeFork === null && // fork-hook: thread-artifacts/thread-artifact-badge
     diff === null &&
     runningTerminalIds.length === 0;
   const metaLine = metaLineEmpty ? null : (
@@ -1206,6 +1221,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         <span className="flex-1" />
       )}
       {terminalStatusIcon}
+      {artifactBadgeFork /* fork-hook: thread-artifacts/thread-artifact-badge */}
       {issueBadgeFork /* fork-hook: github-issues/thread-issue-badge */}
       {prBadge}
       {diff ? (
