@@ -69,7 +69,12 @@ export function ThreadDetailsIssueRowsFork({
   return (
     <>
       {row(lead)}
-      {expanded ? <div className="flex flex-col">{rest.map(row)}</div> : null}
+      {expanded ? (
+        // The card's density measurement skips this marker, like the expanded PR list.
+        <div data-thread-details-pr-list className="flex flex-col">
+          {rest.map(row)}
+        </div>
+      ) : null}
       {rest.length > 0 ? (
         <ThreadDetailsControl
           variant="ghost"
