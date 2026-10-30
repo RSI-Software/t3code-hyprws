@@ -98,6 +98,7 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { githubIssueSurfaceActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
 
 export interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -135,6 +136,7 @@ export interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddIssues?: () => void; // fork-hook: github-issues/right-panel-issues
+  onAddIssueLinks?: () => void; // fork-hook: github-issues/right-panel-issues
   onAddDevice: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -143,6 +145,7 @@ export interface RightPanelTabsProps {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   issuesAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
+  issueLinksAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
   deviceAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
@@ -169,7 +172,6 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
-  issues: "GitHub Issues are only available for GitHub projects on supported servers.",
   device: "Devices are only available from a thread.",
 } as const;
 
@@ -194,7 +196,6 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
-  issues: "Available for GitHub projects on supported servers.",
   device: "Available from a thread.",
 } as const;
 
@@ -260,16 +261,7 @@ const rightPanelSurfaceActions = (props: RightPanelTabsProps) =>
       unavailableHint: SURFACE_UNAVAILABLE_HINTS.pullRequests,
       onClick: props.onAddPullRequests,
     },
-    {
-      label: "Issues",
-      description: "Browse this project's GitHub issues.",
-      icon: CircleDot,
-      shortcut: "I",
-      available: props.issuesAvailable === true, // fork-hook: github-issues/right-panel-issues
-      disabledReason: SURFACE_DISABLED_REASONS.issues,
-      unavailableHint: SURFACE_UNAVAILABLE_HINTS.issues,
-      onClick: props.onAddIssues ?? (() => undefined), // fork-hook: github-issues/right-panel-issues
-    },
+    ...githubIssueSurfaceActionsFork(props), // fork-hook: github-issues/right-panel-issues
     {
       label: "Device",
       description: "Watch an iOS Simulator or Android Emulator.",
@@ -578,6 +570,8 @@ function surfaceTitle(
       return "Pull requests";
     case "github-issues":
       return "Issues";
+    case "github-issue-links": // fork-hook: github-issues/panel-tab-title
+      return "Linked issues"; // fork-hook: github-issues/panel-tab-title
     case "github-issue":
       return `Issue #${surface.number}`; // fork-hook: github-issues/panel-tab-title
     case "device":
@@ -674,6 +668,8 @@ function SurfaceIcon({
       return <CircleDot className="size-3 shrink-0 text-muted-foreground" />; // fork-hook: github-issues/panel-tab-status-icon
     case "github-issues":
       return <CircleDot className="size-3 shrink-0" />;
+    case "github-issue-links": // fork-hook: github-issues/panel-tab-status-icon
+      return <PullRequestGlyph.link className="size-3 shrink-0" />; // fork-hook: github-issues/panel-tab-status-icon
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />

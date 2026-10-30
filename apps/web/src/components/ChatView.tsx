@@ -3137,6 +3137,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadRef,
     activeProject,
     serverConfig?.environment.capabilities,
+    { runningTurnId: activeRunningTurnId, allowed: !shouldUsePlanSidebarSheet }, // fork-hook: github-issues/add-issues-surface
   ); // fork-hook: github-issues/add-issues-surface
   const addDroppedFoldersToComposer = useStableCallback(
     (folders: Parameters<ChatComposerHandle["addDroppedFolders"]>[0]) =>
