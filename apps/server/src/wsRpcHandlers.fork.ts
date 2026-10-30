@@ -6,7 +6,7 @@ import { RpcGroup } from "effect/rpc";
 import * as SqlClient from "effect/sql/SqlClient";
 import { RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
 
-import { ColleagueSharesFork } from "./colleague/ColleagueShares.fork.ts";
+import * as ColleagueShares from "./colleague/ColleagueShares.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
 import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts";
@@ -26,7 +26,7 @@ export const makeWsRpcHandlersFork = Effect.gen(function* () {
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
-  const colleagues = yield* ColleagueSharesFork;
+  const colleagues = yield* ColleagueShares.ColleagueSharesFork;
   return WsRpcGroupFork.of({
     ...gitHubIssueRpcHandlersFork(githubIssues, sql),
     ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),

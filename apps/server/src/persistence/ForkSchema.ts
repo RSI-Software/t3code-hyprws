@@ -91,7 +91,6 @@ const FORK_TABLES = [
   `CREATE TABLE IF NOT EXISTS fork_colleague_shares (
     subject TEXT NOT NULL,
     thread_id TEXT NOT NULL,
-    project_id TEXT NOT NULL,
     colleague_name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     PRIMARY KEY (subject, thread_id)

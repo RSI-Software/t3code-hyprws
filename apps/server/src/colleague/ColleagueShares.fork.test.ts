@@ -60,26 +60,29 @@ const database = it.layer(
 const withService = <A, E>(effect: Effect.Effect<A, E, ColleagueShares.ColleagueSharesFork>) =>
   Effect.andThen(ensureForkSchema(), Effect.provide(effect, ColleagueShares.layer));
 
-const snapshot = {
-  kind: "snapshot",
-  snapshot: {
-    threads: [{ id: shared }, { id: other }],
-    archivedThreads: [],
-    projects: [{ id: sharedProject }, { id: otherProject }],
-  },
-} as never as OrchestrationV2ShellStreamItem;
+const snapshot = () =>
+  ({
+    kind: "snapshot",
+    snapshot: {
+      threads: [shared, other].map((id) => ({ id, projectId: projectOf[id] })),
+      archivedThreads: [],
+      projects: [{ id: sharedProject }, { id: otherProject }],
+    },
+  }) as never as OrchestrationV2ShellStreamItem;
+// Live shell events after each snapshot; the shell test supplies the queue.
+const shellEvents: { queue?: Queue.Queue<OrchestrationV2ShellStreamItem> } = {};
 
-const shellInputs: Array<{ readonly afterSequence?: number | undefined }> = [];
+const shellInputs: Array<object> = [];
 const threadInputs: Array<number | undefined> = [];
 const handlers = {
   "orchestration.dispatchCommand": (command: OrchestrationV2Command, _options: never) =>
     Effect.succeed(command),
-  "orchestration.subscribeShell": (
-    input: { readonly afterSequence?: number | undefined },
-    _options: never,
-  ) => {
+  "orchestration.subscribeShell": (input: object, _options: never) => {
     shellInputs.push(input);
-    return Stream.make(snapshot);
+    return Stream.concat(
+      Stream.make(snapshot()),
+      shellEvents.queue ? Stream.fromQueue(shellEvents.queue) : Stream.empty,
+    );
   },
   "orchestration.subscribeThread": (
     input: { readonly afterSequence?: number | undefined },
@@ -96,8 +99,12 @@ const handlers = {
 const visibleThreads = (item: OrchestrationV2ShellStreamItem) =>
   item.kind === "snapshot" ? item.snapshot.threads.map((thread) => thread.id) : [];
 
-const message = (threadId: ThreadId) =>
-  ({ type: "message.dispatch", threadId, text: "hi" }) as never as OrchestrationV2Command;
+const visibleProjects = (item: OrchestrationV2ShellStreamItem) =>
+  item.kind === "snapshot" ? item.snapshot.projects.map(({ id }) => id) : [];
+
+const message = (threadId: ThreadId, type = "message.dispatch", text = "hi") =>
+  ({ type, threadId, text }) as never as OrchestrationV2Command;
+const sentText = (command: OrchestrationV2Command) => ("text" in command ? command.text : "");
 
 database("ColleagueSharesFork", (it) => {
   it.effect("narrows a colleague's shell live, from a fresh snapshot on every change", () =>
@@ -106,8 +113,9 @@ database("ColleagueSharesFork", (it) => {
         const service = yield* ColleagueShares.ColleagueSharesFork;
         const wrapped = service.wrapHandlers("colleague:sam", handlers);
         const items = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+        shellEvents.queue = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
         const fiber = yield* wrapped["orchestration.subscribeShell"](
-          { afterSequence: 7 },
+          { afterSequence: 7, omitIdleSubagents: true, omitOlderSettled: true },
           undefined as never,
         ).pipe(
           Stream.runForEach((item) => Queue.offer(items, item)),
@@ -118,13 +126,18 @@ database("ColleagueSharesFork", (it) => {
         yield* service.share({ threadId: shared, colleagueName: "Sam" });
         const afterShare = yield* Queue.take(items);
         assert.deepStrictEqual(visibleThreads(afterShare), [shared]);
-        assert.deepStrictEqual(
-          afterShare.kind === "snapshot" && afterShare.snapshot.projects.map(({ id }) => id),
-          [sharedProject],
-        );
+        assert.deepStrictEqual(visibleProjects(afterShare), [sharedProject]);
+        // Moving the shared thread to a hidden project re-snapshots with that project.
+        projectOf[shared] = otherProject;
+        yield* Queue.offer(shellEvents.queue, {
+          kind: "thread.updated",
+          thread: { id: shared, projectId: otherProject },
+        } as never);
+        assert.deepStrictEqual(visibleProjects(yield* Queue.take(items)), [otherProject]);
+        projectOf[shared] = sharedProject;
         yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
         assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
-        assert.isTrue(shellInputs.every((input) => input.afterSequence === undefined));
+        assert.deepStrictEqual(shellInputs.map(Object.keys), [[], [], [], []]);
         yield* Fiber.interrupt(fiber);
 
         const owner = service.wrapHandlers("owner", handlers);
@@ -145,11 +158,15 @@ database("ColleagueSharesFork", (it) => {
         Object.assign(wrapped, service.wrapHandlers("colleague:sam", wrapped));
         const dispatch = wrapped["orchestration.dispatchCommand"];
 
-        const sent = yield* dispatch(message(shared), undefined as never);
+        const attributed = "Message from colleague Sam:\n\nhi";
         assert.strictEqual(
-          sent.type === "message.dispatch" && sent.text,
-          "Message from colleague Sam:\n\nhi",
+          sentText(yield* dispatch(message(shared), undefined as never)),
+          attributed,
         );
+        for (const text of ["hi", attributed]) {
+          const edit = message(shared, "queued-run.edit", text);
+          assert.strictEqual(sentText(yield* dispatch(edit, undefined as never)), attributed);
+        }
         const refused = yield* Effect.exit(dispatch(message(other), undefined as never));
         assert.isTrue(Exit.isFailure(refused));
         const live = yield* Queue.unbounded<OrchestrationV2ThreadStreamItem>();
