@@ -111,6 +111,7 @@ import { useThreadRunningTerminalIds } from "../../state/terminalSessions";
 import { InlineButton } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { ThreadIssueBadgeFork } from "../githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
+import { ThreadHoverCardIssuesFork } from "../githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-hover-card-issues-import
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
@@ -265,6 +266,7 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const issuesFork = <ThreadHoverCardIssuesFork issues={thread.issues} />; // fork-hook: github-issues/thread-hover-card-issues
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -362,6 +364,7 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        {issuesFork /* fork-hook: github-issues/thread-hover-card-issues */}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
