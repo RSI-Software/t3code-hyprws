@@ -297,8 +297,11 @@ server environment that owns the issue, so its web and desktop clients use the s
 
 - **Work on this issue:** the first send links it
 - **Issue panel:** open, link, or unlink threads
-- **Thread:** its issues panel lists its links
+- **Thread:** its **Linked issues** panel lists its links
+- **Badges:** sidebar row and branch toolbar
 - **Palette:** link by URL or `#number`
+
+With proactive panels on, a newly linked issue opens **Linked issues**, as a linked pull request does.
 
 The issue panel's menu closes an issue as completed or not planned, and reopens a closed one, which
 needs write access to the repository. Commenting, labeling, and assigning stay on GitHub. Each server

@@ -167,6 +167,7 @@ export function RightPanelSurfaceContent(props: {
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
     case "github-issues": // fork-hook: github-issues/right-panel-content
+    case "github-issue-links": // fork-hook: github-issues/right-panel-content
     case "github-issue": // fork-hook: github-issues/right-panel-content
       return (
         <GitHubIssueRightPanelSurfaceFork

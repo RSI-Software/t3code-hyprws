@@ -6,8 +6,9 @@ import { useRightPanelStore } from "../../rightPanelStore";
 import type { GitHubIssueHubSurfaceFork, GitHubIssueSurfaceFork } from "../../rightPanelStore.fork";
 import { useEnvironments } from "../../state/environments";
 import { GitHubIssueDetailSurfaceFork } from "./GitHubIssueDetailSurface.fork";
+import { ThreadGitHubIssueLinks } from "./ThreadGitHubIssueLinks";
 
-/** The thread right panel's Issues list and issue detail surfaces. */
+/** The thread right panel's Issues list, Linked issues, and issue detail surfaces. */
 export function GitHubIssueRightPanelSurfaceFork(props: {
   readonly surface: GitHubIssueHubSurfaceFork | GitHubIssueSurfaceFork;
   readonly threadRef: ScopedThreadRef;
@@ -25,13 +26,15 @@ export function GitHubIssueRightPanelSurfaceFork(props: {
       />
     );
   }
+  if (surface.kind === "github-issue-links") {
+    return <ThreadGitHubIssueLinks threadRef={threadRef} />;
+  }
   if (projectId === null) return null;
   return (
     <ProjectGitHubIssuesPanel
       key={`${environmentId}:${projectId}`}
       projectRef={scopeProjectRef(environmentId, projectId)}
       onSelectIssue={(issue) => useRightPanelStore.getState().openGitHubIssue(threadRef, issue)}
-      threadRef={threadRef}
     />
   );
 }
