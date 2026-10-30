@@ -178,8 +178,11 @@ export class GitHubIssueService extends Context.Service<
       input: GitHubIssueRef,
     ) => Effect.Effect<GitHubIssueSummary, GitHubIssueError>;
     readonly setState: (input: GitHubIssueSetStateInput) => Effect.Effect<void, GitHubIssueError>;
-    /** Issues and pull requests share one number sequence; true when this number is a pull request. */
-    readonly isPullRequest: (input: ThreadIssueKey) => Effect.Effect<boolean, GitHubIssueError>;
+    /**
+     * Issues and pull requests share one number sequence. True only when GitHub confirms a pull
+     * request; an unanswered read is false, so an offline or signed-out link still goes through.
+     */
+    readonly isPullRequest: (input: ThreadIssueKey) => Effect.Effect<boolean>;
   }
 >()("t3/githubIssue/GitHubIssueService") {}
 
@@ -543,9 +546,9 @@ export const make = Effect.gen(function* () {
 
   const isPullRequest: GitHubIssueService["Service"]["isPullRequest"] = Effect.fn(
     "GitHubIssueService.isPullRequest",
-  )(function* (input) {
-    const body = yield* api
-      .graphql({
+  )(
+    function* (input) {
+      const body = yield* api.graphql({
         host: input.host,
         operation: "isPullRequest",
         query: ISSUE_OR_PULL_REQUEST_QUERY,
@@ -554,13 +557,12 @@ export const make = Effect.gen(function* () {
           name: input.repository.split("/")[1] ?? "",
           number: input.number,
         },
-      })
-      .pipe(Effect.mapError(fromApiError("isPullRequest", input.host)));
-    const parsed = yield* Effect.try(() => decodeIssueOrPullRequestEnvelope(body)).pipe(
-      Effect.mapError((cause) => decodeError("isPullRequest", cause)),
-    );
-    return parsed.data.repository?.issueOrPullRequest?.__typename === "PullRequest";
-  });
+      });
+      const parsed = yield* Effect.try(() => decodeIssueOrPullRequestEnvelope(body));
+      return parsed.data.repository?.issueOrPullRequest?.__typename === "PullRequest";
+    },
+    Effect.orElseSucceed(() => false),
+  );
 
   return GitHubIssueService.of({ list, detail, summary, setState, isPullRequest });
 });

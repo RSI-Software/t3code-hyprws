@@ -1,6 +1,5 @@
 import {
   EnvironmentId,
-  GitHubIssueOperationError,
   ProjectId,
   ProviderInstanceId,
   SourceControlProviderKind,
@@ -437,15 +436,10 @@ describe("issue toolkit handlers", () => {
     }),
   );
 
-  it.effect("refuses a pull request number, and links when GitHub cannot answer", () =>
+  it.effect("refuses a pull request number without dispatching", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
-        isPullRequest: (key) =>
-          key.number === 9
-            ? Effect.succeed(true)
-            : Effect.fail(
-                new GitHubIssueOperationError({ operation: "isPullRequest", detail: "offline" }),
-              ),
+        isPullRequest: (key) => Effect.succeed(key.number === 9),
       });
       const error = yield* harness
         .call("link_issue", { url: "https://github.com/t3tools/t3code/issues/9" })

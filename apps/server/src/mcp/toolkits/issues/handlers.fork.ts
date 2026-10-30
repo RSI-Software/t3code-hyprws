@@ -244,12 +244,8 @@ const make = Effect.gen(function* () {
         const thread = yield* requireThread(IssueLinkFailedError, input.threadId);
         const project = yield* projectOf(thread, IssueLinkFailedError);
         const target = yield* resolveIssueTarget(input, project);
-        // GitHub serves a pull request at its /issues/ URL too. An unanswered lookup links
-        // anyway, so a network or auth failure never blocks linking.
-        const isPullRequest = yield* gitHubIssues
-          .isPullRequest(target)
-          .pipe(Effect.orElseSucceed(() => false));
-        if (isPullRequest) {
+        // GitHub serves a pull request at its /issues/ URL too.
+        if (yield* gitHubIssues.isPullRequest(target)) {
           return yield* new IssueIsPullRequestError({
             url: target.url.replace(/\/issues\/(\d+)$/u, "/pull/$1"),
           });
