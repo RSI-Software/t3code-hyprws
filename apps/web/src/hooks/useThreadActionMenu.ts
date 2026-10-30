@@ -30,6 +30,7 @@ import {
   useThreadForkDispatchFork,
 } from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
+import { openColleagueShareDialog } from "../components/colleague/colleagueShareDialogState.fork"; // fork-hook: colleague-collab/menu-dispatch-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -289,6 +290,8 @@ export function useThreadActionMenu(input: {
         case "share-guest":
           openGuestShareDialog(threadRef);
           return;
+        case "share-colleague": // fork-hook: colleague-collab/menu-dispatch
+          return openColleagueShareDialog(threadRef); // fork-hook: colleague-collab/menu-dispatch
         case "turn-into-project": {
           const result = await turnThreadIntoProject(threadRef);
           if (result._tag === "Success") {

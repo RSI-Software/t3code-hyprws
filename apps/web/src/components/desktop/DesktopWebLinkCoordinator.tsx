@@ -26,6 +26,7 @@ import { useOpenChangeRequestLink } from "../../lib/openPullRequestLink";
 import { selectActiveRightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { resolveThreadRouteTarget } from "../../threadRoutes";
+import { openColleagueSharedThreadFork } from "../colleague/colleagueLink.fork"; // fork-hook: colleague-collab/link-open-thread-import
 import { assetEnvironment } from "../../state/assets";
 import { readProject, readThreadShell } from "../../state/entities";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironment } from "../../state/environments";
@@ -144,6 +145,7 @@ export function DesktopWebLinkCoordinator() {
       title: "Backend added",
       description: "The environment is saved and will reconnect on app startup.",
     });
+    await openColleagueSharedThreadFork(router, pairingUrl, result.value); // fork-hook: colleague-collab/link-open-thread
   };
 
   const startThread = async (url: string): Promise<ScopedThreadRef | null> => {
