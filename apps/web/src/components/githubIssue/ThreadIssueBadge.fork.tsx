@@ -13,7 +13,7 @@ const UNKNOWN_PRESENTATION = {
   Icon: CircleHelpIcon,
 } as const;
 
-const linkPresentation = (link: ThreadIssueLink) =>
+export const threadIssueLinkPresentation = (link: ThreadIssueLink) =>
   link.snapshot === null
     ? UNKNOWN_PRESENTATION
     : githubIssueStatePresentation(link.snapshot.state, link.snapshot.closeReason ?? null);
@@ -48,7 +48,7 @@ export function ThreadIssueBadgeFork({
     },
   });
   if (lead === undefined) return null;
-  const presentation = linkPresentation(lead);
+  const presentation = threadIssueLinkPresentation(lead);
   return (
     <Tooltip>
       <TooltipTrigger render={control}>
@@ -67,25 +67,55 @@ export function ThreadIssueBadgeFork({
         variant="glass"
         className="pointer-events-auto w-80 max-w-[calc(100vw-2rem)] text-left whitespace-normal"
       >
-        <ul className="-mx-1 flex max-h-[calc(var(--available-height)-0.5rem-2px)] flex-col gap-1 overflow-y-auto overscroll-contain px-1">
-          {links.map((link) => {
-            const entry = linkPresentation(link);
-            return (
-              <li
-                key={`${link.host}/${link.repository}#${link.number}`}
-                className="flex min-w-0 items-center gap-1.5 text-xs"
-              >
-                <entry.Icon
-                  aria-label={entry.label}
-                  className={cn("size-3 shrink-0", entry.toneClassName)}
-                />
-                <span className="shrink-0 tabular-nums text-muted-foreground">#{link.number}</span>
-                <span className="min-w-0 truncate">{link.snapshot?.title ?? link.repository}</span>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="-mx-1 max-h-[calc(var(--available-height)-0.5rem-2px)] overflow-y-auto overscroll-contain px-1">
+          <ThreadIssuesMiniListFork issues={links} />
+        </div>
       </TooltipPopup>
     </Tooltip>
+  );
+}
+
+/** The linked-issue twin of the thread pull request mini list. */
+function ThreadIssuesMiniListFork({
+  issues,
+}: {
+  readonly issues: ReadonlyArray<ThreadIssueLink> | undefined;
+}) {
+  if (!issues?.length) return null;
+  return (
+    <ul className="flex flex-col gap-1">
+      {issues.map((link) => {
+        const entry = threadIssueLinkPresentation(link);
+        return (
+          <li
+            key={`${link.host}/${link.repository}#${link.number}`}
+            className="flex min-w-0 items-center gap-2"
+          >
+            <entry.Icon
+              aria-label={entry.label}
+              className={cn("size-3 shrink-0", entry.toneClassName)}
+            />
+            <span className="shrink-0 font-mono tabular-nums">#{link.number}</span>
+            <span className="min-w-0 truncate text-foreground/75">
+              {link.snapshot?.title ?? link.repository}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Linked issues in the sidebar thread hover card, ruled off like its pull request footer. */
+export function ThreadHoverCardIssuesFork({
+  issues,
+}: {
+  readonly issues: ReadonlyArray<ThreadIssueLink> | undefined;
+}) {
+  if (!issues?.length) return null;
+  return (
+    <div className="-ml-0.5 mt-0.5 min-w-0 border-t border-border/60 pt-2 pl-0.5">
+      <ThreadIssuesMiniListFork issues={issues} />
+    </div>
   );
 }
