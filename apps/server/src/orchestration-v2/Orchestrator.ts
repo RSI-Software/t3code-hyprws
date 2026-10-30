@@ -170,6 +170,8 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { pullRequestWatchWakePrefix } from "./pullRequestWatch.ts";
 import { dispatchThreadIssueCommandFork } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/orchestrator-issues-import
+import { threadArtifactsDispatchFork } from "./ThreadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestrator-artifacts-import
+import { threadArtifactNoOpAcceptedFork } from "./ThreadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestrator-empty-plan-import
 import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
 import {
   cancelStoppedRuntimeRequestsFork,
@@ -533,6 +535,9 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.issue.link": // fork-hook: github-issues/orchestrator-thread-id-link
     case "thread.issue.unlink": // fork-hook: github-issues/orchestrator-thread-id-unlink
     case "thread.issue-link.sync": // fork-hook: github-issues/orchestrator-thread-id-sync
+    case "thread.artifact.link": // fork-hook: thread-artifacts/orchestrator-thread-id-link
+    case "thread.artifact.unlink": // fork-hook: thread-artifacts/orchestrator-thread-id-unlink
+    case "thread.artifact.observe": // fork-hook: thread-artifacts/orchestrator-thread-id-observe
     case "thread.title.regeneration.complete":
     case "thread.project.adopt-folder":
     case "thread.runtime-mode.set":
@@ -1152,6 +1157,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* Ref.update(events, (existing) => [...existing, withId]);
         return withId;
       });
+  const artifactsFork = threadArtifactsDispatchFork(projectionStore, emit, mapDispatchError); // fork-hook: thread-artifacts/orchestrator-dispatcher
 
   // Runs in every command transaction; avoid reading thousands of finished leaf nodes.
   const readCommandProjection = (threadId: ThreadId) =>
@@ -12971,6 +12977,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           refuse: (cause) => mapDispatchError(command)(Effect.fail(cause)),
         }); // fork-hook: github-issues/orchestrator-dispatch-call
         break; // fork-hook: github-issues/orchestrator-dispatch-break
+      case "thread.artifact.link": // fork-hook: thread-artifacts/orchestrator-dispatch-link
+      case "thread.artifact.unlink": // fork-hook: thread-artifacts/orchestrator-dispatch-unlink
+      case "thread.artifact.observe": // fork-hook: thread-artifacts/orchestrator-dispatch-observe
+        yield* artifactsFork(command, events); // fork-hook: thread-artifacts/orchestrator-dispatch-call
+        break; // fork-hook: thread-artifacts/orchestrator-dispatch-break
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
         break;
@@ -13307,6 +13318,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.interrupt.unresponsive" ||
           command.type === "thread.stop" ||
           command.type === "subagent.stop" ||
+          threadArtifactNoOpAcceptedFork(command) || // fork-hook: thread-artifacts/orchestrator-empty-plan
           // Closing a share again, or after it ended, is not an error.
           command.type === "thread.guest-share.close",
         (_planned) =>

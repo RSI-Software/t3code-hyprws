@@ -31,6 +31,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-request",
   "pull-requests",
   ...githubIssueHubKindsFork, // fork-hook: github-issues/right-panel-hub-kind
+  "thread-artifacts", // fork-hook: thread-artifacts/right-panel-kind
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -64,6 +65,7 @@ export type RightPanelSurface =
     }
   | GitHubIssueHubSurfaceFork // fork-hook: github-issues/right-panel-hub-surface
   | GitHubIssueSurfaceFork // fork-hook: github-issues/right-panel-surface
+  | { id: "thread-artifacts"; kind: "thread-artifacts" } // fork-hook: thread-artifacts/right-panel-surface
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -127,6 +129,7 @@ interface RightPanelStoreState {
     request:
       | Extract<RightPanelSurface, { kind: "pull-request" | "pull-requests" }>
       | Extract<RightPanelSurface, { kind: "github-issue-links" }> // fork-hook: github-issues/right-panel-proactive-links
+      | Extract<RightPanelSurface, { kind: "thread-artifacts" }> // fork-hook: thread-artifacts/right-panel-proactive-links
       | { kind: "diff"; turnId: RunId },
     expectedUserActionRevision: number,
     activateExisting?: boolean,
@@ -228,6 +231,8 @@ const singletonSurface = (
     case "github-issues": // fork-hook: github-issues/right-panel-hub-singleton-case
     case "github-issue-links": // fork-hook: github-issues/right-panel-hub-singleton-case
       return githubIssueHubSurfaceFork(kind); // fork-hook: github-issues/right-panel-hub-singleton
+    case "thread-artifacts": // fork-hook: thread-artifacts/right-panel-singleton
+      return { id: kind, kind }; // fork-hook: thread-artifacts/right-panel-singleton
     case "device":
       return { id: "device", kind };
   }
@@ -632,6 +637,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               activePanel !== "diff" &&
               !pullRequestActive;
             if (activePanel === "github-issue-links") opened = false; // fork-hook: github-issues/right-panel-proactive-links
+            if (activePanel === "thread-artifacts") opened = false; // fork-hook: thread-artifacts/right-panel-proactive-links
             // Record the offer even when refused, so a revisit does not retry this turn.
             return automaticUpdate(state, threadKey, (thread) => ({
               ...(opened ? upsertSurface(thread, singletonSurface("diff")) : thread),

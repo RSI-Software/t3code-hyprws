@@ -114,6 +114,16 @@ it.effect("a conversation fork resets source controls and keeps source children"
           snapshot: null,
         },
       ],
+      artifacts: [
+        {
+          path: "/home/dev/notes/tracker.html",
+          title: "Tracker",
+          source: "agent",
+          linkedAt: DateTime.formatIso(now),
+          updatedAt: DateTime.formatIso(now),
+          missing: false,
+        },
+      ],
       limitRecovery: { runId: cutoffRunId, resetAt: DateTime.formatIso(now), autoResume: true },
       pinnedAt: now,
       pinOrderKey: "a0",
@@ -249,6 +259,8 @@ it.effect("a conversation fork resets source controls and keeps source children"
       source.pullRequests?.map(({ watch: _watch, ...link }) => link),
     );
     assert.deepEqual(fork.issues ?? [], []);
+    // Linked documents are conversation context on the shared filesystem.
+    assert.deepEqual(fork.artifacts, source.artifacts);
     for (const field of [
       "limitRecovery",
       "pinnedAt",
