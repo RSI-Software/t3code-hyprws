@@ -2470,9 +2470,9 @@ export const layerWithOptions = (
               const eventSubscribers = yield* Ref.make<
                 ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
               >(new Map());
-              const exposedRuntime = decorateRuntime(
-                withThreadProjects(projectionStore, runtime),
-                eventSubscribers,
+              const exposedRuntime = withThreadProjects(
+                projectionStore,
+                decorateRuntime(runtime, eventSubscribers),
               ); // fork-hook: upstream-fixes/thread-project-runtime
               const entry: LiveSessionEntry = {
                 attachedThreadIds: new Set([input.threadId]),
