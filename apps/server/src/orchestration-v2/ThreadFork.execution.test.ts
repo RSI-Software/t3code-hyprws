@@ -641,6 +641,7 @@ it.effect.each([
           ProviderAdapterRegistry.layerFromAdapters(
             target === claude ? [claude] : [claude, target],
           ),
+          { runEffectWorker: false }, // fork-hook: upstream-fixes/fork-compact-manual-worker
         ),
       ),
     );
