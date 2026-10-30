@@ -180,6 +180,8 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "provider.switch":
     case "thread.issue.link": // fork-hook: github-issues/scenario-thread-id-link
     case "thread.issue.unlink": // fork-hook: github-issues/scenario-thread-id-unlink
+    case "thread.artifact.link": // fork-hook: thread-artifacts/scenario-thread-id-link
+    case "thread.artifact.unlink": // fork-hook: thread-artifacts/scenario-thread-id-unlink
       return [command.threadId];
     case "delegated_task.request":
     case "delegated_task.wake-policy":
