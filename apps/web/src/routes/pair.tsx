@@ -5,6 +5,7 @@ import {
   PairingPendingSurface,
   PairingRouteSurface,
 } from "../components/auth/PairingRouteSurface";
+import { useColleagueLinkLandingFork } from "../components/colleague/ColleagueLinkLanding.fork"; // fork-hook: colleague-collab/pair-landing-import
 
 export const Route = createFileRoute("/pair")({
   beforeLoad: async ({ context }) => {
@@ -33,6 +34,10 @@ export const Route = createFileRoute("/pair")({
 function PairRouteView() {
   const router = useRouter();
   const { authGateState } = Route.useRouteContext();
+  const colleagueLanding = useColleagueLinkLandingFork(
+    authGateState?.status === "requires-auth" ? authGateState : undefined,
+  ); // fork-hook: colleague-collab/pair-landing
+  if (colleagueLanding) return colleagueLanding; // fork-hook: colleague-collab/pair-landing-return
 
   if (!authGateState) {
     return null;
