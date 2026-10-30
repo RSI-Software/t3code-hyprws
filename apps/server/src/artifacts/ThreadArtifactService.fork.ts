@@ -65,30 +65,18 @@ export class ArtifactThreadNotFoundError extends Schema.TaggedError<ArtifactThre
   }
 }
 
-export class ArtifactLinkFailedError extends Schema.TaggedError<ArtifactLinkFailedError>()(
-  "ArtifactLinkFailedError",
-  { cause: Schema.Defect() },
+export class ArtifactOperationFailedError extends Schema.TaggedError<ArtifactOperationFailedError>()(
+  "ArtifactOperationFailedError",
+  {
+    operation: Schema.Literals(["link", "unlink", "list"]),
+    stage: Schema.Literals(["read-thread", "read-project", "stat", "dispatch"]),
+    threadId: Schema.String,
+    path: Schema.optional(Schema.String),
+    cause: Schema.Defect(),
+  },
 ) {
   override get message(): string {
-    return "Could not link the artifact.";
-  }
-}
-
-export class ArtifactUnlinkFailedError extends Schema.TaggedError<ArtifactUnlinkFailedError>()(
-  "ArtifactUnlinkFailedError",
-  { cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return "Could not unlink the artifact.";
-  }
-}
-
-export class ArtifactListFailedError extends Schema.TaggedError<ArtifactListFailedError>()(
-  "ArtifactListFailedError",
-  { cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return "Could not list the thread's artifacts.";
+    return `Could not ${this.operation} the artifact: ${this.stage} failed.`;
   }
 }
 
@@ -108,23 +96,25 @@ export class ThreadArtifactService extends Context.Service<
       | ArtifactNetworkPathError
       | ArtifactFileNotFoundError
       | ArtifactNotAFileError
-      | ArtifactLinkFailedError
+      | ArtifactOperationFailedError
     >;
     readonly unlink: (input: {
       readonly threadId: ThreadId;
       readonly path: string;
     }) => Effect.Effect<
       { readonly path: string; readonly wasLinked: boolean },
-      ArtifactThreadNotFoundError | ArtifactWorkspaceUnknownError | ArtifactUnlinkFailedError
+      ArtifactThreadNotFoundError | ArtifactWorkspaceUnknownError | ArtifactOperationFailedError
     >;
     readonly list: (
       threadId: ThreadId,
     ) => Effect.Effect<
       ReadonlyArray<ThreadArtifactLink>,
-      ArtifactThreadNotFoundError | ArtifactListFailedError
+      ArtifactThreadNotFoundError | ArtifactOperationFailedError
     >;
   }
 >()("t3/artifacts/ThreadArtifactService.fork/ThreadArtifactService") {}
+
+type Operation = ArtifactOperationFailedError["operation"];
 
 const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
@@ -139,12 +129,18 @@ const make = Effect.gen(function* () {
       Effect.map((uuid) => CommandId.make(`server:${tag}:${threadId}:${uuid}`)),
     );
 
-  /** `fail` wraps a read failure in the calling operation's error. */
-  const requireThread = Effect.fn("ThreadArtifactService.requireThread")(function* <E>(
+  const requireThread = Effect.fn("ThreadArtifactService.requireThread")(function* (
+    operation: Operation,
     threadId: ThreadId,
-    fail: (cause: unknown) => E,
   ) {
-    const thread = yield* engine.getThreadShell(threadId).pipe(Effect.mapError(fail));
+    const thread = yield* engine
+      .getThreadShell(threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ArtifactOperationFailedError({ operation, stage: "read-thread", threadId, cause }),
+        ),
+      );
     if (thread === null || thread.deletedAt !== null) {
       return yield* new ArtifactThreadNotFoundError({ threadId });
     }
@@ -152,17 +148,26 @@ const make = Effect.gen(function* () {
   });
 
   /** An absolute, normalized path; a relative one resolves against the thread's workspace. */
-  const resolvePath = Effect.fn("ThreadArtifactService.resolvePath")(function* <E>(
+  const resolvePath = Effect.fn("ThreadArtifactService.resolvePath")(function* (
+    operation: Operation,
     thread: OrchestrationV2ThreadShell,
     input: string,
-    fail: (cause: unknown) => E,
   ) {
     if (path.isAbsolute(input)) return path.resolve(input);
     const workspace =
       thread.worktreePath ??
       (yield* projects.getShell(thread.projectId).pipe(
         Effect.map((project) => Option.getOrUndefined(project)?.workspaceRoot),
-        Effect.mapError(fail),
+        Effect.mapError(
+          (cause) =>
+            new ArtifactOperationFailedError({
+              operation,
+              stage: "read-project",
+              threadId: thread.id,
+              path: input,
+              cause,
+            }),
+        ),
       ));
     if (workspace === undefined) {
       return yield* new ArtifactWorkspaceUnknownError();
@@ -170,27 +175,40 @@ const make = Effect.gen(function* () {
     return path.resolve(workspace, input);
   });
 
+  const dispatchFailed =
+    (operation: Operation, threadId: ThreadId, target: string) => (cause: unknown) =>
+      new ArtifactOperationFailedError({
+        operation,
+        stage: "dispatch",
+        threadId,
+        path: target,
+        cause,
+      });
+
   const isLinked = (thread: OrchestrationV2ThreadShell, target: string) =>
     (thread.artifacts ?? []).some((link) => link.path === target);
 
   return ThreadArtifactService.of({
     link: Effect.fn("ThreadArtifactService.link")(function* (input) {
-      const fail = (cause: unknown) => new ArtifactLinkFailedError({ cause });
-      const thread = yield* requireThread(input.threadId, fail);
-      const target = yield* resolvePath(thread, input.path, fail);
+      const thread = yield* requireThread("link", input.threadId);
+      const target = yield* resolvePath("link", thread, input.path);
       // Touching a network path makes Windows sign in to its host with the user's NTLM credentials.
       if (isNetworkPath(input.path) || isNetworkPath(target)) {
         return yield* new ArtifactNetworkPathError({ path: target });
       }
-      const info = yield* fs
-        .stat(target)
-        .pipe(
-          Effect.mapError((cause) =>
-            cause.reason._tag === "NotFound"
-              ? new ArtifactFileNotFoundError({ path: target, cause })
-              : fail(cause),
-          ),
-        );
+      const info = yield* fs.stat(target).pipe(
+        Effect.mapError((cause) =>
+          cause.reason._tag === "NotFound"
+            ? new ArtifactFileNotFoundError({ path: target, cause })
+            : new ArtifactOperationFailedError({
+                operation: "link",
+                stage: "stat",
+                threadId: thread.id,
+                path: target,
+                cause,
+              }),
+        ),
+      );
       if (info.type !== "File") {
         return yield* new ArtifactNotAFileError({ path: target });
       }
@@ -204,13 +222,12 @@ const make = Effect.gen(function* () {
           title,
           source: input.source,
         })
-        .pipe(Effect.mapError(fail));
+        .pipe(Effect.mapError(dispatchFailed("link", thread.id, target)));
       return { path: target, title, alreadyLinked: isLinked(thread, target) };
     }),
     unlink: Effect.fn("ThreadArtifactService.unlink")(function* (input) {
-      const fail = (cause: unknown) => new ArtifactUnlinkFailedError({ cause });
-      const thread = yield* requireThread(input.threadId, fail);
-      const target = yield* resolvePath(thread, input.path, fail);
+      const thread = yield* requireThread("unlink", input.threadId);
+      const target = yield* resolvePath("unlink", thread, input.path);
       if (!isLinked(thread, target)) {
         return { path: target, wasLinked: false };
       }
@@ -221,14 +238,11 @@ const make = Effect.gen(function* () {
           threadId: thread.id,
           path: target,
         })
-        .pipe(Effect.mapError(fail));
+        .pipe(Effect.mapError(dispatchFailed("unlink", thread.id, target)));
       return { path: target, wasLinked: true };
     }),
     list: Effect.fn("ThreadArtifactService.list")(function* (threadId) {
-      const thread = yield* requireThread(
-        threadId,
-        (cause) => new ArtifactListFailedError({ cause }),
-      );
+      const thread = yield* requireThread("list", threadId);
       return thread.artifacts ?? [];
     }),
   });

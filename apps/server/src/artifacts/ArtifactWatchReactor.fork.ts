@@ -37,6 +37,8 @@ interface WatchedPath {
   readonly name: string;
   /** Each linking thread's last known link, to dispatch only real changes. */
   readonly links: Map<ThreadId, ThreadArtifactLink>;
+  /** Inode, size and mtime at the last check, to catch a replacement that kept the old mtime. */
+  fingerprint: string | undefined;
 }
 
 interface WatchedDirectory {
@@ -110,19 +112,35 @@ const make = Effect.gen(function* () {
     const info = yield* fs.stat(filePath).pipe(Effect.option);
     const missing = Option.isNone(info);
     const mtimeMs = Option.getOrUndefined(Option.flatMap(info, (file) => file.mtime))?.getTime();
+    const fingerprint = Option.match(info, {
+      onNone: () => undefined,
+      onSome: (file) => `${Option.getOrUndefined(file.ino)}:${file.size}:${mtimeMs}`,
+    });
+    const replaced =
+      entry.fingerprint !== undefined &&
+      fingerprint !== undefined &&
+      fingerprint !== entry.fingerprint;
+    entry.fingerprint = fingerprint;
     yield* Effect.forEach(
       [...entry.links],
       ([threadId, link]) => {
+        const linkedMs = Date.parse(link.updatedAt);
+        // A replacement that kept its mtime reports one millisecond on, so clients see a new
+        // revision; until the file changes again, that bump is the current revision.
+        const current =
+          mtimeMs === linkedMs || (!replaced && mtimeMs !== undefined && mtimeMs + 1 === linkedMs);
         const changed = missing
           ? !link.missing
           : // Any other mtime is a change: a replacement may carry an older one.
-            link.missing || (mtimeMs !== undefined && mtimeMs !== Date.parse(link.updatedAt));
+            link.missing || replaced || (mtimeMs !== undefined && !current);
         if (!changed) return Effect.void;
         // A missing file keeps its last known change; a present one reports its own mtime.
         const updatedAt =
           missing || mtimeMs === undefined
             ? link.updatedAt
-            : DateTime.formatIso(DateTime.makeUnsafe(mtimeMs));
+            : DateTime.formatIso(
+                DateTime.makeUnsafe(replaced && mtimeMs === linkedMs ? mtimeMs + 1 : mtimeMs),
+              );
         return crypto.randomUUIDv4().pipe(
           Effect.flatMap((uuid) =>
             engine.dispatch({
@@ -152,6 +170,7 @@ const make = Effect.gen(function* () {
   // One settle timer per path: events during it fold into its check, and an event after it
   // started its check queues another, so the last write is always read.
   const runSettle = yield* FiberMap.makeRuntime<never, string>();
+  const runRewatch = yield* FiberMap.makeRuntime<never, string>();
   const settle = (filePath: string) =>
     runSettle(
       filePath,
@@ -198,11 +217,26 @@ const make = Effect.gen(function* () {
             if (paths.get(filePath)?.name === name) settle(filePath);
           }
         });
-        // A failed watcher reports nothing more: drop it and recheck every file it covered.
+        // A failed watcher reports nothing more: drop it, recheck every file it covered, and
+        // rewatch after a pause, so one that keeps failing cannot spin.
         watcher.on("error", () => {
           if (directory.watcher !== watcher) return;
           closeWatcher(directory);
           checkAll();
+          runRewatch(
+            directoryPath,
+            Effect.sleep(ARTIFACT_CHANGE_SETTLE).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  if (directories.get(directoryPath) !== directory) return;
+                  if (directory.watcher !== undefined) return;
+                  watch(directoryPath, directory);
+                  checkAll();
+                }),
+              ),
+            ),
+            { onlyIfMissing: true },
+          );
         });
         directory.watcher = watcher;
         return !ancestor;
@@ -248,6 +282,7 @@ const make = Effect.gen(function* () {
           directory: path.dirname(filePath),
           name: path.basename(filePath),
           links: new Map(),
+          fingerprint: undefined,
         };
         paths.set(filePath, entry);
       }

@@ -50,6 +50,7 @@ interface FakeWatch {
   readonly directory: string;
   closed: boolean;
   readonly emit: (name: string) => void;
+  readonly fail: () => void;
 }
 
 const testCrypto = Crypto.make({
@@ -93,6 +94,7 @@ const makeHarness = Effect.fn("makeArtifactWatchHarness")(function* (options: {
   readonly files: Record<string, string>;
 }) {
   const files = new Map(Object.entries(options.files).map(([p, at]) => [p, Date.parse(at)]));
+  const inodes = new Map<string, number>();
   const directories = new Set([...files.keys()].map((p) => p.slice(0, p.lastIndexOf("/"))));
   const watches: Array<FakeWatch> = [];
   const observed: Array<ObserveCommand> = [];
@@ -102,13 +104,22 @@ const makeHarness = Effect.fn("makeArtifactWatchHarness")(function* (options: {
 
   const watchDirectory = ((directory: string, listener: (event: string, name: string) => void) => {
     if (!directories.has(directory)) throw new Error(`ENOENT: ${directory}`);
-    const watch: FakeWatch = { directory, closed: false, emit: (name) => listener("rename", name) };
+    let onError = () => {};
+    const watch: FakeWatch = {
+      directory,
+      closed: false,
+      emit: (name) => listener("rename", name),
+      fail: () => onError(),
+    };
     watches.push(watch);
     const watcher = {
       close: () => {
         watch.closed = true;
       },
-      on: () => watcher,
+      on: (_event: "error", handler: () => void) => {
+        onError = handler;
+        return watcher;
+      },
     };
     return watcher as unknown as ArtifactDirectoryWatcher;
   }) as unknown as typeof ArtifactDirectoryWatch.Service;
@@ -148,6 +159,7 @@ const makeHarness = Effect.fn("makeArtifactWatchHarness")(function* (options: {
             )
           : Effect.succeed({
               mtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(mtime))),
+              ino: Option.fromNullishOr(inodes.get(path)),
             } as unknown as FileSystem.File.Info);
       },
     }),
@@ -167,6 +179,7 @@ const makeHarness = Effect.fn("makeArtifactWatchHarness")(function* (options: {
   const openWatches = () => watches.filter((watch) => !watch.closed).map((w) => w.directory);
   return {
     files,
+    inodes,
     directories,
     watches,
     observed,
@@ -214,6 +227,22 @@ describe("ArtifactWatchReactor", () => {
         // A replacement carrying an older mtime, as `cp -p` leaves, is a change too.
         fixture.files.set("/docs/a.html", Date.parse(EARLIER));
         yield* fixture.change("/docs", "a.html");
+        // One that kept the same mtime reports a millisecond on, once.
+        yield* fixture.send(
+          threadEvent(
+            "thread.metadata-updated",
+            thread("b", [link("/docs/b.md", { updatedAt: T2 })]),
+          ),
+        );
+        fixture.inodes.set("/docs/b.md", 2);
+        yield* fixture.change("/docs", "b.md");
+        const bumped = "2026-10-30T10:10:00.001Z";
+        yield* fixture.send(
+          threadEvent(
+            "thread.metadata-updated",
+            thread("b", [link("/docs/b.md", { updatedAt: bumped })]),
+          ),
+        );
         assert.deepStrictEqual(fixture.observed.slice(1).map(summary), [
           { threadId: ThreadId.make("b"), path: "/docs/b.md", updatedAt: T2, missing: false },
           {
@@ -222,6 +251,7 @@ describe("ArtifactWatchReactor", () => {
             updatedAt: EARLIER,
             missing: false,
           },
+          { threadId: ThreadId.make("b"), path: "/docs/b.md", updatedAt: bumped, missing: false },
         ]);
       }),
     ),
@@ -263,8 +293,22 @@ describe("ArtifactWatchReactor", () => {
         fixture.files.set("/docs/a.html", Date.parse(T2));
         yield* fixture.change("/", "other", "docs");
         assert.deepStrictEqual(fixture.openWatches(), ["/docs"]);
+
+        // A failed watcher rewatches on its own, here on the parent while the directory is gone.
+        yield* fixture.send(
+          threadEvent(
+            "thread.metadata-updated",
+            thread("a", [link("/docs/a.html", { updatedAt: T2 })]),
+          ),
+        );
+        fixture.files.delete("/docs/a.html");
+        fixture.directories.delete("/docs");
+        fixture.watches.find((w) => w.directory === "/docs" && !w.closed)?.fail();
+        yield* fixture.change("/docs");
+        assert.deepStrictEqual(fixture.openWatches(), ["/"]);
         assert.deepStrictEqual(fixture.observed.slice(2).map(summary), [
           { threadId: ThreadId.make("a"), path: "/docs/a.html", updatedAt: T2, missing: false },
+          { threadId: ThreadId.make("a"), path: "/docs/a.html", updatedAt: T2, missing: true },
         ]);
       }),
     ),

@@ -14,12 +14,10 @@ import * as Toolkit from "effect/ai/Toolkit";
 
 import {
   ArtifactFileNotFoundError,
-  ArtifactLinkFailedError,
-  ArtifactListFailedError,
   ArtifactNetworkPathError,
   ArtifactNotAFileError,
+  ArtifactOperationFailedError,
   ArtifactThreadNotFoundError,
-  ArtifactUnlinkFailedError,
   ArtifactWorkspaceUnknownError,
 } from "../../../artifacts/ThreadArtifactService.fork.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -56,9 +54,7 @@ export const ArtifactToolError = Schema.Union([
   ArtifactWorkspaceUnknownError,
   ArtifactThreadRequiredError,
   ArtifactThreadNotFoundError,
-  ArtifactLinkFailedError,
-  ArtifactUnlinkFailedError,
-  ArtifactListFailedError,
+  ArtifactOperationFailedError,
 ]);
 export type ArtifactToolError = typeof ArtifactToolError.Type;
 
