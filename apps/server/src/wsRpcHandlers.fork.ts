@@ -6,6 +6,7 @@ import { RpcGroup } from "effect/rpc";
 import * as SqlClient from "effect/sql/SqlClient";
 import { RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
 
+import * as ColleagueShares from "./colleague/ColleagueShares.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
 import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts";
@@ -25,6 +26,7 @@ export const makeWsRpcHandlersFork = Effect.gen(function* () {
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
+  const colleagues = yield* ColleagueShares.ColleagueSharesFork;
   return WsRpcGroupFork.of({
     ...gitHubIssueRpcHandlersFork(githubIssues, sql),
     ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),
@@ -35,5 +37,8 @@ export const makeWsRpcHandlersFork = Effect.gen(function* () {
       pullRequests.subscribeActivityRefreshesFork,
     "threadGroups.subscribeFork": () => threadGroups.changes,
     "threadGroups.mutateFork": (mutation) => threadGroups.mutate(mutation),
+    "colleague.shareThreadFork": (input) => colleagues.share(input),
+    "colleague.threadSharesFork": (input) => colleagues.threadShares(input.threadId),
+    "colleague.unshareThreadFork": (input) => colleagues.unshare(input),
   });
 });
