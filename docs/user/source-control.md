@@ -289,6 +289,7 @@ server environment that owns the issue, so its web and desktop clients use the s
 - **Issue panel:** open, link, or unlink threads
 - **Thread:** its **Linked issues** panel lists its links
 - **Badges:** sidebar row and branch toolbar
+- **Details:** thread details and the sidebar hover card
 - **Palette:** link by URL or `#number`
 
 With proactive panels on, a newly linked issue opens **Linked issues**, as a linked pull request does.
