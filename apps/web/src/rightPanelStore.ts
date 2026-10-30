@@ -126,6 +126,7 @@ interface RightPanelStoreState {
     ref: ScopedThreadRef,
     request:
       | Extract<RightPanelSurface, { kind: "pull-request" | "pull-requests" }>
+      | Extract<RightPanelSurface, { kind: "github-issue-links" }> // fork-hook: github-issues/right-panel-proactive-links
       | { kind: "diff"; turnId: RunId },
     expectedUserActionRevision: number,
     activateExisting?: boolean,
@@ -225,7 +226,8 @@ const singletonSurface = (
     case "pull-requests":
       return { id: "pull-requests", kind };
     case "github-issues": // fork-hook: github-issues/right-panel-hub-singleton-case
-      return githubIssueHubSurfaceFork(); // fork-hook: github-issues/right-panel-hub-singleton
+    case "github-issue-links": // fork-hook: github-issues/right-panel-hub-singleton-case
+      return githubIssueHubSurfaceFork(kind); // fork-hook: github-issues/right-panel-hub-singleton
     case "device":
       return { id: "device", kind };
   }
@@ -629,6 +631,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 expectedUserActionRevision &&
               activePanel !== "diff" &&
               !pullRequestActive;
+            if (activePanel === "github-issue-links") opened = false; // fork-hook: github-issues/right-panel-proactive-links
             // Record the offer even when refused, so a revisit does not retry this turn.
             return automaticUpdate(state, threadKey, (thread) => ({
               ...(opened ? upsertSurface(thread, singletonSurface("diff")) : thread),

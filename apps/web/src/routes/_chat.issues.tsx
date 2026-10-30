@@ -3,10 +3,10 @@ import {
   environmentGitHubIssueKey,
   type EnvironmentGitHubIssueListEntry,
 } from "@t3tools/client-runtime/state/github-issues";
-import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, LayersIcon } from "lucide-react";
-import { type ReactNode, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   EnvironmentGitHubIssueDetailContent,
@@ -43,7 +43,6 @@ import {
   GitHubIssueProjectMenu,
 } from "../components/githubIssue/GitHubIssueProjectMenu";
 import { GitHubIssueStateToggle } from "../components/githubIssue/GitHubIssueStateToggle";
-import { ThreadGitHubIssueLinks } from "../components/githubIssue/ThreadGitHubIssueLinks";
 import { GITHUB_ISSUE_STATE_PRESENTATION } from "../components/githubIssue/githubIssuePresentation";
 import { pullRequestProjectKey } from "../components/pullRequest/PullRequestListFilters";
 import {
@@ -118,12 +117,9 @@ function GitHubIssuesRoute() {
 export function ProjectGitHubIssuesPanel({
   projectRef,
   onSelectIssue,
-  threadRef = null,
 }: {
   readonly projectRef: ScopedProjectRef;
   readonly onSelectIssue: (issue: EnvironmentGitHubIssueListEntry) => void;
-  /** The thread the panel sits beside, whose linked issues head the list. */
-  readonly threadRef?: ScopedThreadRef | null;
 }) {
   const [search, setSearch] = useState<IssuesSearch>({
     state: "open",
@@ -136,7 +132,6 @@ export function ProjectGitHubIssuesPanel({
       onNavigate={(update) => setSearch((previous) => update(previous))}
       variant="panel"
       onSelectIssue={onSelectIssue}
-      threadLinks={threadRef === null ? null : <ThreadGitHubIssueLinks threadRef={threadRef} />}
     />
   );
 }
@@ -147,14 +142,11 @@ export function GitHubIssuesPage({
   onNavigate,
   variant = "page",
   onSelectIssue,
-  threadLinks = null,
 }: {
   readonly search: IssuesSearch;
   readonly onNavigate: IssuesSearchUpdater;
   readonly variant?: "page" | "panel";
   readonly onSelectIssue?: (issue: EnvironmentGitHubIssueListEntry) => void;
-  /** The panel's thread-side links, shown above its list. */
-  readonly threadLinks?: ReactNode;
 }) {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { environments } = useEnvironments();
@@ -503,7 +495,6 @@ export function GitHubIssuesPage({
       >
         <div className="border-b border-border/70 p-3">{controls}</div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
-          {threadLinks}
           {notices}
           {body}
         </div>
