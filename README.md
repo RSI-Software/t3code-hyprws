@@ -223,6 +223,16 @@ https://github.com/user-attachments/assets/0992bf8a-37c7-425b-992c-5d08c61cc22e
 
 https://github.com/user-attachments/assets/46931a1e-d0f3-41d2-bf61-8fb79db19713
 
+### Thread artifacts
+
+- **Link:** agents link trackers, plans, and notes
+- **Live:** previews follow each edit
+- **Anywhere:** any host path, scratch included
+- **Hands off:** T3 never creates or deletes files
+- [Guide](docs/fork/user/thread-artifacts.md)
+
+![A linked HTML tracker open beside its thread](https://github.com/user-attachments/assets/82265826-4ea8-42d6-a6bb-611c787c9e38)
+
 ### Device approval and external agents
 
 - **Grant:** RFC 8628-style device flow
