@@ -110,6 +110,7 @@ import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../provi
 import { useThreadRunningTerminalIds } from "../../state/terminalSessions";
 import { InlineButton } from "../ui/button";
 import { Kbd } from "../ui/kbd";
+import { ThreadIssueBadgeFork } from "../githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
@@ -1075,6 +1076,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         onOpenPullRequest={handlePrClick}
       />
     ) : null;
+  const issueBadgeFork = thread.issues?.length ? (
+    <ThreadIssueBadgeFork
+      render={<InlineButton />}
+      issues={thread.issues}
+      onOpenList={() => {
+        useRightPanelStore.getState().open(threadRef, "github-issue-links");
+        if (!props.isRouteThread) onThreadActivate(threadRef);
+      }}
+    />
+  ) : null; // fork-hook: github-issues/thread-issue-badge
   const terminalStatusIcon = (
     <ThreadTerminalStatusButton
       threadRef={threadRef}
@@ -1146,6 +1157,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     !thread.branch &&
     !showsScratchMachine &&
     prBadge === null &&
+    issueBadgeFork === null && // fork-hook: github-issues/thread-issue-badge
     diff === null &&
     runningTerminalIds.length === 0;
   const metaLine = metaLineEmpty ? null : (
@@ -1170,6 +1182,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         <span className="flex-1" />
       )}
       {terminalStatusIcon}
+      {issueBadgeFork /* fork-hook: github-issues/thread-issue-badge */}
       {prBadge}
       {diff ? (
         <span className="shrink-0 font-mono">
