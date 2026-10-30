@@ -202,6 +202,39 @@ export const threadGroupsRpcFork = {
   ] as const,
 };
 
+// Colleague collaboration (colleague-collab): share one thread through a pairing link.
+import {
+  ColleagueShareErrorFork,
+  ColleagueShareThreadInputFork,
+  ColleagueShareThreadResultFork,
+  ColleagueThreadSharesInputFork,
+  ColleagueThreadSharesResultFork,
+  ColleagueUnshareThreadInputFork,
+} from "./colleague.fork.ts";
+
+export const colleagueRpcFork = {
+  methodNames: {
+    colleagueShareThreadFork: "colleague.shareThreadFork",
+    colleagueThreadSharesFork: "colleague.threadSharesFork",
+    colleagueUnshareThreadFork: "colleague.unshareThreadFork",
+  } as const,
+  rpcs: [
+    Rpc.make("colleague.shareThreadFork", {
+      payload: ColleagueShareThreadInputFork,
+      success: ColleagueShareThreadResultFork,
+      error: Schema.Union([ColleagueShareErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("colleague.threadSharesFork", {
+      payload: ColleagueThreadSharesInputFork,
+      success: ColleagueThreadSharesResultFork,
+    }),
+    Rpc.make("colleague.unshareThreadFork", {
+      payload: ColleagueUnshareThreadInputFork,
+      error: Schema.Union([ColleagueShareErrorFork, EnvironmentAuthorizationError]),
+    }),
+  ] as const,
+};
+
 /** Every fork WS RPC; the server serves them from a handler layer of their own. */
 export const wsRpcsFork = [
   ...pullRequestAttachmentRpcFork.rpcs,
@@ -209,4 +242,5 @@ export const wsRpcsFork = [
   ...githubIssuesRpcFork.rpcs,
   ...checkoutMoveRpcFork.rpcs,
   ...threadGroupsRpcFork.rpcs,
+  ...colleagueRpcFork.rpcs,
 ] as const;

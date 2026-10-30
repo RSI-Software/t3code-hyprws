@@ -34,6 +34,7 @@ import * as ProjectStore from "./ProjectStore.ts";
 import { loadSubscriberShellSnapshot } from "./ShellStream.ts";
 import { boundedSnapshotResponseFields } from "./ThreadStream.ts";
 import { makeThreadGroupTitleHandlerFork } from "./ThreadGroupTitles.ts"; // fork-hook: thread-ordering/group-title-handler-import
+import { refuseColleagueHttpShellFork } from "../colleague/ColleagueShares.fork.ts"; // fork-hook: colleague-collab/http-shell-refuse-import
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
 
 const isThreadTranscriptTooLargeError = Schema.is(
@@ -167,6 +168,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          yield* refuseColleagueHttpShellFork; // fork-hook: colleague-collab/http-shell-refuse
           return yield* loadShellSnapshot({
             omitIdleSubagents: args.query.omitIdleSubagents === "1",
             omitOlderSettled: args.query.omitOlderSettled === "1",

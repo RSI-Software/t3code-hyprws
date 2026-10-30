@@ -131,6 +131,7 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
 import { checkoutMoveServiceLiveFork } from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/server-checkout-move-import
 import * as ThreadGroupsFork from "./orchestration-v2/ThreadGroupsService.fork.ts"; // fork-hook: thread-ordering/server-thread-groups-import
+import * as ColleagueSharesFork from "./colleague/ColleagueShares.fork.ts"; // fork-hook: colleague-collab/server-shares-import
 import { checkoutHeadFollowLiveFork } from "./git/CheckoutHeadFollow.fork.ts"; // fork-hook: zmux-estate/server-checkout-head-follow-import
 import { settledLaneSessionReactorLiveFork } from "./zmux/SettledLaneSessions.fork.ts"; // fork-hook: zmux-estate/server-settled-lane-sessions-import
 import * as SettledLaneAttachGuard from "./zmux/SettledLaneAttachGuard.fork.ts"; // fork-hook: zmux-estate/server-settled-lane-guard-import
@@ -669,6 +670,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ArtifactWatchReactorFork.layer, // fork-hook: thread-artifacts/server-artifact-watch-reactor
   checkoutMoveServiceLiveFork, // fork-hook: zmux-estate/server-checkout-move-service
   ThreadGroupsFork.layer, // fork-hook: thread-ordering/server-thread-groups-service
+  ColleagueSharesFork.layer, // fork-hook: colleague-collab/server-shares-service
   checkoutHeadFollowLiveFork, // fork-hook: zmux-estate/server-checkout-head-follow
   settledLaneSessionReactorLiveFork.pipe(Layer.provide(ZmuxSessionBinderLayerLive)), // fork-hook: zmux-estate/server-settled-lane-sessions-reactor
 ).pipe(

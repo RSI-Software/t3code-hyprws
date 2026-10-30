@@ -143,6 +143,9 @@ const RPC_AGGREGATES = {
   [WS_METHODS.threadCheckoutMoveRequest]: "orchestration", // fork-hook: zmux-estate/checkout-move-rpc-aggregate
   [WS_METHODS.threadGroupsSubscribeFork]: "orchestration", // fork-hook: thread-ordering/thread-groups-rpc-aggregate
   [WS_METHODS.threadGroupsMutateFork]: "orchestration", // fork-hook: thread-ordering/thread-groups-rpc-aggregate
+  [WS_METHODS.colleagueShareThreadFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueThreadSharesFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueUnshareThreadFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.sourceControlLookupRepository]: "source-control",
   [WS_METHODS.sourceControlCloneRepository]: "source-control",
   [WS_METHODS.sourceControlPublishRepository]: "source-control",
