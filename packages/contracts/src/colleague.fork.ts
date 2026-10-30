@@ -2,9 +2,12 @@ import * as Schema from "effect/Schema";
 
 import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+// A letter or digit keeps every name a distinct identity once punctuation folds away.
+export const ColleagueNameFork = TrimmedNonEmptyString.check(Schema.isPattern(/[\p{L}\p{N}]/u));
+
 export const ColleagueShareThreadInputFork = Schema.Struct({
   threadId: ThreadId,
-  colleagueName: TrimmedNonEmptyString,
+  colleagueName: ColleagueNameFork,
 });
 export type ColleagueShareThreadInputFork = typeof ColleagueShareThreadInputFork.Type;
 

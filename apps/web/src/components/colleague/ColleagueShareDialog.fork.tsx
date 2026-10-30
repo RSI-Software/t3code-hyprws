@@ -8,7 +8,8 @@ import {
   selectEnvironmentQueryData,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { type ScopedThreadRef, WS_METHODS } from "@t3tools/contracts";
+import { ColleagueNameFork, type ScopedThreadRef, WS_METHODS } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -29,6 +30,8 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { colleagueShareDialogThreadAtom } from "./colleagueShareDialogState.fork";
+
+const isColleagueName = Schema.is(ColleagueNameFork);
 
 const shareThreadWithColleagueCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "share thread with colleague",
@@ -91,6 +94,8 @@ function ColleagueShareDialog({
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "colleague link" });
   const [name, setName] = useState("");
   const [state, setState] = useState<ShareState>({ status: "idle" });
+  const trimmedName = name.trim();
+  const validName = isColleagueName(trimmedName);
 
   const sharedWith = shares?.sharedWith ?? [];
   const suggestions = (shares?.colleagues ?? []).filter(
@@ -192,7 +197,7 @@ function ColleagueShareDialog({
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();
-                    if (name.trim() !== "") void create(name.trim());
+                    if (validName) void create(trimmedName);
                   }}
                 >
                   <Input
@@ -244,8 +249,8 @@ function ColleagueShareDialog({
               </Button>
               <Button
                 size="sm"
-                onClick={() => void create(name.trim())}
-                disabled={!canShare || name.trim() === "" || state.status === "creating"}
+                onClick={() => void create(trimmedName)}
+                disabled={!canShare || !validName || state.status === "creating"}
               >
                 {state.status === "creating" ? "Sharing..." : "Share"}
               </Button>

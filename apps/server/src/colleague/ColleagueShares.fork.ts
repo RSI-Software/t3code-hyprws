@@ -48,13 +48,11 @@ const isColleagueSubject = (subject: string) => subject.startsWith(COLLEAGUE_SUB
 
 // Case and punctuation fold on purpose, so "Sam" and "sam " reach the same paired colleague.
 const colleagueSubject = (name: string) =>
-  `${COLLEAGUE_SUBJECT_PREFIX}${
-    name
-      .normalize("NFKC")
-      .toLowerCase()
-      .replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
-      .replace(/^-|-$/g, "") || "guest"
-  }`;
+  `${COLLEAGUE_SUBJECT_PREFIX}${name
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
+    .replace(/^-|-$/g, "")}`;
 
 interface ColleagueShare {
   readonly name: string;
