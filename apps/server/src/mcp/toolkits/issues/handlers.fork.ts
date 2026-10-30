@@ -14,6 +14,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import * as GitHubIssueService from "../../../githubIssue/GitHubIssueService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import {
   normalizeThreadIssueKey,
@@ -25,6 +26,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
   IssueHostRequiredError,
+  IssueIsPullRequestError,
   IssueLinkFailedError,
   IssueListFailedError,
   IssuesToolkitFork,
@@ -153,6 +155,7 @@ const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projects = yield* ProjectService.ProjectService;
   const crypto = yield* Crypto.Crypto;
+  const gitHubIssues = yield* GitHubIssueService.GitHubIssueService;
 
   const commandId = (tag: string, threadId: ThreadId) =>
     crypto.randomUUIDv4().pipe(
@@ -241,6 +244,16 @@ const make = Effect.gen(function* () {
         const thread = yield* requireThread(IssueLinkFailedError, input.threadId);
         const project = yield* projectOf(thread, IssueLinkFailedError);
         const target = yield* resolveIssueTarget(input, project);
+        // GitHub serves a pull request at its /issues/ URL too. An unanswered lookup links
+        // anyway, so a network or auth failure never blocks linking.
+        const isPullRequest = yield* gitHubIssues
+          .isPullRequest(target)
+          .pipe(Effect.orElseSucceed(() => false));
+        if (isPullRequest) {
+          return yield* new IssueIsPullRequestError({
+            url: target.url.replace(/\/issues\/(\d+)$/u, "/pull/$1"),
+          });
+        }
         const rejection = yield* engine
           .dispatch({
             type: "thread.issue.link",

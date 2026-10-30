@@ -1,5 +1,6 @@
 import {
   EnvironmentId,
+  GitHubIssueOperationError,
   ProjectId,
   ProviderInstanceId,
   SourceControlProviderKind,
@@ -20,6 +21,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { McpServer, type Tool } from "effect/ai";
 
+import * as GitHubIssueService from "../../../githubIssue/GitHubIssueService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -145,6 +147,7 @@ interface HarnessOptions {
   readonly threadAfterDispatch?: OrchestrationV2ThreadShell | null;
   readonly otherThread?: OrchestrationV2ThreadShell;
   readonly scope?: McpInvocationContext.McpInvocationScope;
+  readonly isPullRequest?: GitHubIssueService.GitHubIssueService["Service"]["isPullRequest"];
 }
 
 /** The thread shell reads see; dispatch may replace it. */
@@ -172,6 +175,9 @@ function harnessDependencies(
               : null,
         ),
       dispatch,
+    }),
+    Layer.mock(GitHubIssueService.GitHubIssueService)({
+      isPullRequest: options.isPullRequest ?? (() => Effect.succeed(false)),
     }),
     Layer.succeed(Crypto.Crypto, testCrypto),
     McpToolAccessTestkit.liveThreadsLayer,
@@ -428,6 +434,34 @@ describe("issue toolkit handlers", () => {
       expect(hostless).toMatchObject({ _tag: "IssueHostRequiredError" });
       expect(yield* Ref.get(harness.commands)).toEqual([]);
       expect(yield* Ref.get(offGitHub.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses a pull request number, and links when GitHub cannot answer", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        isPullRequest: (key) =>
+          key.number === 9
+            ? Effect.succeed(true)
+            : Effect.fail(
+                new GitHubIssueOperationError({ operation: "isPullRequest", detail: "offline" }),
+              ),
+      });
+      const error = yield* harness
+        .call("link_issue", { url: "https://github.com/t3tools/t3code/issues/9" })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "IssueIsPullRequestError",
+        url: "https://github.com/t3tools/t3code/pull/9",
+      });
+      const linked = yield* harness.call("link_issue", {
+        repository: "t3tools/t3code",
+        number: 10,
+      });
+      expect(linked.alreadyLinked).toBe(false);
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.issue.link", number: 10 },
+      ]);
     }),
   );
 

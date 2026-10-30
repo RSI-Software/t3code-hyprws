@@ -9,6 +9,7 @@ import type {
   GitHubIssueRef,
   GitHubIssueSetStateInput,
   OrchestrationProjectShell,
+  ThreadIssueKey,
 } from "@t3tools/contracts";
 import {
   GitHubIssueCliMissingError as GitHubIssueCliMissingErrorClass,
@@ -57,6 +58,7 @@ const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body parent { number tit
 const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!,$type:SearchType!){search(query:$query,type:$type,first:$first){nodes{... on Issue{${ISSUE_BASE_SELECTION} comments{totalCount}}}}}`;
 const ISSUE_DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_DETAIL_SELECTION}}}}`;
 const ISSUE_SUMMARY_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_SUMMARY_SELECTION}}}}`;
+const ISSUE_OR_PULL_REQUEST_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issueOrPullRequest(number:$number){__typename}}}`;
 const ISSUE_ID_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id}}}`;
 const CLOSE_ISSUE_MUTATION = `mutation($issueId:ID!,$stateReason:IssueCloseReason){closeIssue(input:{issueId:$issueId,stateReason:$stateReason}){issue{id}}}`;
 const REOPEN_ISSUE_MUTATION = `mutation($issueId:ID!){reopenIssue(input:{issueId:$issueId}){issue{id}}}`;
@@ -122,6 +124,15 @@ const IssueIdEnvelope = Schema.Struct({
     ),
   }),
 });
+const IssueOrPullRequestEnvelope = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({
+        issueOrPullRequest: Schema.NullOr(Schema.Struct({ __typename: Schema.String })),
+      }),
+    ),
+  }),
+});
 const MutationEnvelope = Schema.Struct({
   data: Schema.Struct({
     closeIssue: Schema.optional(
@@ -136,6 +147,9 @@ const MutationEnvelope = Schema.Struct({
 const decodeSearchEnvelope = Schema.decodeSync(Schema.fromJsonString(SearchEnvelope));
 const decodeDetailEnvelope = Schema.decodeSync(Schema.fromJsonString(DetailEnvelope));
 const decodeSummaryEnvelope = Schema.decodeSync(Schema.fromJsonString(SummaryEnvelope));
+const decodeIssueOrPullRequestEnvelope = Schema.decodeSync(
+  Schema.fromJsonString(IssueOrPullRequestEnvelope),
+);
 const decodeIssueIdEnvelope = Schema.decodeSync(Schema.fromJsonString(IssueIdEnvelope));
 const decodeMutationEnvelope = Schema.decodeSync(Schema.fromJsonString(MutationEnvelope));
 
@@ -164,6 +178,8 @@ export class GitHubIssueService extends Context.Service<
       input: GitHubIssueRef,
     ) => Effect.Effect<GitHubIssueSummary, GitHubIssueError>;
     readonly setState: (input: GitHubIssueSetStateInput) => Effect.Effect<void, GitHubIssueError>;
+    /** Issues and pull requests share one number sequence; true when this number is a pull request. */
+    readonly isPullRequest: (input: ThreadIssueKey) => Effect.Effect<boolean, GitHubIssueError>;
   }
 >()("t3/githubIssue/GitHubIssueService") {}
 
@@ -525,7 +541,28 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  return GitHubIssueService.of({ list, detail, summary, setState });
+  const isPullRequest: GitHubIssueService["Service"]["isPullRequest"] = Effect.fn(
+    "GitHubIssueService.isPullRequest",
+  )(function* (input) {
+    const body = yield* api
+      .graphql({
+        host: input.host,
+        operation: "isPullRequest",
+        query: ISSUE_OR_PULL_REQUEST_QUERY,
+        variables: {
+          owner: input.repository.split("/")[0] ?? "",
+          name: input.repository.split("/")[1] ?? "",
+          number: input.number,
+        },
+      })
+      .pipe(Effect.mapError(fromApiError("isPullRequest", input.host)));
+    const parsed = yield* Effect.try(() => decodeIssueOrPullRequestEnvelope(body)).pipe(
+      Effect.mapError((cause) => decodeError("isPullRequest", cause)),
+    );
+    return parsed.data.repository?.issueOrPullRequest?.__typename === "PullRequest";
+  });
+
+  return GitHubIssueService.of({ list, detail, summary, setState, isPullRequest });
 });
 
 export const layer = Layer.effect(GitHubIssueService, make);
