@@ -8,19 +8,19 @@ import type { RightPanelKind, RightPanelSurface, ThreadRightPanelState } from ".
 
 type ThreadUpdater = (current: ThreadRightPanelState) => ThreadRightPanelState;
 
-/** The `github-issues` hub kind, spread into upstream's ordered kind list. */
-export const githubIssueHubKindsFork = ["github-issues"] as const;
+/** The hub kinds, spread into upstream's ordered kind list: the project's issues and the thread's links. */
+export const githubIssueHubKindsFork = ["github-issues", "github-issue-links"] as const;
+type GitHubIssueHubKindFork = (typeof githubIssueHubKindsFork)[number];
 
-/** The hub tab: one singleton surface listing the project's issues beside any issue tabs. */
-export interface GitHubIssueHubSurfaceFork {
-  id: "github-issues";
-  kind: "github-issues";
-}
+/** A hub tab: one singleton surface per kind, beside any issue tabs. */
+export type GitHubIssueHubSurfaceFork =
+  | { id: "github-issues"; kind: "github-issues" }
+  | { id: "github-issue-links"; kind: "github-issue-links" };
 
-export const githubIssueHubSurfaceFork = (): GitHubIssueHubSurfaceFork => ({
-  id: "github-issues",
-  kind: "github-issues",
-});
+export const githubIssueHubSurfaceFork = (
+  kind: GitHubIssueHubKindFork,
+): GitHubIssueHubSurfaceFork =>
+  kind === "github-issues" ? { id: kind, kind } : { id: kind, kind };
 
 /** The `github-issue` member of the upstream `RightPanelSurface` union. */
 export interface GitHubIssueSurfaceFork {
