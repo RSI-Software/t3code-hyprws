@@ -9,7 +9,9 @@ import {
   ColleagueShareErrorFork,
   type ColleagueShareThreadInputFork,
   type ColleagueShareThreadResultFork,
+  ColleagueThreadMissingErrorFork,
   type ColleagueThreadSharesResultFork,
+  ColleagueUnshareErrorFork,
   type ColleagueUnshareThreadInputFork,
   EnvironmentAuthenticatedPrincipal,
   EnvironmentAuthorizationError,
@@ -19,7 +21,6 @@ import {
   type OrchestrationV2SubscribeShellInput,
   type OrchestrationV2SubscribeThreadInput,
   type OrchestrationV2ThreadStreamItem,
-  type ThreadId,
 } from "@t3tools/contracts";
 import { buildPairingAppLink } from "@t3tools/shared/remote";
 import * as Config from "effect/Config";
@@ -51,7 +52,7 @@ const colleagueSubject = (name: string) =>
     name
       .normalize("NFKC")
       .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, "-")
+      .replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
       .replace(/^-|-$/g, "") || "guest"
   }`;
 
@@ -81,7 +82,7 @@ const sharesFromRows = (rows: ReadonlyArray<ShareRow>) => {
 const sameIds = (a: ReadonlySet<string> = new Set(), b: ReadonlySet<string> = new Set()) =>
   a.size === b.size && [...a].every((id) => b.has(id));
 
-/** Narrows one shell item; a snapshot resets `projects` to the shared threads' projects. */
+/** Narrows one shell item; an authoritative snapshot resets `projects` to the shared threads'. */
 const filterShellItem = (
   share: ColleagueShare | undefined,
   projects: Set<string>,
@@ -93,6 +94,16 @@ const filterShellItem = (
       return item;
     case "snapshot": {
       const { olderSettled: _olderSettled, ...snapshot } = item.snapshot;
+      // An enrichment snapshot only refreshes project metadata and carries no threads.
+      if (item.resolvedRepositoryIdentityRoots !== undefined) {
+        return {
+          ...item,
+          snapshot: {
+            ...snapshot,
+            projects: snapshot.projects.filter((project) => projects.has(project.id)),
+          },
+        };
+      }
       const threads = snapshot.threads.filter((thread) => hasThread(thread.id));
       const archivedThreads = snapshot.archivedThreads.filter((thread) => hasThread(thread.id));
       projects.clear();
@@ -174,11 +185,14 @@ export class ColleagueSharesFork extends Context.Service<
   {
     readonly share: (
       input: ColleagueShareThreadInputFork,
-    ) => Effect.Effect<ColleagueShareThreadResultFork, ColleagueShareErrorFork>;
+    ) => Effect.Effect<
+      ColleagueShareThreadResultFork,
+      ColleagueShareErrorFork | ColleagueThreadMissingErrorFork
+    >;
     readonly threadShares: (threadId: string) => Effect.Effect<ColleagueThreadSharesResultFork>;
     readonly unshare: (
       input: ColleagueUnshareThreadInputFork,
-    ) => Effect.Effect<void, ColleagueShareErrorFork>;
+    ) => Effect.Effect<void, ColleagueUnshareErrorFork>;
     /** Narrows a colleague session's thread handlers; other sessions pass through unchanged. */
     readonly wrapHandlers: <A, E, R, SE, SR, TE, TR>(
       subject: string,
@@ -216,16 +230,12 @@ const make = Effect.gen(function* () {
   `.pipe(Effect.map(sharesFromRows));
   let current: ReadonlyMap<string, ColleagueShare> = yield* readShares.pipe(Effect.orDie);
   const ref = yield* SubscriptionRef.make(current);
-  const reload = (threadId: ThreadId) =>
-    readShares.pipe(
-      Effect.mapError(
-        (cause) => new ColleagueShareErrorFork({ operation: "read-shares", threadId, cause }),
-      ),
-      Effect.flatMap((next) => {
-        current = next;
-        return SubscriptionRef.set(ref, next);
-      }),
-    );
+  const reload = readShares.pipe(
+    Effect.flatMap((next) => {
+      current = next;
+      return SubscriptionRef.set(ref, next);
+    }),
+  );
 
   const share = Effect.fn("ColleagueSharesFork.share")(function* (
     input: ColleagueShareThreadInputFork,
@@ -239,7 +249,7 @@ const make = Effect.gen(function* () {
         ),
       );
     if (thread === null || thread.deletedAt !== null) {
-      return yield* new ColleagueShareErrorFork({ operation: "thread-missing", threadId });
+      return yield* new ColleagueThreadMissingErrorFork({ threadId });
     }
     const subject = colleagueSubject(input.colleagueName);
     const knownColleague = yield* auth.listSessions().pipe(
@@ -269,7 +279,11 @@ const make = Effect.gen(function* () {
         (cause) => new ColleagueShareErrorFork({ operation: "record-share", threadId, cause }),
       ),
     );
-    yield* reload(threadId);
+    yield* reload.pipe(
+      Effect.mapError(
+        (cause) => new ColleagueShareErrorFork({ operation: "read-shares", threadId, cause }),
+      ),
+    );
     // Pairing ignores the query, so the thread rides inside the pairing URL to the colleague's app.
     const pairing = new URL(buildPairingUrl(pairingBaseUrl, issued.credential));
     pairing.searchParams.set(COLLEAGUE_THREAD_LINK_PARAM, thread.id);
@@ -296,10 +310,23 @@ const make = Effect.gen(function* () {
     `.pipe(
       Effect.mapError(
         (cause) =>
-          new ColleagueShareErrorFork({ operation: "unshare", threadId: input.threadId, cause }),
+          new ColleagueUnshareErrorFork({
+            operation: "delete-share",
+            threadId: input.threadId,
+            cause,
+          }),
       ),
     );
-    yield* reload(input.threadId);
+    yield* reload.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ColleagueUnshareErrorFork({
+            operation: "read-shares",
+            threadId: input.threadId,
+            cause,
+          }),
+      ),
+    );
   });
 
   const isShared = (subject: string, threadId: string) =>

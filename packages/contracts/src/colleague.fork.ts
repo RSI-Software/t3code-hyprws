@@ -33,34 +33,38 @@ export const ColleagueUnshareThreadInputFork = Schema.Struct({
 });
 export type ColleagueUnshareThreadInputFork = typeof ColleagueUnshareThreadInputFork.Type;
 
-const ColleagueShareOperationFork = Schema.Literals([
-  "read-thread",
-  "thread-missing",
-  "read-shares",
-  "pair",
-  "record-share",
-  "unshare",
-]);
-
-const COLLEAGUE_SHARE_FAILURE_MESSAGES: Record<typeof ColleagueShareOperationFork.Type, string> = {
-  "read-thread": "Could not read the thread.",
-  "thread-missing": "This thread no longer exists.",
-  "read-shares": "Could not read the shares.",
-  pair: "Could not create a pairing link.",
-  "record-share": "Could not record the share.",
-  unshare: "Could not stop sharing.",
-};
+export class ColleagueThreadMissingErrorFork extends Schema.TaggedError<ColleagueThreadMissingErrorFork>()(
+  "ColleagueThreadMissingErrorFork",
+  { threadId: ThreadId },
+) {
+  override get message(): string {
+    return "This thread no longer exists.";
+  }
+}
 
 export class ColleagueShareErrorFork extends Schema.TaggedError<ColleagueShareErrorFork>()(
   "ColleagueShareErrorFork",
   {
-    operation: ColleagueShareOperationFork,
+    operation: Schema.Literals(["read-thread", "pair", "record-share", "read-shares"]),
     threadId: ThreadId,
-    cause: Schema.optional(Schema.Defect()),
+    cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    return COLLEAGUE_SHARE_FAILURE_MESSAGES[this.operation];
+    return "Could not share the thread.";
+  }
+}
+
+export class ColleagueUnshareErrorFork extends Schema.TaggedError<ColleagueUnshareErrorFork>()(
+  "ColleagueUnshareErrorFork",
+  {
+    operation: Schema.Literals(["delete-share", "read-shares"]),
+    threadId: ThreadId,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Could not stop sharing.";
   }
 }
 

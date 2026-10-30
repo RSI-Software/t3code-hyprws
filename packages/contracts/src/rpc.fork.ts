@@ -208,7 +208,9 @@ import {
   ColleagueShareThreadInputFork,
   ColleagueShareThreadResultFork,
   ColleagueThreadSharesInputFork,
+  ColleagueThreadMissingErrorFork,
   ColleagueThreadSharesResultFork,
+  ColleagueUnshareErrorFork,
   ColleagueUnshareThreadInputFork,
 } from "./colleague.fork.ts";
 
@@ -222,7 +224,11 @@ export const colleagueRpcFork = {
     Rpc.make("colleague.shareThreadFork", {
       payload: ColleagueShareThreadInputFork,
       success: ColleagueShareThreadResultFork,
-      error: Schema.Union([ColleagueShareErrorFork, EnvironmentAuthorizationError]),
+      error: Schema.Union([
+        ColleagueShareErrorFork,
+        ColleagueThreadMissingErrorFork,
+        EnvironmentAuthorizationError,
+      ]),
     }),
     Rpc.make("colleague.threadSharesFork", {
       payload: ColleagueThreadSharesInputFork,
@@ -230,7 +236,7 @@ export const colleagueRpcFork = {
     }),
     Rpc.make("colleague.unshareThreadFork", {
       payload: ColleagueUnshareThreadInputFork,
-      error: Schema.Union([ColleagueShareErrorFork, EnvironmentAuthorizationError]),
+      error: Schema.Union([ColleagueUnshareErrorFork, EnvironmentAuthorizationError]),
     }),
   ] as const,
 };

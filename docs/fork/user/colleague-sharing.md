@@ -15,7 +15,7 @@ It expires after 24 hours.
 
 ## Share more threads
 
-A colleague you have shared with before shows as **Share with <name>**.
+A colleague with at least one shared thread shows as **Share with <name>**.
 The thread appears in their sidebar right away; no new link needed.
 
 ## Stop sharing
