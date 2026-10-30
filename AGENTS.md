@@ -27,6 +27,15 @@ Correctness and client compatibility remain the baseline.
 | Windows     | Keep all-projects available; share Electron, backend, auth, providers, and state; leave placement to Hyprland            |
 | Citations   | Upstream items stay in code spans or fences; fork references use the full `RSI-Software/t3code-hyprws#108` form          |
 
+**Mobile:** we ship no mobile build; skip `apps/mobile` in the surface walk.
+Fork server and contract changes must stay usable from the stock upstream app, which simply lacks fork features.
+
+**Dev data:** default to a fresh `.t3` (`--no-seed`) with fixture projects on scratch repos, plus copied settings and secrets except `cloud-*`.
+Use real projects and threads only when the task needs them, such as reproducing or debugging a real-data issue; this overrides Test data below.
+GitHub captures, in issues and PRs, always come from fixture data.
+Pick each test thread's model before sending; never inherit the default.
+Use `Replay (dev)` unless the task needs a real agent session; then Claude Haiku or Sonnet, or Codex Luna or Terra.
+
 **Nothing is posted upstream.**
 Reads of `pingdotgg/t3code` are allowed; no PR, issue, comment, review, or reaction.
 Only the human may lift this rule; it holds until at least 2026-11-27 and may be permanent.
