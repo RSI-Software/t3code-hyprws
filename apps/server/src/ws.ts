@@ -254,6 +254,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
 import { makeWsRpcHandlersFork } from "./wsRpcHandlers.fork.ts"; // fork-hook: upstream-fixes/ws-rpc-handlers-import
+import { ColleagueSharesFork } from "./colleague/ColleagueShares.fork.ts"; // fork-hook: colleague-collab/ws-handlers-import
 import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
@@ -3527,6 +3528,10 @@ export const layerWsRpc = (
             ),
           ),
       });
+      Object.assign(
+        handlers,
+        (yield* ColleagueSharesFork).wrapHandlers(currentSession.subject, handlers),
+      ); // fork-hook: colleague-collab/ws-handlers
       const splitHandlers: Pick<typeof handlers, SplitWsRpc["_tag"]> = handlers;
       const otherHandlers: Pick<typeof handlers, Exclude<ServerWsRpc, SplitWsRpc>["_tag"]> =
         handlers;
@@ -3554,6 +3559,7 @@ export const layer = Layer.unwrap(
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const sql = yield* SqlClient.SqlClient;
     const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-route-service-yield
+    const colleaguesFork = yield* ColleagueSharesFork; // fork-hook: colleague-collab/ws-rpc-guard-service
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3591,6 +3597,7 @@ export const layer = Layer.unwrap(
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
           yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
             Effect.provideService(RpcServer.Protocol, withOutputWindow(protocol)),
+            colleaguesFork.guardRpc(session.subject), // fork-hook: colleague-collab/ws-rpc-guard
             Effect.provide(
               Layer.merge(
                 RpcAuthorization.layer(session.scopes, (method, payload) => {
