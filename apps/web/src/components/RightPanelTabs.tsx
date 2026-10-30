@@ -120,6 +120,8 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { githubIssueSurfaceActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
+import { githubIssueEmptyStateActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/empty-state-unavailable-hint
 
 export interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -175,7 +177,9 @@ export interface RightPanelTabsProps {
   /** Overrides the default reason while side chats are available but cannot start. */
   sideChatDisabledReason?: string | null;
   onAddIssues?: () => void; // fork-hook: github-issues/right-panel-issues
+  onAddIssueLinks?: () => void; // fork-hook: github-issues/right-panel-issues
   issuesAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
+  issueLinksAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -361,6 +365,7 @@ function RightPanelEmptyState(props: {
   deviceAvailable: boolean;
   sideChatAvailable: boolean;
   sideChatDisabledReason: string | null;
+  issueLaunchersFork?: Parameters<typeof githubIssueEmptyStateActionsFork>[0]; // fork-hook: github-issues/empty-state-unavailable-hint
 }) {
   const gt = useGT();
   const messages = useMessages();
@@ -415,6 +420,7 @@ function RightPanelEmptyState(props: {
       disabledReason: messages(SURFACE_UNAVAILABLE_HINTS.pullRequests),
       onClick: props.onAddPullRequests,
     },
+    ...githubIssueEmptyStateActionsFork(props.issueLaunchersFork ?? {}), // fork-hook: github-issues/empty-state-unavailable-hint
     {
       label: msg("Device"),
       description: msg("Watch an iOS Simulator or Android Emulator."),
@@ -627,6 +633,10 @@ function surfaceTitle(
     case "issue":
       // A git host numbers its issues; a tracker with keys of its own, such as Linear, names them.
       return /^\d+$/.test(surface.key) ? `#${surface.key}` : surface.key;
+    case "github-issues": // fork-hook: github-issues/panel-tab-title
+      return "Issues"; // fork-hook: github-issues/panel-tab-title
+    case "github-issue-links": // fork-hook: github-issues/panel-tab-title
+      return "Linked issues"; // fork-hook: github-issues/panel-tab-title
     case "github-issue":
       return `Issue #${surface.number}`; // fork-hook: github-issues/panel-tab-title
     case "device":
@@ -735,6 +745,10 @@ function SurfaceIcon({
       return <MessagesSquare className="size-3 shrink-0" />;
     case "github-issue":
       return <CircleDot className="size-3 shrink-0 text-muted-foreground" />; // fork-hook: github-issues/panel-tab-status-icon
+    case "github-issues": // fork-hook: github-issues/panel-tab-status-icon
+      return <CircleDot className="size-3 shrink-0" />; // fork-hook: github-issues/panel-tab-status-icon
+    case "github-issue-links": // fork-hook: github-issues/panel-tab-status-icon
+      return <PullRequestGlyph.link className="size-3 shrink-0" />; // fork-hook: github-issues/panel-tab-status-icon
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1278,6 +1292,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: messages(SURFACE_DISABLED_REASONS.pullRequests),
       onClick: props.onAddPullRequests,
     },
+    ...githubIssueSurfaceActionsFork(props), // fork-hook: github-issues/right-panel-issues
     {
       label: msg("Device"),
       icon: Smartphone,
@@ -1731,6 +1746,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             deviceAvailable={props.deviceAvailable}
             sideChatAvailable={props.sideChatAvailable === true}
             sideChatDisabledReason={props.sideChatDisabledReason ?? null}
+            issueLaunchersFork={props} // fork-hook: github-issues/empty-state-unavailable-hint
           />
         ) : (
           props.children
