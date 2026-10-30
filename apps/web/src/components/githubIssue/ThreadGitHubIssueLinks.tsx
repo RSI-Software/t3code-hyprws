@@ -3,36 +3,83 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
-import { CircleHelpIcon, PlusIcon, RefreshCwIcon, UnlinkIcon } from "lucide-react";
+import {
+  ArrowUpRightIcon,
+  CircleHelpIcon,
+  LinkIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  RefreshCwIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useRightPanelStore } from "../../rightPanelStore";
+import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
+import { useOpenPrLink } from "~/lib/openPullRequestLink";
+import { cn } from "~/lib/utils";
+import { RelativeTime } from "~/components/RelativeTime";
 import { useServerConfigs, useThreadShell } from "../../state/entities";
 import { githubIssueEnvironment } from "../../state/githubIssues";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   PULL_REQUEST_ROW_CLASS,
   PULL_REQUEST_ROW_NUMBER_CLASS,
+  PullRequestRowLines,
 } from "../pullRequest/PullRequestListRow";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { Button } from "../ui/button";
-import { Separator } from "../ui/separator";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { MiddleTruncate } from "../ui/middle-truncate";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
 import { openLinkGitHubIssueDialog } from "./LinkGitHubIssueDialog";
 
-/**
- * The issues a thread links, above the issue list of that thread's panel: each opens its detail
- * beside the thread and can be unlinked. Nothing shows where the thread's environment keeps no
- * links or the thread has not been sent yet.
- */
+const SOURCE_LABELS: Record<ThreadIssueLink["source"], string> = {
+  manual: "Linked by you",
+  handoff: "Linked when work started",
+  agent: "Linked by the agent",
+};
+
+const linkKey = (link: ThreadIssueLink) => `${link.host}/${link.repository}#${link.number}`;
+
+function latestSyncedAt(links: ReadonlyArray<ThreadIssueLink>): string | null {
+  let latest: string | null = null;
+  for (const link of links) {
+    const at = link.snapshot?.syncedAt;
+    if (at !== undefined && (latest === null || at > latest)) latest = at;
+  }
+  return latest;
+}
+
+function reportFailure(title: string, result: Parameters<typeof squashAtomCommandFailure>[0]) {
+  const failure = squashAtomCommandFailure(result);
+  toastManager.add({
+    type: "error",
+    title,
+    description: failure instanceof Error ? failure.message : undefined,
+  });
+}
+
+/** The thread's Linked issues panel, laid out like its Linked pull requests panel. */
 export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const supported =
     useServerConfigs().get(threadRef.environmentId)?.environment.capabilities.threadIssues === true;
-  const thread = useThreadShell(supported ? threadRef : null);
+  if (!supported) {
+    return (
+      <PullRequestsUnavailableState
+        title="Linked issues unavailable"
+        error="This environment does not keep linked issues."
+      />
+    );
+  }
+  return <EnabledThreadGitHubIssueLinks threadRef={threadRef} />;
+}
+
+function EnabledThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
+  const thread = useThreadShell(threadRef);
   const unlink = useAtomCommand(githubIssueEnvironment.unlinkFromThread, { reportFailure: false });
   const sync = useAtomCommand(githubIssueEnvironment.syncThreadLinks, { reportFailure: false });
-  const [pending, setPending] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const loaded = thread !== null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server to reread stale GitHub links once per thread per mount; it skips fresh ones.
@@ -43,11 +90,12 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
       input: { threadId: threadRef.threadId, scope: "stale" },
     });
   }, [loaded, sync, threadRef.environmentId, threadRef.threadId]);
-  if (thread === null) return null;
-  const links = thread.issues ?? [];
+  const links = thread?.issues ?? [];
+  const openCount = links.filter((link) => link.snapshot?.state === "open").length;
+  const lastSynced = latestSyncedAt(links);
+  const openLinkDialog = () => openLinkGitHubIssueDialog(threadRef);
 
   const unlinkIssue = async (link: ThreadIssueLink) => {
-    setPending(true);
     const result = await unlink({
       environmentId: threadRef.environmentId,
       input: {
@@ -57,14 +105,8 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
         number: link.number,
       },
     });
-    setPending(false);
     if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
-    const failure = squashAtomCommandFailure(result);
-    toastManager.add({
-      type: "error",
-      title: `Could not unlink issue #${link.number}`,
-      description: failure instanceof Error ? failure.message : undefined,
-    });
+    reportFailure(`Could not unlink issue #${link.number}`, result);
   };
 
   const refresh = async () => {
@@ -75,21 +117,48 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
     });
     setRefreshing(false);
     if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
-    const failure = squashAtomCommandFailure(result);
-    toastManager.add({
-      type: "error",
-      title: "Could not refresh linked issues",
-      description: failure instanceof Error ? failure.message : undefined,
-    });
+    reportFailure("Could not refresh linked issues", result);
   };
 
+  if (links.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+        <PullRequestGlyph.link aria-hidden className="size-6 text-muted-foreground/60" />
+        <p className="text-sm font-medium">No linked issues</p>
+        <p className="max-w-60 text-xs text-muted-foreground">
+          Issues this thread works on land here. Link one yourself from a URL or a number.
+        </p>
+        <Button size="sm" variant="outline" onClick={openLinkDialog}>
+          <PlusIcon className="size-3.5" />
+          Link issue
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <section aria-label="Issues linked to this thread">
-      <div className="flex items-center gap-2 px-3 pb-1 font-medium text-muted-foreground/70 text-xs">
-        <h2 className="shrink-0">Linked to this thread</h2>
-        <span className="shrink-0 tabular-nums text-muted-foreground/50">{links.length}</span>
-        <Separator className="min-w-2 flex-1" />
-        {links.length > 0 ? (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
+        {links.map((link) => (
+          <IssueLinkRow
+            key={linkKey(link)}
+            link={link}
+            threadRef={threadRef}
+            onUnlink={(target) => void unlinkIssue(target)}
+          />
+        ))}
+      </div>
+      <footer className="flex items-center justify-between border-t border-border/60 px-2 py-1.5 text-2xs text-muted-foreground">
+        <span>
+          {openCount} open · {links.length} linked
+          {lastSynced ? (
+            <>
+              {" · synced "}
+              <RelativeTime timestamp={lastSynced} />
+            </>
+          ) : null}
+        </span>
+        <span className="flex items-center gap-0.5">
           <Button
             size="icon-xs"
             variant="ghost"
@@ -97,68 +166,130 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
             disabled={refreshing}
             onClick={() => void refresh()}
           >
-            <RefreshCwIcon />
+            <RefreshCwIcon className="size-3.5" />
           </Button>
-        ) : null}
-        <Button
-          size="xs"
-          variant="ghost"
-          aria-label="Link an issue to this thread"
-          onClick={() => openLinkGitHubIssueDialog(threadRef)}
+          <Button size="xs" variant="ghost" onClick={openLinkDialog}>
+            <PlusIcon className="size-3.5" />
+            Link
+          </Button>
+        </span>
+      </footer>
+    </div>
+  );
+}
+
+function IssueLinkRow({
+  link,
+  threadRef,
+  onUnlink,
+}: {
+  readonly link: ThreadIssueLink;
+  readonly threadRef: ScopedThreadRef;
+  readonly onUnlink: (link: ThreadIssueLink) => void;
+}) {
+  const openLink = useOpenPrLink(threadRef);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const menuAnchor = menuPosition
+    ? { getBoundingClientRect: () => new DOMRect(menuPosition.x, menuPosition.y, 0, 0) }
+    : undefined;
+  return (
+    <div
+      className={cn(PULL_REQUEST_ROW_CLASS, "relative pl-2 hover:bg-accent/60")}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuPosition({ x: event.clientX, y: event.clientY });
+        setMenuOpen(true);
+      }}
+    >
+      <IssueLinkStateGlyph link={link} />
+      <a
+        href={link.url}
+        onClick={(event) => openLink(event, link.url, threadRef)}
+        className="flex min-w-0 flex-1"
+      >
+        <PullRequestRowLines
+          number={
+            <Tooltip>
+              <TooltipTrigger render={<span className={PULL_REQUEST_ROW_NUMBER_CLASS} />}>
+                #{link.number}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {SOURCE_LABELS[link.source]} · <RelativeTime timestamp={link.linkedAt} />
+              </TooltipPopup>
+            </Tooltip>
+          }
+          title={link.snapshot?.title ?? link.repository}
+          meta={
+            <Tooltip>
+              <TooltipTrigger render={<span className="flex min-w-0 max-w-40 font-mono" />}>
+                <MiddleTruncate value={link.repository} showTitle={false} />
+              </TooltipTrigger>
+              <TooltipPopup>
+                {link.host}/{link.repository}
+              </TooltipPopup>
+            </Tooltip>
+          }
+        />
+      </a>
+      <span
+        className={cn(
+          "absolute right-0 bottom-0.5 flex items-center rounded-r-md bg-background pr-1 pl-5",
+          "[mask-image:linear-gradient(to_right,transparent,black_1rem)]",
+          // Hidden controls would intercept link taps on touch screens.
+          "pointer-events-none opacity-0 group-hover/pr-row:pointer-events-auto group-hover/pr-row:opacity-100",
+          "has-[[data-popup-open]]:pointer-events-auto has-[[data-popup-open]]:opacity-100",
+          "has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100",
+        )}
+      >
+        <span aria-hidden className="absolute inset-0 bg-accent/60" />
+        <Menu
+          open={menuOpen}
+          onOpenChange={(open) => {
+            setMenuOpen(open);
+            if (!open) setMenuPosition(null);
+          }}
         >
-          <PlusIcon className="size-3" />
-          Link
-        </Button>
-      </div>
-      {links.length === 0 ? (
-        <p className="px-3 pb-1 text-muted-foreground text-xs">
-          No issues linked. Work on an issue, or link one by URL or number.
-        </p>
-      ) : (
-        <ul className="space-y-0.5">
-          {links.map((link) => (
-            <li
-              key={`${link.host}/${link.repository}#${link.number}`}
-              className="flex items-center"
-            >
-              <button
-                type="button"
-                className={`${PULL_REQUEST_ROW_CLASS} min-w-0 flex-1 px-2 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset`}
-                onClick={() =>
-                  useRightPanelStore.getState().openGitHubIssue(threadRef, {
-                    environmentId: threadRef.environmentId,
-                    projectId: thread.projectId,
-                    repository: link.repository,
-                    number: link.number,
-                  })
-                }
-              >
-                <ThreadIssueLinkStateGlyph link={link} />
-                <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{link.number}</span>
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {link.snapshot?.title ?? link.repository}
-                </span>
-              </button>
+          <MenuTrigger
+            render={
               <Button
-                size="icon-xs"
                 variant="ghost"
-                className="shrink-0"
-                aria-label={`Unlink issue #${link.number} from this thread`}
-                disabled={pending}
-                onClick={() => void unlinkIssue(link)}
+                size="icon-micro"
+                aria-label={`Actions for #${link.number}`}
+                className="relative"
               >
-                <UnlinkIcon />
+                <MoreHorizontalIcon className="size-3.5" />
               </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+            }
+          />
+          <MenuPopup
+            anchor={menuAnchor}
+            align={menuPosition ? "start" : "end"}
+            side="bottom"
+            sideOffset={menuPosition ? 0 : 4}
+          >
+            <MenuItem onClick={() => void writeTextToClipboard(link.url, "link")}>
+              <LinkIcon className="size-3.5" />
+              Copy link
+            </MenuItem>
+            <MenuItem onClick={(event) => openLink(event, link.url, threadRef)}>
+              <ArrowUpRightIcon className="size-3.5" />
+              Open
+            </MenuItem>
+            <MenuItem onClick={() => onUnlink(link)}>
+              <PullRequestGlyph.unlink className="size-3.5" />
+              Unlink from thread
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      </span>
+    </div>
   );
 }
 
 /** A link without a successful read says so, rather than passing for an open issue. */
-function ThreadIssueLinkStateGlyph({ link }: { readonly link: ThreadIssueLink }) {
+function IssueLinkStateGlyph({ link }: { readonly link: ThreadIssueLink }) {
   if (link.snapshot !== null) {
     return (
       <GitHubIssueStateGlyph
