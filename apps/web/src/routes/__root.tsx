@@ -32,6 +32,7 @@ import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAp
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ThreadGroupsSyncFork } from "../components/ThreadGroupsSyncFork"; // fork-hook: thread-ordering/thread-groups-sync-import
+import { ColleagueShareDialogHostFork } from "../components/colleague/ColleagueShareDialog.fork"; // fork-hook: colleague-collab/share-dialog-import
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { ConnectDeviceApprovalCoordinator } from "../components/ConnectDeviceApprovalCoordinator";
@@ -196,6 +197,7 @@ function RootRouteBranch() {
       <ConfirmDialogHost />
       <CustomSnoozeDialogHost />
       <GuestShareDialogHost />
+      <ColleagueShareDialogHostFork /> {/* fork-hook: colleague-collab/share-dialog */}
       <ProjectCloneToastCoordinator />
       <ConnectDeviceApprovalCoordinator />
       <WindowProjectsPublishFork /> {/* fork-hook: multi-window/window-projects-publish */}
