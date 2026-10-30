@@ -109,6 +109,8 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { threadArtifactsSurfaceActionsFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/right-panel-launcher-import
+import { ThreadArtifactsTabIconFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/panel-tab-icon-import
 import { githubIssueSurfaceActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
 
 export interface RightPanelTabsProps {
@@ -161,8 +163,10 @@ export interface RightPanelTabsProps {
   sideChatDisabledReason?: string | null;
   onAddIssues?: () => void; // fork-hook: github-issues/right-panel-issues
   onAddIssueLinks?: () => void; // fork-hook: github-issues/right-panel-issues
+  onAddArtifacts?: () => void; // fork-hook: thread-artifacts/right-panel-launcher
   issuesAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
   issueLinksAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
+  artifactsAvailable?: boolean; // fork-hook: thread-artifacts/right-panel-launcher
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -604,6 +608,8 @@ function surfaceTitle(
       return "Linked issues"; // fork-hook: github-issues/panel-tab-title
     case "github-issue":
       return `Issue #${surface.number}`; // fork-hook: github-issues/panel-tab-title
+    case "thread-artifacts": // fork-hook: thread-artifacts/panel-tab-title
+      return "Artifacts"; // fork-hook: thread-artifacts/panel-tab-title
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
@@ -702,6 +708,8 @@ function SurfaceIcon({
       return <CircleDot className="size-3 shrink-0 text-muted-foreground" />; // fork-hook: github-issues/panel-tab-status-icon
     case "github-issue-links": // fork-hook: github-issues/panel-tab-status-icon
       return <PullRequestGlyph.link className="size-3 shrink-0" />; // fork-hook: github-issues/panel-tab-status-icon
+    case "thread-artifacts": // fork-hook: thread-artifacts/panel-tab-icon
+      return <ThreadArtifactsTabIconFork className="size-3 shrink-0" />; // fork-hook: thread-artifacts/panel-tab-icon
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1174,6 +1182,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddPullRequests,
     },
     ...githubIssueSurfaceActionsFork(props), // fork-hook: github-issues/right-panel-issues
+    ...threadArtifactsSurfaceActionsFork(props), // fork-hook: thread-artifacts/right-panel-launcher
     {
       label: "Device",
       icon: Smartphone,
