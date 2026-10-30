@@ -58,6 +58,7 @@ import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
+import { colleagueFrozenComposerFork } from "./colleague/colleagueFrozen.fork"; // fork-hook: colleague-collab/chat-frozen-import
 import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
@@ -3795,6 +3796,7 @@ export default function ChatView(props: ChatViewProps) {
                                 onRemoveEditingQueuedAttachment={
                                   queuedRunEdit.removeEditingAttachment
                                 }
+                                {...colleagueFrozenComposerFork(activeThread, composerBannerItems)} // fork-hook: colleague-collab/chat-frozen-composer
                               />
                             )}
                           </div>
