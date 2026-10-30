@@ -93,6 +93,15 @@ export class IssueHostRequiredError extends Schema.TaggedError<IssueHostRequired
   }
 }
 
+export class IssueIsPullRequestError extends Schema.TaggedError<IssueIsPullRequestError>()(
+  "IssueIsPullRequestError",
+  { url: Schema.String },
+) {
+  override get message(): string {
+    return `${this.url} is a pull request, not an issue. Link it with link_pull_request.`;
+  }
+}
+
 export class IssueThreadRequiredError extends Schema.TaggedError<IssueThreadRequiredError>()(
   "IssueThreadRequiredError",
   {},
@@ -144,6 +153,7 @@ export const IssueToolError = Schema.Union([
   IssueUrlInvalidError,
   IssueTargetIncompleteError,
   IssueHostRequiredError,
+  IssueIsPullRequestError,
   IssueThreadRequiredError,
   IssueThreadNotFoundError,
   IssueLinkFailedError,
