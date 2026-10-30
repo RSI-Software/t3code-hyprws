@@ -3839,7 +3839,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
   const tryAcquireSubprocessInspector = Effect.fn("terminal.tryAcquireSubprocessInspector")(
     function* () {
-      return yield* acquireSubprocessInspector.pipe(
+      return yield* acquireSubprocessInspector(
+        platform === "win32" ? CLOSE_IDLE_QUERY_TIMEOUT.win32 : CLOSE_IDLE_QUERY_TIMEOUT.posix,
+      ).pipe(
+        Effect.flatMap(({ inspector }) =>
+          Effect.map(Effect.fromResult(inspector), (inspector) => ({ inspector })),
+        ),
         Effect.asSome,
         Effect.catch((reason) =>
           Effect.logWarning("failed to snapshot processes for terminal subprocess activity", {
@@ -3848,14 +3853,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             Effect.as(
               Option.none<{
                 readonly inspector: TerminalSubprocessInspector;
-                readonly snapshotSucceeded: boolean;
               }>(),
             ),
           ),
         ),
       );
     },
-  );
+  ); // fork-hook: zmux-estate/checkout-inspector
 
   const inspectSubprocessActivity = Effect.fn("terminal.inspectSubprocessActivity")(function* (
     session: TerminalSessionState,
