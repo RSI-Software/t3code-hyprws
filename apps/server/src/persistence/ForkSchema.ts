@@ -87,6 +87,14 @@ const FORK_TABLES = [
     thread_ids_json TEXT NOT NULL,
     parent_thread_id TEXT
   )`,
+  // Threads shared with a colleague's pairing subject for the colleague-collab domain.
+  `CREATE TABLE IF NOT EXISTS fork_colleague_shares (
+    subject TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    colleague_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (subject, thread_id)
+  )`,
 ] as const;
 
 /**

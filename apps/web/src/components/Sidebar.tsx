@@ -83,6 +83,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { desktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
+import { openColleagueShareDialog } from "./colleague/colleagueShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -3005,6 +3006,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "share-guest":
             openGuestShareDialog(threadRef);
             return;
+          case "share-colleague": // fork-hook: colleague-collab/sidebar-dispatch
+            return openColleagueShareDialog(threadRef); // fork-hook: colleague-collab/sidebar-dispatch
           case "regenerate-title": {
             if (isRegeneratingTitle) return;
             const result = await updateThreadMetadata({

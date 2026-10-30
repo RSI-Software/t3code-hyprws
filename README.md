@@ -233,6 +233,14 @@ https://github.com/user-attachments/assets/46931a1e-d0f3-41d2-bf61-8fb79db19713
 
 ![A linked HTML tracker open beside its thread](https://github.com/user-attachments/assets/82265826-4ea8-42d6-a6bb-611c787c9e38)
 
+### Colleague sharing
+
+- **Share:** a thread to a colleague's own app
+- **Own server:** a pairing link, no T3 Connect
+- **Live:** more shares and stops, no new link
+- **Attributed:** messages carry their name
+- [Guide](docs/fork/user/colleague-sharing.md)
+
 ### Device approval and external agents
 
 - **Grant:** RFC 8628-style device flow

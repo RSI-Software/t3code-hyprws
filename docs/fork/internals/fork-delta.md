@@ -149,6 +149,7 @@ const trackInstaller = (install: (session: Session) => void) =>
 | [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream exposes worktree lifecycle hooks |
 | [delegated-rounds](#delegated-rounds)   | Active | core              | Upstream ships delegated follow-ups       |
 | [voice-input](#voice-input)             | Active | core              | Upstream supports external desktop STT    |
+| [colleague-collab](#colleague-collab)   | Active | core              | Upstream ships per-thread sharing         |
 
 A domain is a reason the fork exists, not a feature area.
 
@@ -969,6 +970,46 @@ Upstream desktop dictation supports configurable external transcription services
 | `apps/desktop/src/ipc/DesktopIpcHandlers.ts`               | Speaker control handlers  |
 | `packages/contracts/src/ipc.ts`                            | Speaker bridge contract   |
 | `scripts/build-desktop-artifact.ts`                        | Packaged mic permission   |
+
+## colleague-collab
+
+### Need
+
+- **Share:** one thread with a colleague's own app
+- **Own server:** no T3 Connect; a pairing link
+- **Live:** shares and stops reach their sidebar
+- **Attributed:** the agent sees who wrote each message
+
+### Shape
+
+| Aspect  | Rule                                                                                               |
+| ------- | -------------------------------------------------------------------------------------------------- |
+| Pairing | A standard-scope pairing link for subject `colleague:<slug>`; it pairs the whole environment       |
+| Storage | `fork_colleague_shares`, one row per subject and thread                                            |
+| Socket  | `ColleagueSharesFork.wrapHandlers` narrows dispatch, shell, and thread subscriptions in `ws.ts`    |
+| Stop    | Unsharing re-snapshots the colleague's shell and pauses an open thread stream; a re-share resumes  |
+| HTTP    | Colleague subjects are refused the unfiltered HTTP shell snapshot                                  |
+| Limit   | Other reads (diffs, files, search, terminals) stay environment-wide; sharing is not a sandbox      |
+| Link    | The thread id rides the pairing URL query, which pairing ignores; the desktop opens it once paired |
+
+### Retirement condition
+
+A tagged upstream release shares a single thread with another person's client and attributes their messages.
+
+### Rebase scan
+
+| Path                                                                                                                                                                                          | Why it matters                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `apps/server/src/ws.ts`                                                                                                                                                                       | Handler wrapper after the handler table            |
+| `apps/server/src/auth/RpcAuthorization.ts`, `apps/server/src/observability/RpcInstrumentation.ts`, `packages/contracts/src/clientRpcPermissions.ts`                                           | Scopes and spans for the share RPCs                |
+| `apps/server/src/orchestration-v2/http.ts`                                                                                                                                                    | HTTP shell refusal                                 |
+| `apps/server/src/server.ts`, `apps/server/src/persistence/ForkSchema.ts`                                                                                                                      | Layer and table                                    |
+| `packages/contracts/src/rpc.ts`, `packages/contracts/src/index.ts`                                                                                                                            | RPC group and export                               |
+| `apps/web/src/components/desktop/DesktopWebLinkCoordinator.tsx`                                                                                                                               | Open the shared thread after pairing               |
+| `apps/web/src/components/Sidebar.tsx`, `apps/web/src/components/threadActionMenu.logic.ts`, `apps/web/src/hooks/useThreadActionMenu.ts`                                                       | Thread menu entry                                  |
+| `apps/web/src/routes/__root.tsx`                                                                                                                                                              | Dialog host                                        |
+| `apps/server/src/wsRpcHandlers.fork.ts`, `apps/server/src/wsRpcHandlers.fork-test-harness.ts`, `packages/contracts/src/rpc.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts` | Fork files shared with other domains               |
+| `apps/server/src/colleague/**`, `apps/web/src/components/colleague/**`, `packages/contracts/src/colleague.fork.ts`, `docs/fork/user/colleague-sharing.md`                                     | Fork-only; a conflict means upstream took the path |
 
 ## Adding a domain
 
