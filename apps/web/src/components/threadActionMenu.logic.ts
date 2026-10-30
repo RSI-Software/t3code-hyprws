@@ -6,6 +6,7 @@ import { resetOrderMenuItems } from "./threadActionMenu.logic.fork"; // fork-hoo
 import type { ForkableThreadProviderState } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-state-type-import
 import { forkThreadMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-items-import
 import { openInNewWindowMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
+import { colleagueShareMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: colleague-collab/menu-items-import
 
 export type ThreadActionMenuId =
   | SidebarThreadGroupContextMenuId // fork-hook: thread-ordering/group-menu-id
@@ -19,6 +20,7 @@ export type ThreadActionMenuId =
   | "reset-order" // fork-hook: thread-ordering/reset-order-id
   | "fork" // fork-hook: thread-fork/menu-id
   | "open-in-new-window" // fork-hook: multi-window/dispatch-thread-menu-id
+  | "share-colleague" // fork-hook: colleague-collab/menu-id
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -198,6 +200,7 @@ export function buildThreadActionMenuItems(
     ...(state.canShareWithGuest
       ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
       : []),
+    ...colleagueShareMenuItems(state), // fork-hook: colleague-collab/menu-items
     ...(state.projectFilter
       ? [
           {
