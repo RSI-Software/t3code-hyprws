@@ -11,6 +11,7 @@ import { RelativeTime } from "~/components/RelativeTime";
 import { cn } from "~/lib/utils";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { THREAD_DETAILS_PANEL_LABEL_CLASS } from "../chat/threadDetailsPanelStyles";
+import { LinkedBadgeTooltipPopupFork } from "../LinkedBadgeTooltipPopup.fork";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   openThreadArtifactFork,
@@ -71,16 +72,9 @@ export function ThreadArtifactBadgeFork({
           <span className="text-secondary-label">{links.length}</span>
         </span>
       </TooltipTrigger>
-      <TooltipPopup
-        side="top"
-        sideOffset={0}
-        variant="glass"
-        className="pointer-events-auto w-80 max-w-[calc(100vw-2rem)] text-left whitespace-normal"
-      >
-        <div className="-mx-1 max-h-[calc(var(--available-height)-0.5rem-2px)] overflow-y-auto overscroll-contain px-1">
-          <ThreadArtifactsMiniListFork artifacts={links} />
-        </div>
-      </TooltipPopup>
+      <LinkedBadgeTooltipPopupFork>
+        <ThreadArtifactsMiniListFork artifacts={links} />
+      </LinkedBadgeTooltipPopupFork>
     </Tooltip>
   );
 }

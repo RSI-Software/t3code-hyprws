@@ -42,7 +42,10 @@ interface WatchedPath {
 interface WatchedDirectory {
   /** Linked paths inside it; the watcher closes with the last one. */
   readonly paths: Set<string>;
-  /** Unset while the directory cannot be watched; a later update to a link retries. */
+  /**
+   * On the directory, or while it is missing on its nearest existing ancestor. Unset when nothing
+   * can be watched; a later update to a link retries.
+   */
   watcher: ArtifactDirectoryWatcher | undefined;
 }
 
@@ -67,8 +70,7 @@ const liveLinks = (
 ): ReadonlyArray<ThreadArtifactLink> =>
   thread.archivedAt === null && thread.deletedAt === null ? (thread.artifacts ?? []) : [];
 
-/** @public */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -80,11 +82,11 @@ export const make = Effect.gen(function* () {
   const directories = new Map<string, WatchedDirectory>();
 
   const logSkipped =
-    (message: string, fields: Record<string, unknown>) =>
+    (message: string, fields: Record<string, string>) =>
     <E>(cause: Cause.Cause<E>): Effect.Effect<void, E> =>
       Cause.hasInterruptsOnly(cause)
         ? Effect.failCause(cause)
-        : Effect.logWarning(message, { ...fields, cause: Cause.pretty(cause) });
+        : Effect.logWarning(message, cause).pipe(Effect.annotateLogs(fields));
 
   const closeWatcher = (directory: WatchedDirectory) => {
     const watcher = directory.watcher;
@@ -107,23 +109,14 @@ export const make = Effect.gen(function* () {
     if (entry === undefined) return;
     const info = yield* fs.stat(filePath).pipe(Effect.option);
     const missing = Option.isNone(info);
-    if (missing) {
-      // A removed directory keeps no live watch; drop it so a later link update rewatches.
-      const directory = directories.get(entry.directory);
-      if (
-        directory?.watcher !== undefined &&
-        !(yield* fs.exists(entry.directory).pipe(Effect.orElseSucceed(() => false)))
-      ) {
-        closeWatcher(directory);
-      }
-    }
     const mtimeMs = Option.getOrUndefined(Option.flatMap(info, (file) => file.mtime))?.getTime();
     yield* Effect.forEach(
       [...entry.links],
       ([threadId, link]) => {
         const changed = missing
           ? !link.missing
-          : link.missing || (mtimeMs !== undefined && mtimeMs > Date.parse(link.updatedAt));
+          : // Any other mtime is a change: a replacement may carry an older one.
+            link.missing || (mtimeMs !== undefined && mtimeMs !== Date.parse(link.updatedAt));
         if (!changed) return Effect.void;
         // A missing file keeps its last known change; a present one reports its own mtime.
         const updatedAt =
@@ -168,27 +161,58 @@ export const make = Effect.gen(function* () {
       },
     );
 
-  const watch = (directoryPath: string, directory: WatchedDirectory) => {
-    try {
-      const self = path.basename(directoryPath);
-      const watcher = watchDirectory(directoryPath, (_event, filename) => {
-        // No name, or the directory's own name when it moves or goes, may touch every file.
-        const name = filename === null ? self : filename.toString();
-        for (const filePath of directory.paths) {
-          if (name === self || paths.get(filePath)?.name === name) settle(filePath);
-        }
-      });
-      // A failed watcher reports nothing more: drop it and recheck every file it covered.
-      watcher.on("error", () => {
-        if (directory.watcher !== watcher) return;
-        closeWatcher(directory);
-        for (const filePath of directory.paths) settle(filePath);
-      });
-      directory.watcher = watcher;
-      return true;
-    } catch {
-      // Typically a missing directory: its files read as missing until a link update retries.
-      return false;
+  /**
+   * Watches the directory, or while it is missing its nearest existing ancestor, which rewatches
+   * once the next missing directory appears. Returns whether the directory itself is watched.
+   */
+  const watch = (directoryPath: string, directory: WatchedDirectory): boolean => {
+    closeWatcher(directory);
+    const self = path.basename(directoryPath);
+    const checkAll = () => {
+      for (const filePath of directory.paths) settle(filePath);
+    };
+    let target = directoryPath;
+    let next = self;
+    for (;;) {
+      const ancestor = target !== directoryPath;
+      const expected = next;
+      const targetName = path.basename(target);
+      try {
+        const watcher = watchDirectory(target, (_event, filename) => {
+          if (directory.watcher !== watcher) return;
+          const name = filename?.toString() ?? expected;
+          if (ancestor) {
+            // The next directory appeared, or the ancestor itself moved or went.
+            if ((name === expected || name === targetName) && watch(directoryPath, directory)) {
+              checkAll();
+            }
+            return;
+          }
+          // No name, or the directory's own name when it moves or goes, may touch every file.
+          if (name === self) {
+            watch(directoryPath, directory);
+            checkAll();
+            return;
+          }
+          for (const filePath of directory.paths) {
+            if (paths.get(filePath)?.name === name) settle(filePath);
+          }
+        });
+        // A failed watcher reports nothing more: drop it and recheck every file it covered.
+        watcher.on("error", () => {
+          if (directory.watcher !== watcher) return;
+          closeWatcher(directory);
+          checkAll();
+        });
+        directory.watcher = watcher;
+        return !ancestor;
+      } catch {
+        // Typically a missing directory: fall back to its parent.
+        const parent = path.dirname(target);
+        if (parent === target) return false;
+        next = path.basename(target);
+        target = parent;
+      }
     }
   };
 

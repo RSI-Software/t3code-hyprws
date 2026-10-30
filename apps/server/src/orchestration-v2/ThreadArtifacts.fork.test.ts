@@ -112,11 +112,22 @@ it.layer(layer)("thread artifact links on Orchestrator V2", (it) => {
       assert.deepStrictEqual(yield* artifacts, linked);
       assert.deepStrictEqual(yield* shellArtifacts, linked);
       const before = yield* sequence;
-      const error = yield* orchestrator
-        .dispatch(link("Notes", "manual", "notes/tracker.html"))
-        .pipe(Effect.flip);
-      assert.instanceOf(error, Orchestrator.OrchestratorDispatchError);
+      for (const refused of ["notes/tracker.html", "//host/share/tracker.html"]) {
+        const error = yield* orchestrator
+          .dispatch(link("Notes", "manual", refused))
+          .pipe(Effect.flip);
+        assert.instanceOf(error, Orchestrator.OrchestratorDispatchError);
+      }
       assert.strictEqual(yield* sequence, before);
+
+      // A Windows drive path is a host path too, normalized the Windows way.
+      yield* orchestrator.dispatch(link("Plan", "agent", "C:/notes/./plan.md"));
+      assert.strictEqual((yield* artifacts)?.[1]?.path, "C:\\notes\\plan.md");
+      yield* orchestrator.dispatch({
+        ...unlink,
+        commandId: commandId(),
+        path: "C:\\notes\\plan.md",
+      });
 
       // The watcher records a change and a disappearance; a repeat observation is a no-op.
       yield* orchestrator.dispatch(observe(at(15), true));

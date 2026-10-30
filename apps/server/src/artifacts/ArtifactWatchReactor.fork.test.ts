@@ -29,6 +29,7 @@ import {
 } from "./ArtifactDirectoryWatch.fork.ts";
 import * as ArtifactWatchReactor from "./ArtifactWatchReactor.fork.ts";
 
+const EARLIER = "2026-10-29T10:00:00.000Z";
 const T0 = "2026-10-30T10:00:00.000Z";
 const T1 = "2026-10-30T10:05:00.000Z";
 const T2 = "2026-10-30T10:10:00.000Z";
@@ -149,7 +150,6 @@ const makeHarness = Effect.fn("makeArtifactWatchHarness")(function* (options: {
               mtime: Option.some(DateTime.toDateUtc(DateTime.makeUnsafe(mtime))),
             } as unknown as FileSystem.File.Info);
       },
-      exists: (path) => Effect.succeed(directories.has(path)),
     }),
     Path.layer,
     Layer.succeed(ServerActivation, Deferred.await(activation)),
@@ -211,8 +211,17 @@ describe("ArtifactWatchReactor", () => {
 
         fixture.files.set("/docs/b.md", Date.parse(T2));
         yield* fixture.change("/docs", "b.md", "b.md", "other.txt", "b.md");
+        // A replacement carrying an older mtime, as `cp -p` leaves, is a change too.
+        fixture.files.set("/docs/a.html", Date.parse(EARLIER));
+        yield* fixture.change("/docs", "a.html");
         assert.deepStrictEqual(fixture.observed.slice(1).map(summary), [
           { threadId: ThreadId.make("b"), path: "/docs/b.md", updatedAt: T2, missing: false },
+          {
+            threadId: ThreadId.make("a"),
+            path: "/docs/a.html",
+            updatedAt: EARLIER,
+            missing: false,
+          },
         ]);
       }),
     ),
@@ -244,11 +253,19 @@ describe("ArtifactWatchReactor", () => {
           ],
         );
 
-        // A removed directory drops its dead watch.
+        // A removed directory hands its watch to its parent until it is recreated.
+        fixture.directories.add("/");
         fixture.files.delete("/docs/a.html");
         fixture.directories.delete("/docs");
-        yield* fixture.change("/docs", "a.html");
-        assert.deepStrictEqual(fixture.openWatches(), []);
+        yield* fixture.change("/docs", "docs");
+        assert.deepStrictEqual(fixture.openWatches(), ["/"]);
+        fixture.directories.add("/docs");
+        fixture.files.set("/docs/a.html", Date.parse(T2));
+        yield* fixture.change("/", "other", "docs");
+        assert.deepStrictEqual(fixture.openWatches(), ["/docs"]);
+        assert.deepStrictEqual(fixture.observed.slice(2).map(summary), [
+          { threadId: ThreadId.make("a"), path: "/docs/a.html", updatedAt: T2, missing: false },
+        ]);
       }),
     ),
   );

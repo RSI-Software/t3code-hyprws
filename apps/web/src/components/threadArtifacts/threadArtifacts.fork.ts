@@ -1,6 +1,6 @@
 // Fork-owned client logic for thread artifact links: the files an agent writes and links to a
 // thread. Upstream modules reach this only through marked hook lines.
-import { scopedThreadKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   CommandId,
   type EnvironmentId,
@@ -9,20 +9,23 @@ import {
   type ThreadArtifactLink,
 } from "@t3tools/contracts";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
+import {
+  isWorkspaceImagePreviewPath,
+  isWorkspaceVideoPreviewPath,
+} from "@t3tools/shared/filePreview";
 import { workspaceRelativeFilePath } from "@t3tools/shared/path";
 import { FileStackIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useAssetUrlRefresh } from "~/assets/assetUrls";
 import { isBrowserPreviewFile } from "~/browser/openFileInPreview";
-import { useClientSettings, useClientSettingsHydrated } from "../../hooks/useSettings";
+import { useProactiveLinkedPanelFork } from "../../hooks/useProactiveLinkedPanel.fork";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { randomUUID } from "../../lib/utils";
 import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
 import { useProject, useQuietThreadShell, useThreadShell } from "../../state/entities";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { observeProactivePanelUserChoice } from "../ChatView.logic";
 import { workspaceAssetResource } from "../files/filePreviewMode";
 
 export const ThreadArtifactsTabIconFork = FileStackIcon;
@@ -84,14 +87,7 @@ export const threadArtifactsSurfaceActionsFork = (props: ThreadArtifactsLauncher
     },
   ] as const;
 
-// Settings and drafts unmount ChatView; remember links until the page reloads.
-const observedThreadArtifacts = new Map<
-  string,
-  {
-    readonly paths: ReadonlySet<string>;
-    readonly choice: ReturnType<typeof observeProactivePanelUserChoice>;
-  }
->();
+const ARTIFACTS_SURFACE = { id: "thread-artifacts", kind: "thread-artifacts" } as const;
 
 /** Launcher props, plus opening the Artifacts tab when the thread gains a link, like Linked issues. */
 export function useThreadArtifactsPanelFork(
@@ -100,48 +96,24 @@ export function useThreadArtifactsPanelFork(
 ): ThreadArtifactsLauncherPropsFork {
   const thread = useThreadShell(threadRef);
   const artifactsAvailable = (thread?.artifacts?.length ?? 0) > 0;
-  const sent = thread !== null;
   const onAddArtifacts = useStableCallback(() => {
     if (!threadRef || !artifactsAvailable) return;
     useRightPanelStore.getState().open(threadRef, "thread-artifacts");
   });
-  const proactiveSetting = useClientSettings((settings) => settings.proactivePanelsEnabled);
-  const proactive = proactiveSetting && proactiveGate.allowed;
-  const { runningTurnId } = proactiveGate;
-  const settingsHydrated = useClientSettingsHydrated();
-  // A NUL never appears in a path, so it separates them losslessly.
-  const linkPaths = (thread?.artifacts ?? []).map((link) => link.path).join("\0");
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the Artifacts tab in the right panel store when the thread gains a link
-  useEffect(() => {
-    if (threadRef === null || !sent) return;
-    const threadKey = scopedThreadKey(threadRef);
-    const panels = useRightPanelStore.getState();
-    const paths = new Set(linkPaths === "" ? [] : linkPaths.split("\0"));
-    const previous = observedThreadArtifacts.get(threadKey);
-    // A panel the user opened or closed since the turn began wins over a new link.
-    const choice = observeProactivePanelUserChoice(previous?.choice ?? null, {
-      threadKey,
-      runningTurnId,
-      userActionRevision: panels.getUserActionRevision(threadRef),
-    });
-    observedThreadArtifacts.set(threadKey, { paths, choice });
-    // The first sight of a thread records its links; only a link added while watching opens.
-    if (previous === undefined || !proactive || !settingsHydrated) return;
-    if (![...paths].some((path) => !previous.paths.has(path))) return;
-    panels.openProactive(
-      threadRef,
-      { id: "thread-artifacts", kind: "thread-artifacts" },
-      choice.userActionRevision,
-      true,
-    );
-  }, [linkPaths, proactive, runningTurnId, sent, settingsHydrated, threadRef]);
+  useProactiveLinkedPanelFork(
+    ARTIFACTS_SURFACE,
+    threadRef,
+    thread === null ? null : (thread.artifacts ?? []).map((link) => link.path),
+    proactiveGate,
+  );
   return { onAddArtifacts, artifactsAvailable };
 }
 
 /**
  * Folds a linked file's `updatedAt` into the file surface's workspace revision, so an open
- * artifact re-reads when the watcher sees it change. A host HTML URL is pinned to the file's
- * inode, so it is re-minted before the revision moves; an atomic rewrite would otherwise 404.
+ * artifact re-reads when the watcher sees it change. A host HTML, PDF, or image URL is pinned to
+ * the file's inode and cached, so it is re-minted before the revision moves; an atomic rewrite
+ * would otherwise 404. Video, audio, and documents already re-mint per revision.
  */
 export function useThreadArtifactFileRevisionFork(props: {
   readonly surface: RightPanelSurface | null;
@@ -158,10 +130,13 @@ export function useThreadArtifactFileRevisionFork(props: {
   const thread = useQuietThreadShell(surface === null ? null : props.threadRef);
   const updatedAt =
     thread?.artifacts?.find((link) => link.path === absolutePath)?.updatedAt ?? null;
-  const html = absolutePath !== null && isBrowserPreviewFile(absolutePath);
+  const pinned =
+    absolutePath !== null &&
+    (isBrowserPreviewFile(absolutePath) ||
+      (!isWorkspaceVideoPreviewPath(absolutePath) && isWorkspaceImagePreviewPath(absolutePath)));
   const refreshAssetUrl = useAssetUrlRefresh(
     props.environmentId,
-    html
+    pinned
       ? workspaceAssetResource({
           kind: "workspace-file",
           threadRef: props.threadRef,
@@ -178,12 +153,12 @@ export function useThreadArtifactFileRevisionFork(props: {
     setApplied({ path: absolutePath, updatedAt });
   }
   const stale =
-    html &&
+    pinned &&
     applied.path === absolutePath &&
     applied.updatedAt !== null &&
     updatedAt !== null &&
     updatedAt !== applied.updatedAt;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-mints the HTML preview's asset URL on the server before the iframe reloads it
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-mints the pinned preview's asset URL on the server before the frame or image reloads it
   useEffect(() => {
     if (!stale) return;
     let current = true;

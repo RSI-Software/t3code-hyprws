@@ -12,6 +12,7 @@ import type {
   ThreadArtifactLink,
   ThreadId,
 } from "@t3tools/contracts";
+import { isNetworkPath } from "@t3tools/shared/path";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import type * as Ref from "effect/Ref";
@@ -41,6 +42,16 @@ const withThreadArtifacts = (
 };
 
 /**
+ * The normalized host path, POSIX or Windows drive form so the decider stays host-independent, or
+ * `null` for a relative path or a network path, which would sign Windows in to its host.
+ */
+const normalizeArtifactPath = (value: string): string | null => {
+  if (isNetworkPath(value)) return null;
+  if (/^[a-zA-Z]:[\\/]/.test(value)) return NodePath.win32.normalize(value);
+  return NodePath.posix.isAbsolute(value) ? NodePath.posix.normalize(value) : null;
+};
+
+/**
  * The thread an artifact command leaves, `null` when it changes nothing, or the reason it is
  * refused. An unlink of an unknown path and an observation that changes nothing write no event.
  */
@@ -52,10 +63,10 @@ const decideThreadArtifactCommandFork = (
   if (thread.deletedAt !== null) {
     return { refused: `Thread ${command.threadId} is deleted.` };
   }
-  if (!NodePath.posix.isAbsolute(command.path)) {
-    return { refused: `Artifact path ${command.path} is not an absolute path.` };
+  const path = normalizeArtifactPath(command.path);
+  if (path === null) {
+    return { refused: `Artifact path ${command.path} is not an absolute local path.` };
   }
-  const path = NodePath.posix.normalize(command.path);
   const links = threadArtifactsOf(thread);
   const existing = links.find((link) => link.path === path);
   switch (command.type) {

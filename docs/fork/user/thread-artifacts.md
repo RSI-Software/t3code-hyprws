@@ -16,7 +16,8 @@ The open preview reloads when the file changes.
 ## Link and unlink
 
 Agents call `link_artifact` after writing a file.
-Any host path works, inside or outside the project, such as a scratch folder.
+Any local path on the host works, inside or outside the project, such as a scratch folder.
+Network share paths are refused.
 
 To unlink, open the Artifacts tab, then the row's menu, then **Unlink from thread**.
 Unlinking never touches the file.

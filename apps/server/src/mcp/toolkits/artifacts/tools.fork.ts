@@ -12,16 +12,22 @@ import * as Schema from "effect/Schema";
 import * as Tool from "effect/ai/Tool";
 import * as Toolkit from "effect/ai/Toolkit";
 
-import * as McpInvocationContext from "../../McpInvocationContext.ts";
-import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import {
+  ArtifactFileNotFoundError,
+  ArtifactLinkFailedError,
+  ArtifactListFailedError,
+  ArtifactNetworkPathError,
+  ArtifactNotAFileError,
+  ArtifactThreadNotFoundError,
+  ArtifactUnlinkFailedError,
+  ArtifactWorkspaceUnknownError,
+} from "../../../artifacts/ThreadArtifactService.fork.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
-import * as ProjectService from "../../../project/ProjectService.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
   ThreadManagementService.ThreadManagementService,
-  Orchestrator.OrchestratorV2,
-  ProjectService.ProjectService,
 ];
 
 const ThreadIdInput = Schema.optional(
@@ -32,33 +38,6 @@ const PathInput = TrimmedNonEmptyString.annotate({
   description: "The file's absolute path, or a path relative to the thread's workspace.",
 });
 
-export class ArtifactFileNotFoundError extends Schema.TaggedError<ArtifactFileNotFoundError>()(
-  "ArtifactFileNotFoundError",
-  { path: Schema.String },
-) {
-  override get message(): string {
-    return `No file at ${this.path}. Write the file first, then link it.`;
-  }
-}
-
-export class ArtifactNotAFileError extends Schema.TaggedError<ArtifactNotAFileError>()(
-  "ArtifactNotAFileError",
-  { path: Schema.String },
-) {
-  override get message(): string {
-    return `${this.path} is not a regular file. Link a file, not a directory.`;
-  }
-}
-
-export class ArtifactWorkspaceUnknownError extends Schema.TaggedError<ArtifactWorkspaceUnknownError>()(
-  "ArtifactWorkspaceUnknownError",
-  {},
-) {
-  override get message(): string {
-    return "This thread has no workspace to resolve a relative path against. Pass an absolute path.";
-  }
-}
-
 export class ArtifactThreadRequiredError extends Schema.TaggedError<ArtifactThreadRequiredError>()(
   "ArtifactThreadRequiredError",
   {},
@@ -68,47 +47,12 @@ export class ArtifactThreadRequiredError extends Schema.TaggedError<ArtifactThre
   }
 }
 
-export class ArtifactThreadNotFoundError extends Schema.TaggedError<ArtifactThreadNotFoundError>()(
-  "ArtifactThreadNotFoundError",
-  { threadId: Schema.String },
-) {
-  override get message(): string {
-    return `Thread ${this.threadId} was not found.`;
-  }
-}
-
-export class ArtifactLinkFailedError extends Schema.TaggedError<ArtifactLinkFailedError>()(
-  "ArtifactLinkFailedError",
-  { cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return "Could not link the artifact.";
-  }
-}
-
-export class ArtifactUnlinkFailedError extends Schema.TaggedError<ArtifactUnlinkFailedError>()(
-  "ArtifactUnlinkFailedError",
-  { cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return "Could not unlink the artifact.";
-  }
-}
-
-export class ArtifactListFailedError extends Schema.TaggedError<ArtifactListFailedError>()(
-  "ArtifactListFailedError",
-  { cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return "Could not list the thread's artifacts.";
-  }
-}
-
 export const ArtifactToolError = Schema.Union([
   OrchestratorMcpFailure,
   McpCapabilityUnavailableError,
   ArtifactFileNotFoundError,
   ArtifactNotAFileError,
+  ArtifactNetworkPathError,
   ArtifactWorkspaceUnknownError,
   ArtifactThreadRequiredError,
   ArtifactThreadNotFoundError,
