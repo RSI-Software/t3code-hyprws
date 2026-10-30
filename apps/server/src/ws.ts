@@ -246,6 +246,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
 import { makeWsRpcHandlersFork } from "./wsRpcHandlers.fork.ts"; // fork-hook: upstream-fixes/ws-rpc-handlers-import
+import { ColleagueSharesFork } from "./colleague/ColleagueShares.fork.ts"; // fork-hook: colleague-collab/ws-handlers-import
 import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
@@ -3254,6 +3255,10 @@ export const layerWsRpc = (
             ),
           ),
       });
+      Object.assign(
+        handlers,
+        (yield* ColleagueSharesFork).wrapHandlers(currentSession.subject, handlers),
+      ); // fork-hook: colleague-collab/ws-handlers
       const splitHandlers: Pick<typeof handlers, SplitWsRpc["_tag"]> = handlers;
       const otherHandlers: Pick<typeof handlers, Exclude<ServerWsRpc, SplitWsRpc>["_tag"]> =
         handlers;

@@ -83,6 +83,7 @@ export * from "./secretReference.ts";
 export * from "./clientRpcPermissions.ts";
 export * from "./textGeneration.fork.ts"; // fork-hook: thread-ordering/title-budget-export
 export * from "./threadGroups.fork.ts"; // fork-hook: thread-ordering/thread-groups-export
+export * from "./colleague.fork.ts"; // fork-hook: colleague-collab/contracts-export
 export * from "./voiceInput.fork.ts"; // fork-hook: voice-input/contracts-export
 export * from "./voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-contracts
 export * from "./terminalSession.fork.ts"; // fork-hook: zmux-estate/terminal-session-export
