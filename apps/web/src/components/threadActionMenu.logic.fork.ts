@@ -33,6 +33,15 @@ export function openInNewWindowMenuItems(
     : [];
 }
 
+/** Fork: share the thread to a colleague's app through a pairing link (colleague-collab). */
+export function colleagueShareMenuItems(
+  state: Pick<ThreadActionMenuState, "canOperate">,
+): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
+  return state.canOperate
+    ? [{ id: "share-colleague" as const, label: "Share to colleague…", icon: "user-plus" }]
+    : [];
+}
+
 export interface ForkableThreadProviderState {
   readonly provider: ProviderDriverKind;
   /** A running or queued turn or a pending request blocks the fork client-side too. */
