@@ -3765,7 +3765,9 @@ export const make = Effect.gen(function* () {
       Effect.map((subscription) => Stream.fromSubscription(subscription)),
     ),
     reportState,
-    subscribeRefreshes: pullRequestRefreshes.all, // fork-hook: upstream-fixes/pr-activity-refresh-stream
+    subscribeRefreshes: SubscriptionRef.changes(pullRequestRefreshes).pipe(
+      Stream.filter((revision) => revision > 0),
+    ),
     subscribeActivityRefreshesFork: pullRequestRefreshes.activity, // fork-hook: upstream-fixes/pr-activity-refresh-activity-stream
     refreshAfterTurn,
     detail: credentialCached(detail),
