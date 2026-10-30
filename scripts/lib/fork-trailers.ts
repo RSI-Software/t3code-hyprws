@@ -1,5 +1,6 @@
 export const FORK_DOMAINS = [
   "browser-bookmarks",
+  "colleague-collab",
   "custom-agents",
   "delegated-rounds",
   "device-auth",
