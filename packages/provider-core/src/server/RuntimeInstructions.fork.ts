@@ -8,4 +8,4 @@ export const THREAD_ISSUE_LINKING_INSTRUCTION_FORK =
 
 /** Thread ↔ artifact links (fork domain `thread-artifacts`), on the line after the issue one. */
 export const THREAD_ARTIFACT_LINKING_INSTRUCTION_FORK =
-  "When the t3-code MCP server exposes link_artifact and you write a document the user should keep seeing, such as a tracker, plan, investigation, or notes file, call link_artifact once after creating it. Later edits show automatically, so do not relink it or paste its contents into chat.";
+  "When the t3-code MCP server exposes link_artifact and you write a document the user should keep seeing, such as an HTML visualization or report, a plan, a tracker, or notes, call link_artifact once after creating it. Later edits show automatically, so do not relink it or paste its contents into chat.";

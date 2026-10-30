@@ -97,7 +97,7 @@ export type ListThreadArtifactsResult = typeof ListThreadArtifactsResult.Type;
 
 const LinkArtifactTool = Tool.make("link_artifact", {
   description:
-    "Link a document you wrote for the user to keep seeing, such as a tracker, plan, or notes file, so T3 Code shows it beside this thread. Link once after creating the file; later edits show automatically. Linking an already-linked path succeeds with alreadyLinked=true and updates its title.",
+    "Link a document you wrote for the user to keep seeing, such as an HTML visualization or report, a plan, a tracker, or notes, so T3 Code shows it beside this thread. Link once after creating the file; later edits show automatically. Linking an already-linked path succeeds with alreadyLinked=true and updates its title.",
   parameters: LinkArtifactInput,
   success: LinkArtifactResult,
   failure: ArtifactToolError,

@@ -1,6 +1,6 @@
 # Thread artifacts
 
-Agents link the documents they write to the thread: trackers, plans, investigation notes.
+Agents link the documents they write to the thread: HTML visualizations, plans, trackers, notes.
 A linked file stays one click away and shows each edit without a new chat message.
 
 ## Find them
