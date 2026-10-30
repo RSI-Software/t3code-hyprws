@@ -8,7 +8,6 @@ import {
   resolvePullRequestPreviewTarget,
 } from "@t3tools/client-runtime/change-request-links";
 
-import { pullRequestHostOf } from "@t3tools/contracts"; // fork-hook: github-issues/issue-host-import
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 
 import { canOpenLinksInApp } from "../browser/browserLinkTarget";
@@ -81,20 +80,20 @@ export function useOpenChangeRequestLink(
       // subscribing would hand every rendered link a new handler. Projects likewise, so a
       // link can resolve against a snapshot that arrived after this handler was built.
       const serverConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
-    const allProjects = readProjects(); // fork-hook: github-issues/issue-link-projects
-    if (
-      openGitHubIssueLinkFork({
-        event,
-        targetUrl,
-        resolvedThreadRef,
-        allProjects,
-        serverConfigs,
-        primaryEnvironmentId,
-        navigate,
-      })
-    ) {
-      return true;
-    } // fork-hook: github-issues/issue-link-claim
+      const allProjects = readProjects(); // fork-hook: github-issues/issue-link-projects
+      if (
+        openGitHubIssueLinkFork({
+          event,
+          targetUrl,
+          resolvedThreadRef,
+          allProjects,
+          serverConfigs,
+          primaryEnvironmentId,
+          navigate,
+        })
+      ) {
+        return true;
+      } // fork-hook: github-issues/issue-link-claim
       const target = resolveChangeRequestLinkTarget({
         url: targetUrl,
         projects: readProjects(),
@@ -102,7 +101,7 @@ export function useOpenChangeRequestLink(
         environmentId: resolvedThreadRef?.environmentId ?? targetEnvironmentId,
         primaryEnvironmentId,
         lendHostProject: resolvedPanelRef !== undefined,
-      ...linkPreferenceFork(resolvedThreadRef), // fork-hook: github-issues/change-request-preferred-project
+        ...linkPreferenceFork(resolvedThreadRef), // fork-hook: github-issues/change-request-preferred-project
       });
       if (target === null) return false;
       const { project, repository, number, host } = target;
