@@ -32,6 +32,7 @@ import { useTimelineRewind } from "./chat/useTimelineRewind";
 import { useThreadLifecycle } from "./chat/useThreadLifecycle";
 import { useRightPanelActions } from "./chat/useRightPanelActions";
 import { useIssuesPanelActionsFork } from "./chat/useRightPanelActions.fork"; // fork-hook: github-issues/add-issues-surface-import
+import { useThreadArtifactsPanelFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/artifacts-panel-import
 import { LinkGitHubIssueDialogHost } from "./githubIssue/LinkGitHubIssueDialog"; // fork-hook: github-issues/link-dialog-import
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
 import { useComposerSend } from "./chat/useComposerSend";
@@ -3239,6 +3240,10 @@ export default function ChatView(props: ChatViewProps) {
     serverConfig?.environment.capabilities,
     { runningTurnId: activeRunningTurnId, allowed: !shouldUsePlanSidebarSheet }, // fork-hook: github-issues/add-issues-surface
   ); // fork-hook: github-issues/add-issues-surface
+  const artifactsPanelActionsFork = useThreadArtifactsPanelFork(activeThreadRef, {
+    runningTurnId: activeRunningTurnId,
+    allowed: !shouldUsePlanSidebarSheet,
+  }); // fork-hook: thread-artifacts/artifacts-panel
   const addDroppedFoldersToComposer = useStableCallback(
     (folders: Parameters<ChatComposerHandle["addDroppedFolders"]>[0]) =>
       composerRef.current?.addDroppedFolders(folders),
@@ -4057,6 +4062,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           {...issuesPanelActionsFork} // fork-hook: github-issues/issues-launcher-props
+          {...artifactsPanelActionsFork} // fork-hook: thread-artifacts/artifacts-launcher-props
           onAddDevice={addDeviceSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
