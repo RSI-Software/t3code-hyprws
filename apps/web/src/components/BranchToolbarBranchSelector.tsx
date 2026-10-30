@@ -78,6 +78,7 @@ import {
 import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
 import { ComposerControl } from "./chat/ComposerControl";
 import { ThreadIssueBadgeFork } from "./githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
+import { ThreadDetailsIssueRowsFork } from "./githubIssue/ThreadDetailsIssueRows.fork"; // fork-hook: github-issues/thread-details-issue-rows-import
 import { Button } from "./ui/button"; // fork-hook: zmux-estate/branch-selector-button-import
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip"; // fork-hook: zmux-estate/branch-selector-tooltip-import
 import { MiddleTruncate } from "./ui/middle-truncate";
@@ -791,6 +792,10 @@ export function BranchToolbarBranchSelector({
         onOpenList={() => useRightPanelStore.getState().open(threadRef, "github-issue-links")}
       />
     ); // fork-hook: github-issues/thread-issue-badge
+  const issueRowsFork =
+    displayMode === "panel" ? (
+      <ThreadDetailsIssueRowsFork threadRef={threadRef} issues={serverThread?.issues} />
+    ) : null; // fork-hook: github-issues/thread-details-issue-rows
 
   return (
     <BranchPicker
@@ -937,6 +942,7 @@ export function BranchToolbarBranchSelector({
             onActed={() => branchStatusQuery.refresh()}
           />
         ) : null}
+        {issueRowsFork /* fork-hook: github-issues/thread-details-issue-rows */}
       </div>
     </BranchPicker>
   );

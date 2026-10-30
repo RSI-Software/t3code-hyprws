@@ -287,6 +287,7 @@ The `github-issue-settings-search` guard rejects adding that item back into the 
 - **UI:** mirrors linked pull requests, client-only
   - `github-issue-links` right-panel tab
   - Sidebar row and branch toolbar badges
+  - Thread-details rows and hover-card list
   - Proactive open on a new link
 
 ### Retirement condition
