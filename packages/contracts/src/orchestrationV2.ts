@@ -85,6 +85,7 @@ import {
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
 import * as ThreadIssuesFork from "./threadIssues.fork.ts"; // fork-hook: github-issues/orchestration-v2-import
+import * as ThreadArtifactsFork from "./threadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestration-v2-import
 import { ExternalSendModesFork } from "./externalMcpSend.fork.ts"; // fork-hook: device-auth/message-dispatch-expected-modes-import
 import { ThreadCheckoutMove } from "./checkoutMove.ts"; // fork-hook: zmux-estate/orchestration-v2-checkout-move-import
 
@@ -451,6 +452,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   issues: ThreadIssuesFork.ThreadIssueLinksFieldFork, // fork-hook: github-issues/app-thread-issues
+  artifacts: ThreadArtifactsFork.ThreadArtifactLinksFieldFork, // fork-hook: thread-artifacts/app-thread-artifacts
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -2053,6 +2055,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   issues: ThreadIssuesFork.ThreadIssueLinksFieldFork, // fork-hook: github-issues/thread-shell-issues
+  artifacts: ThreadArtifactsFork.ThreadArtifactLinksFieldFork, // fork-hook: thread-artifacts/thread-shell-artifacts
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
@@ -3334,6 +3337,7 @@ export const OrchestrationV2Command = Schema.Union([
     modelSelection: ModelSelection,
   }),
   ...ThreadIssuesFork.threadIssueClientCommandsFork, // fork-hook: github-issues/client-commands
+  ...ThreadArtifactsFork.threadArtifactClientCommandsFork, // fork-hook: thread-artifacts/client-commands
 ]);
 export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
 
@@ -3532,6 +3536,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     ),
   }),
   ...ThreadIssuesFork.threadIssueInternalCommandsFork, // fork-hook: github-issues/internal-commands
+  ...ThreadArtifactsFork.threadArtifactInternalCommandsFork, // fork-hook: thread-artifacts/internal-commands
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;
 

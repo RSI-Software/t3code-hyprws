@@ -14,4 +14,15 @@ describe("buildRuntimeInstructions (fork)", () => {
       instructions.indexOf("</pull_request_linking>"),
     );
   });
+
+  it("asks agents to link documents they keep updating, after the issue line", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Codex" });
+    expect(instructions).toContain("call link_artifact once after creating it");
+    expect(instructions.indexOf("link_artifact")).toBeGreaterThan(
+      instructions.indexOf("list_thread_issues"),
+    );
+    expect(instructions.indexOf("link_artifact")).toBeLessThan(
+      instructions.indexOf("</pull_request_linking>"),
+    );
+  });
 });

@@ -236,6 +236,10 @@ describe("rightPanelStore", () => {
       order: "pull-request-first",
       surface: { id: "github-issue-links", kind: "github-issue-links" } as const,
     }, // fork-hook: github-issues/right-panel-proactive-links
+    {
+      order: "pull-request-first",
+      surface: { id: "thread-artifacts", kind: "thread-artifacts" } as const,
+    }, // fork-hook: thread-artifacts/right-panel-proactive-links
   ])(
     "prioritizes $surface.kind over browser and diff with $order delivery",
     ({ order, surface }) => {

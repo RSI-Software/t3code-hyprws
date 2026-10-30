@@ -1,7 +1,7 @@
 const forkContextOverhead = {
-  claudeSystemAppendBytes: 821,
-  codexAdditionalContextBytes: 821,
-  mcpToolListJsonBytes: 4783,
+  claudeSystemAppendBytes: 1123,
+  codexAdditionalContextBytes: 1123,
+  mcpToolListJsonBytes: 5849,
 };
 
 export function subtractForkContextOverhead(measured: typeof forkContextOverhead): void {

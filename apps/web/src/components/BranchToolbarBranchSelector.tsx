@@ -79,6 +79,8 @@ import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
 import { ComposerControl } from "./chat/ComposerControl";
 import { ThreadIssueBadgeFork } from "./githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
 import { ThreadDetailsIssueRowsFork } from "./githubIssue/ThreadDetailsIssueRows.fork"; // fork-hook: github-issues/thread-details-issue-rows-import
+import { ThreadArtifactBadgeFork } from "./threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
+import { ThreadDetailsArtifactRowsFork } from "./threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-details-artifact-rows-import
 import { Button } from "./ui/button"; // fork-hook: zmux-estate/branch-selector-button-import
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip"; // fork-hook: zmux-estate/branch-selector-tooltip-import
 import { MiddleTruncate } from "./ui/middle-truncate";
@@ -796,6 +798,18 @@ export function BranchToolbarBranchSelector({
     displayMode === "panel" ? (
       <ThreadDetailsIssueRowsFork threadRef={threadRef} issues={serverThread?.issues} />
     ) : null; // fork-hook: github-issues/thread-details-issue-rows
+  const artifactBadgeFork =
+    displayMode === "panel" ? null : (
+      <ThreadArtifactBadgeFork
+        render={<ComposerControl size="xs" />}
+        artifacts={serverThread?.artifacts}
+        onOpenList={() => useRightPanelStore.getState().open(threadRef, "thread-artifacts")}
+      />
+    ); // fork-hook: thread-artifacts/thread-artifact-badge
+  const artifactRowsFork =
+    displayMode === "panel" ? (
+      <ThreadDetailsArtifactRowsFork threadRef={threadRef} artifacts={serverThread?.artifacts} />
+    ) : null; // fork-hook: thread-artifacts/thread-details-artifact-rows
 
   return (
     <BranchPicker
@@ -838,6 +852,7 @@ export function BranchToolbarBranchSelector({
           className,
         )}
       >
+        {artifactBadgeFork /* fork-hook: thread-artifacts/thread-artifact-badge */}
         {issueBadgeFork /* fork-hook: github-issues/thread-issue-badge */}
         {displayMode !== "panel" ? (
           <ThreadPullRequestBadgeControl
@@ -943,6 +958,7 @@ export function BranchToolbarBranchSelector({
           />
         ) : null}
         {issueRowsFork /* fork-hook: github-issues/thread-details-issue-rows */}
+        {artifactRowsFork /* fork-hook: thread-artifacts/thread-details-artifact-rows */}
       </div>
     </BranchPicker>
   );
