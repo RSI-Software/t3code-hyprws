@@ -27,6 +27,8 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { ThreadArtifactsPanelFork } from "../threadArtifacts/ThreadArtifactsPanel.fork"; // fork-hook: thread-artifacts/right-panel-content-import
+import { useThreadArtifactFileRevisionFork } from "../threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/file-revision-import
 import { GitHubIssueRightPanelSurfaceFork } from "../githubIssue/GitHubIssueRightPanelSurface.fork"; // fork-hook: github-issues/right-panel-content-import
 
 const PreviewPanel = lazy(() =>
@@ -86,6 +88,7 @@ export function RightPanelSurfaceContent(props: {
   readonly sideChatParentPanel: SideChatParentPanel;
 }) {
   const { surface, threadRef, visible, onCloseSurface } = props;
+  const artifactRevisionFork = useThreadArtifactFileRevisionFork(props); // fork-hook: thread-artifacts/file-revision
   const gt = useGT();
   if (surface === null) return null;
   switch (surface.kind) {
@@ -235,6 +238,8 @@ export function RightPanelSurfaceContent(props: {
           onClose={() => onCloseSurface(surface)}
         />
       );
+    case "thread-artifacts": // fork-hook: thread-artifacts/right-panel-content
+      return <ThreadArtifactsPanelFork threadRef={threadRef} />; // fork-hook: thread-artifacts/right-panel-content
     case "device":
       return (
         <Suspense fallback={null}>
@@ -285,6 +290,7 @@ export function RightPanelSurfaceContent(props: {
             onPendingChange={files.onPendingChange}
             selectedFilePending={surface.kind === "file" && files.pendingSurfaceIds.has(surface.id)}
             workspaceMutationId={props.workspaceMutationId}
+            {...artifactRevisionFork} // fork-hook: thread-artifacts/file-revision
           />
         </Suspense>
       );
