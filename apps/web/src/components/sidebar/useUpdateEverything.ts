@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import { isForkServiceVersion } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/update-everything-npm-gate-import
 
 import { APP_VERSION } from "~/branding";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
@@ -76,6 +77,8 @@ export function useUpdateEverything(
   } = channelSwitch
     ? { ...collectChannelSwitchTargets(machines, channelSwitch), waitForNpm: [] }
     : collectServerUpdateTargets(machines, targetVersion, localUpdateVersion !== null);
+  const fork = isForkServiceVersion(targetVersion); // fork-hook: distribution/update-everything-npm-gate-fork (fork releases install from GitHub)
+  if (fork) waitForNpm.splice(0); // fork-hook: distribution/update-everything-npm-gate
   const published = useNpmReleasePublished(waitForNpm.length > 0 ? targetVersion : null);
   const servers = published
     ? behindServers
