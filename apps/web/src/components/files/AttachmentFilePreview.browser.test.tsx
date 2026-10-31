@@ -1938,7 +1938,6 @@ it("clears an Office metadata error when the same URL becomes previewable", asyn
     "fetch",
     vi.fn(() => body.then((text) => new Response(text))),
   );
-  vi.mocked(fetch).mockImplementation(async () => (await response).clone()); // fork-hook: upstream-fixes/office-response-isolation
   await using screen = await render(
     <OfficeFilePreview src={src} name="report.docx" kind="docx" sizeBytes={51 * 1024 * 1024} />,
   );
