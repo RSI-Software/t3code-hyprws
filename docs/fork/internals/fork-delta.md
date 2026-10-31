@@ -700,24 +700,16 @@ A tagged upstream release ships a thread-level fork entry in the thread menu.
 
 ### Shape
 
-| Aspect  | Rule                                                                              |
-| ------- | --------------------------------------------------------------------------------- |
-| Commit  | One upstream-native commit per fix, `Fork-Tier: bugfix`, `Fork-Upstreamable: yes` |
-| Lane    | Created from `upstream/main`, so the fix carries no fork dependency               |
-| Helpers | None shared across fixes; each must drop alone                                    |
-
-### Terminal focus contract
-
-Three commits share one behavior contract while each still drops alone, so a rebase that drops one re-checks the other two.
-
-| Aspect         | Contract                                                                                  |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| Keys           | Jump, previous/next, and palette keys switch threads from a focused terminal; others stay |
-| Navigation     | Thread navigation always lands in the composer                                            |
-| Terminal focus | Taken only on explicit request; returning and closing both land in the composer           |
-| Focus ring     | The focused pane shows a static ring, never an animation                                  |
-
-Proof: `apps/web/src/components/ThreadTerminalDrawer.test.ts`, `ChatView.logic.test.ts`, and a Chrome pass on each landing.
+- **Pairing:** a link for subject `colleague:<slug>` with orchestration read and operate scopes only
+- **Storage:** `fork_colleague_shares`, one row per subject and thread
+- **Socket:** `wrapHandlers` narrows dispatch, shell, and thread subscriptions in `ws.ts`
+- **RPC guard:** `guardRpc` refuses colleague RPCs outside a closed allowlist
+- **Thread reads:** allowed only for live-shared threads; asset URLs only for attachments and shared tool images
+- **Stop:** unsharing stores a frozen shell copy; the colleague's shell keeps it with `colleagueFrozenFork`
+- **Frozen client:** a **Disconnected from host** banner and a locked composer; a re-share resumes
+- **HTTP:** colleague subjects are refused the HTTP shell and unshared thread snapshots
+- **Link:** the thread id rides the pairing URL query; the base is `T3CODE_COLLEAGUE_PUBLIC_URL`, else the sharing client's non-loopback origin
+- **Client address:** behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is recorded
 
 ### Retirement condition
 
@@ -943,18 +935,22 @@ A tagged upstream release shares a single thread with another person's client an
 
 ### Rebase scan
 
-| Path                                                                                                                                                                                          | Why it matters                                     |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `apps/server/src/ws.ts`                                                                                                                                                                       | Handler wrapper after the handler table            |
-| `apps/server/src/auth/RpcAuthorization.ts`, `apps/server/src/observability/RpcInstrumentation.ts`, `packages/contracts/src/clientRpcPermissions.ts`                                           | Scopes and spans for the share RPCs                |
-| `apps/server/src/orchestration-v2/http.ts`                                                                                                                                                    | HTTP shell refusal                                 |
-| `apps/server/src/server.ts`, `apps/server/src/persistence/ForkSchema.ts`                                                                                                                      | Layer and table                                    |
-| `packages/contracts/src/rpc.ts`, `packages/contracts/src/index.ts`                                                                                                                            | RPC group and export                               |
-| `apps/web/src/components/desktop/DesktopWebLinkCoordinator.tsx`                                                                                                                               | Open the shared thread after pairing               |
-| `apps/web/src/components/Sidebar.tsx`, `apps/web/src/components/threadActionMenu.logic.ts`, `apps/web/src/hooks/useThreadActionMenu.ts`                                                       | Thread menu entry                                  |
-| `apps/web/src/routes/__root.tsx`                                                                                                                                                              | Dialog host                                        |
-| `apps/server/src/wsRpcHandlers.fork.ts`, `apps/server/src/wsRpcHandlers.fork-test-harness.ts`, `packages/contracts/src/rpc.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts` | Fork files shared with other domains               |
-| `apps/server/src/colleague/**`, `apps/web/src/components/colleague/**`, `packages/contracts/src/colleague.fork.ts`, `docs/fork/user/colleague-sharing.md`                                     | Fork-only; a conflict means upstream took the path |
+| Path                                                                                                                                                                                                       | Why it matters                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `apps/server/src/ws.ts`                                                                                                                                                                                    | Handler wrapper and RPC guard                      |
+| `apps/server/src/auth/RpcAuthorization.ts`, `apps/server/src/observability/RpcInstrumentation.ts`, `packages/contracts/src/clientRpcPermissions.ts`                                                        | Scopes and spans for the share RPCs                |
+| `apps/server/src/orchestration-v2/http.ts`                                                                                                                                                                 | HTTP shell and thread guards                       |
+| `apps/server/src/auth/utils.ts`                                                                                                                                                                            | Forwarded client address                           |
+| `packages/contracts/src/orchestrationV2.ts`, `packages/client-runtime/src/state/models.ts`                                                                                                                 | Frozen shell flag                                  |
+| `apps/web/src/components/ChatView.tsx`                                                                                                                                                                     | Frozen banner and composer lock                    |
+| `apps/server/src/server.ts`, `apps/server/src/persistence/ForkSchema.ts`                                                                                                                                   | Layer and table                                    |
+| `packages/contracts/src/rpc.ts`, `packages/contracts/src/index.ts`                                                                                                                                         | RPC group and export                               |
+| `apps/web/src/components/desktop/DesktopWebLinkCoordinator.tsx`                                                                                                                                            | Colleague link branch: prompt, pair, open thread   |
+| `apps/web/src/components/PermissionUpdateNotice.ts`                                                                                                                                                        | No re-pair nag for a colleague grant               |
+| `apps/web/src/components/Sidebar.tsx`, `apps/web/src/components/threadActionMenu.logic.ts`, `apps/web/src/hooks/useThreadActionMenu.ts`                                                                    | Thread menu entry                                  |
+| `apps/web/src/routes/__root.tsx`                                                                                                                                                                           | Dialog host                                        |
+| `apps/server/src/wsRpcHandlers.fork.ts`, `apps/server/src/wsRpcHandlers.fork-test-harness.ts`, `packages/contracts/src/rpc.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts`              | Fork files shared with other domains               |
+| `apps/server/src/colleague/**`, `apps/server/src/auth/forwardedAddress.fork.ts`, `apps/web/src/components/colleague/**`, `packages/contracts/src/colleague.fork.ts`, `docs/fork/user/colleague-sharing.md` | Fork-only; a conflict means upstream took the path |
 
 ## Adding a domain
 
