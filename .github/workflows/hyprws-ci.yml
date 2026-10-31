@@ -294,7 +294,8 @@ jobs:
     name: Test Web
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' && needs.changes.outputs.test_web != 'false' }}
-    runs-on: ubuntu-latest
+    # Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -373,7 +374,8 @@ jobs:
     name: Test Server ${{ matrix.shard }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
-    runs-on: ubuntu-latest
+    # Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
