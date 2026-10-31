@@ -12,13 +12,6 @@ import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
 
-import {
-  type DesktopStaticProtocolRegistrationInput,
-  isDesktopStaticProtocolRegistration,
-  policyRegistration, // fork-hook: backend-attach/static-csp-import
-  serveDesktopStaticRequest,
-} from "./ElectronProtocolStatic.fork.ts";
-
 export const DESKTOP_HOST = "app";
 const DESKTOP_PRODUCTION_SCHEME = "t3code";
 const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
@@ -64,19 +57,11 @@ export type DesktopProtocolRegistrationInput = {
   readonly clerkFrontendApiHostname: string | undefined;
 } & ({ readonly targetOrigin: URL } | { readonly assetDirectory: string });
 
-/**
- * A client-only packaged launch registers the fork-owned static shape instead. Both carry the
- * scheme and the Clerk host the response policy is built from.
- */
-export type DesktopProtocolRegistration =
-  | DesktopProtocolRegistrationInput
-  | DesktopStaticProtocolRegistrationInput;
-
 export class ElectronProtocol extends Context.Service<
   ElectronProtocol,
   {
     readonly registerDesktopProtocol: (
-      input: DesktopProtocolRegistration,
+      input: DesktopProtocolRegistrationInput,
     ) => Effect.Effect<void, ElectronProtocolRegistrationError, Scope.Scope>;
   }
 >()("@t3tools/desktop/electron/ElectronProtocol") {}
@@ -265,21 +250,15 @@ export const make = Effect.gen(function* () {
   const runPromise = Effect.runPromiseWith(context);
 
   const registerDesktopProtocol = Effect.fn("desktop.electron.protocol.registerDesktopProtocol")(
-    function* (input: DesktopProtocolRegistration) {
+    function* (input: DesktopProtocolRegistrationInput) {
       if (yield* Ref.get(registered)) return;
 
-      const contentSecurityPolicy = makeDesktopContentSecurityPolicy(policyRegistration(input)); // fork-hook: backend-attach/static-csp
+      const contentSecurityPolicy = makeDesktopContentSecurityPolicy(input);
 
       yield* Effect.acquireRelease(
         Effect.try({
           try: () => {
             Electron.protocol.handle(input.scheme, async (request) => {
-              if (isDesktopStaticProtocolRegistration(input)) {
-                return withContentSecurityPolicy(
-                  await serveDesktopStaticRequest(request, input.staticRoot),
-                  contentSecurityPolicy,
-                );
-              }
               if ("assetDirectory" in input) {
                 return withContentSecurityPolicy(
                   await runPromise(serveDesktopAsset(request, input.assetDirectory)),

@@ -3,7 +3,6 @@ import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 import {
-  AuthStandardClientScopes, // fork-hook: backend-attach/connections-standard-scopes
   AuthAccessReadScope,
   AuthAccessWriteScope,
   AuthEnvironmentMaintainScope,
@@ -25,10 +24,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 
-import {
-  canManageLocalBackendFork,
-  connectionsSessionScopesFork,
-} from "./connectionsClientOnly.fork"; // fork-hook: backend-attach/connections-session-scopes-import
+import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import {
   applyWslEnableSelection,
   isWslSettingsRowVisible,
@@ -167,11 +163,9 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   });
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
   const primarySessionState = usePrimarySessionState();
-  const currentSessionScopes = connectionsSessionScopesFork(
-    desktopBridge,
-    AuthStandardClientScopes,
-    primarySessionState.data,
-  ); // fork-hook: backend-attach/connections-session-scopes
+  const currentSessionScopes = primarySessionState.data?.authenticated
+    ? (primarySessionState.data.permissions ?? primarySessionState.data.scopes ?? null)
+    : null;
   const currentAuthPolicy = desktopBridge ? null : (primarySessionState.data?.auth.policy ?? null);
   const savedEnvironments = environments.filter(
     (environment) => environment.entry.target._tag !== "PrimaryConnectionTarget",
@@ -289,7 +283,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   const canReadRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayReadScope);
   const canMaintain = useEnvironmentScope(primaryEnvironmentId, AuthEnvironmentMaintainScope);
   const canManageRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayWriteScope);
-  const canManageLocalBackend = canManageLocalBackendFork(canMaintain); // fork-hook: backend-attach/connections-local-backend
+  const canManageLocalBackend = !isLocalEnvironmentDisabled() && canMaintain;
   const showsAccess = view === "access";
   const authAccessChanges = useEnvironmentQuery(
     showsAccess && canReadAccess && primaryEnvironmentId !== null

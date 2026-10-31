@@ -229,26 +229,6 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
     }),
   );
 
-  it.effect("opens once the renderer is ready without a backend callback", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const layer = layerTest({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleRendererReady;
-        assert.equal(yield* Ref.get(createCount), 1);
-        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
-      }).pipe(Effect.provide(layer));
-    }),
-  );
-
   it.effect("leaves an unplaced restored window wherever Hyprland puts it", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
