@@ -8,6 +8,7 @@ import type * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as NodeCrypto from "node:crypto";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as Result from "effect/Result";
+import { forwardedClientAddressFork } from "./forwardedAddress.fork.ts"; // fork-hook: colleague-collab/forwarded-client-address-import
 
 const SESSION_COOKIE_NAME = "t3_session";
 
@@ -176,6 +177,7 @@ export function deriveAuthClientMetadata(input: {
   return {
     ...(input.presented?.label ? { label: input.presented.label } : {}),
     ...(ipAddress ? { ipAddress } : {}),
+    ...forwardedClientAddressFork(ipAddress, input.request.headers), // fork-hook: colleague-collab/forwarded-client-address
     ...(userAgent ? { userAgent } : {}),
     deviceType: input.presented?.deviceType ?? inferDeviceType(userAgent),
     ...(os ? { os } : {}),

@@ -17,6 +17,8 @@ const FORK_COLUMNS: ReadonlyArray<{
   { table: "auth_external_mcp_requests", column: "pinned_target", definition: "TEXT" },
   // When the legacy import folded a V1 issue link into its V2 thread; set rows never import again.
   { table: "projection_thread_issues", column: "imported_at", definition: "TEXT" },
+  // A stopped colleague share's thread shell, frozen when sharing stopped; null while live.
+  { table: "fork_colleague_shares", column: "frozen_shell_json", definition: "TEXT" },
 ];
 
 /**
