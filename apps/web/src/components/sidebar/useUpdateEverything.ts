@@ -1,6 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
-import { isForkServiceVersion } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/update-everything-npm-gate-import
 
 import { APP_VERSION } from "~/branding";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
