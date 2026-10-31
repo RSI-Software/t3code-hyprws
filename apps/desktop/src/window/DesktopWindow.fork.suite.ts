@@ -13,6 +13,7 @@ import { vi, type Mock } from "vite-plus/test";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import { WINDOW_DEMAND_STATE_CHANNEL } from "../ipc/channels.ts";
 import type * as PreviewManager from "../preview/Manager.ts";
 import type { DesktopWindowLayerTestFork } from "./DesktopWindow.test.ts";
@@ -421,41 +422,57 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
     }),
   );
 
-  it.effect("still honours an explicit launch intent alongside a restore", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const layer = layerTest({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        workspaceMoves: [],
-        restoreEntries: [testRestoreEntry("all-projects", { id: 1, name: "1" })],
-      });
+  // With Local environment off no backend signals ready, so the bootstrap's open call drains.
+  const readySignals = [
+    [
+      "backend ready",
+      true,
+      (w: DesktopWindow.DesktopWindow["Service"]) =>
+        w.handleBackendReady(new URL("http://127.0.0.1:3773")),
+    ],
+    ["Local off", false, (w: DesktopWindow.DesktopWindow["Service"]) => w.createMainIfBackendReady],
+  ] as const;
+  for (const [signal, localEnvironmentEnabled, ready] of readySignals) {
+    it.effect(`still honours an explicit launch intent alongside a restore (${signal})`, () =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const createCount = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+        const layer = layerTest({
+          window: fakeWindow.window,
+          createCount,
+          mainWindow,
+          createdWindowOptions,
+          workspaceMoves: [],
+          restoreEntries: [testRestoreEntry("all-projects", { id: 1, name: "1" })],
+          desktopSettings: {
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            localEnvironmentEnabled,
+          },
+        });
 
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.restoreWindowSession;
-        yield* desktopWindow.openArguments(["t3code", "--project", "environment-2", "project-2"]);
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.restoreWindowSession;
+          yield* desktopWindow.openArguments(["t3code", "--project", "environment-2", "project-2"]);
+          yield* ready(desktopWindow);
 
-        assert.equal(yield* Ref.get(createCount), 2);
-        assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
-          windowIdPreloadArgument(testWindowId(2)),
-          "--t3code-window-scope-seed=environment-2/project-2",
-        ]);
-        assert.deepEqual(
-          createdWindowOptions.map((options) =>
-            options.webPreferences?.additionalArguments?.find((argument) =>
-              argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
+          assert.equal(yield* Ref.get(createCount), 2);
+          assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
+            windowIdPreloadArgument(testWindowId(2)),
+            "--t3code-window-scope-seed=environment-2/project-2",
+          ]);
+          assert.deepEqual(
+            createdWindowOptions.map((options) =>
+              options.webPreferences?.additionalArguments?.find((argument) =>
+                argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
+              ),
             ),
-          ),
-          [windowIdPreloadArgument(testWindowId(1)), windowIdPreloadArgument(testWindowId(2))],
-        );
-      }).pipe(Effect.provide(layer));
-    }),
-  );
+            [windowIdPreloadArgument(testWindowId(1)), windowIdPreloadArgument(testWindowId(2))],
+          );
+        }).pipe(Effect.provide(layer));
+      }),
+    );
+  }
 };
