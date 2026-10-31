@@ -1,6 +1,21 @@
 import * as Schema from "effect/Schema";
 
+import {
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  type AuthEnvironmentScope,
+} from "./auth.ts";
 import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+
+/** The whole grant a colleague link pairs; the server narrows it further to shared threads. */
+export const COLLEAGUE_SCOPES = [AuthOrchestrationReadScope, AuthOrchestrationOperateScope];
+
+/** A session holding exactly the colleague grant: narrow by design, not a pre-scope leftover. */
+export const isColleagueGrantFork = (
+  permissions: ReadonlyArray<AuthEnvironmentScope> | undefined,
+) =>
+  permissions?.length === COLLEAGUE_SCOPES.length &&
+  COLLEAGUE_SCOPES.every((scope) => permissions.includes(scope));
 
 // A letter or digit keeps every name a distinct identity once punctuation folds away.
 export const ColleagueNameFork = TrimmedNonEmptyString.check(Schema.isPattern(/[\p{L}\p{N}]/u));
@@ -8,6 +23,8 @@ export const ColleagueNameFork = TrimmedNonEmptyString.check(Schema.isPattern(/[
 export const ColleagueShareThreadInputFork = Schema.Struct({
   threadId: ThreadId,
   colleagueName: ColleagueNameFork,
+  /** The origin the sharing client reached the server on; the link's base when public. */
+  linkBaseUrl: Schema.optional(Schema.String),
 });
 export type ColleagueShareThreadInputFork = typeof ColleagueShareThreadInputFork.Type;
 
@@ -61,7 +78,7 @@ export class ColleagueShareErrorFork extends Schema.TaggedError<ColleagueShareEr
 export class ColleagueUnshareErrorFork extends Schema.TaggedError<ColleagueUnshareErrorFork>()(
   "ColleagueUnshareErrorFork",
   {
-    operation: Schema.Literals(["delete-share", "read-shares"]),
+    operation: Schema.Literals(["freeze-share", "read-shares"]),
     threadId: ThreadId,
     cause: Schema.Defect(),
   },
