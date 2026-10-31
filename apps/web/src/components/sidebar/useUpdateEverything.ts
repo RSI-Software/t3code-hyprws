@@ -1,11 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
-import { isForkServiceVersion } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/update-everything-npm-gate-import
 
 import { APP_VERSION } from "~/branding";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { isElectron } from "~/env";
-import { isAttachedPrimaryTarget } from "~/environments/primary/attachedPrimary.fork"; // fork-hook: backend-attach/update-everything-hosted-import
 import { useEnvironments } from "~/state/environments";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentUpdateStatesAtom } from "~/state/server";
@@ -40,7 +38,6 @@ const UPDATE_RESTART_DELAY_MS = 5_000;
 export function isHostedByThisApp(
   environment: ReturnType<typeof useEnvironments>["environments"][number],
 ) {
-  if (isElectron && isAttachedPrimaryTarget(environment.entry.target)) return false; // fork-hook: backend-attach/update-everything-hosted
   return (
     isElectron &&
     (environment.entry.target._tag === "PrimaryConnectionTarget" ||

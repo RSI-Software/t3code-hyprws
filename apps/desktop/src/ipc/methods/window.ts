@@ -25,8 +25,6 @@ import * as Schema from "effect/Schema";
 
 import * as DesktopBackendConfiguration from "../../backend/DesktopBackendConfiguration.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
-import * as DesktopAttachedPrimary from "../../app/DesktopAttachedPrimary.ts"; // fork-hook: backend-attach/window-import
-import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
@@ -105,9 +103,6 @@ export const getLocalEnvironmentBootstraps = DesktopIpc.makeSyncIpcMethod({
   channel: IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL,
   result: Schema.Array(DesktopEnvironmentBootstrapSchema),
   handler: Effect.fn("desktop.ipc.window.getLocalEnvironmentBootstraps")(function* () {
-    if ((yield* DesktopBackendMode.effectiveModeOrManaged) === "client-only") {
-      return [];
-    }
     const pool = yield* DesktopBackendPool.DesktopBackendPool;
     const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
     const instances = yield* pool.list;
@@ -168,8 +163,6 @@ export const getLocalEnvironmentBearerToken = DesktopIpc.makeIpcMethod({
   payload: Schema.Void,
   result: Schema.String,
   handler: Effect.fn("desktop.ipc.window.getLocalEnvironmentBearerToken")(function* () {
-    const attachedToken = yield* DesktopAttachedPrimary.attachedBearerToken; // fork-hook: backend-attach/window-bearer
-    if (Option.isSome(attachedToken)) return attachedToken.value; // fork-hook: backend-attach/window-bearer-use
     const localAuth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
     return yield* localAuth.getBearerToken;
   }),
@@ -187,10 +180,7 @@ export const pickFolder = DesktopIpc.makeIpcMethod({
     const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
     const settings = yield* appSettings.get;
     // A picked path only means something to a backend on this machine.
-    if (
-      !settings.localEnvironmentEnabled &&
-      !(yield* DesktopAttachedPrimary.isAttached) // fork-hook: backend-attach/window-pick-folder
-    ) {
+    if (!settings.localEnvironmentEnabled) {
       return null;
     }
     const targetId = options?.targetEnvironmentId;
@@ -246,10 +236,7 @@ export const pickProjectFavicon = DesktopIpc.makeIpcMethod({
     const dialog = yield* ElectronDialog.ElectronDialog;
     const electronWindow = yield* ElectronWindow.ElectronWindow;
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
-    if (
-      !(yield* appSettings.get).localEnvironmentEnabled &&
-      !(yield* DesktopAttachedPrimary.isAttached) // fork-hook: backend-attach/window-pick-favicon
-    ) {
+    if (!(yield* appSettings.get).localEnvironmentEnabled) {
       return null;
     }
     const paths = yield* dialog.pickFiles({

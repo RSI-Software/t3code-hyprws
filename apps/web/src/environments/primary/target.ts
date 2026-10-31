@@ -2,7 +2,6 @@ import { PRIMARY_LOCAL_ENVIRONMENT_ID, type DesktopEnvironmentBootstrap } from "
 import * as Schema from "effect/Schema";
 
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
-import { resolveDesktopAttachedPrimaryTarget } from "./attachedPrimary.fork"; // fork-hook: backend-attach/target-import
 
 const PrimaryEnvironmentTargetSource = Schema.Literals([
   "configured",
@@ -75,11 +74,6 @@ export interface PrimaryEnvironmentTarget {
     readonly httpBaseUrl: string;
     readonly wsBaseUrl: string;
   };
-}
-
-export function isDesktopClientOnlyMode(): boolean {
-  const bridge = window.desktopBridge;
-  return bridge?.getBackendModeState?.().effectiveMode === "client-only";
 }
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -302,13 +296,7 @@ export function readPrimaryEnvironmentTarget(): PrimaryEnvironmentTarget | null 
   }
   return (
     resolveDesktopPrimaryTarget() ??
-    resolveDesktopAttachedPrimaryTarget() ?? // fork-hook: backend-attach/target-chain
     resolveConfiguredPrimaryTarget() ??
     resolveWindowOriginPrimaryTarget()
   );
-}
-
-export function readOptionalPrimaryEnvironmentTarget(): PrimaryEnvironmentTarget | null {
-  if (isDesktopClientOnlyMode()) return resolveDesktopAttachedPrimaryTarget(); // fork-hook: backend-attach/target-optional
-  return isDesktopClientOnlyMode() ? null : readPrimaryEnvironmentTarget();
 }

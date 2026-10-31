@@ -2,7 +2,6 @@ import {
   type AuthEnvironmentScope,
   AuthStandardClientScopes,
   ExecutionEnvironmentDescriptor,
-  type LocalServerPairCommandOutput,
   ORCHESTRATION_PROTOCOL_VERSION,
   PortSchema,
 } from "@t3tools/contracts";
@@ -29,7 +28,7 @@ import * as Schema from "effect/Schema";
 import { Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
-import { PairEnvironmentAuth as EnvironmentAuth } from "./pairAuth.fork.ts"; // fork-hook: backend-attach/pair-running-schema
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import {
@@ -150,14 +149,6 @@ const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string
     privateNetworkOnly: state.privateNetworkOnly,
   });
 
-const resolveJsonPairingBaseUrl = (state: PersistedServerRuntimeState): string => {
-  // The desktop compares `pairingUrl.origin` to the runtime-state `origin` strictly, and with
-  // no host the upstream base says `localhost` while the record says `127.0.0.1`. So JSON output
-  // pairs through the recorded origin only when no host is configured; any other host value
-  // keeps the upstream base, whose interface fallback suits a remote client.
-  return state.host === undefined ? state.origin : resolveDirectPairingBaseUrl(state);
-}; // fork-hook: backend-attach/json-pairing-origin
-
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
   { devUrl: Schema.String },
@@ -209,23 +200,6 @@ const formatPairOutput = (input: {
     ...input.notes.flatMap((note) => ["", `Note: ${note}`]),
     "",
   ].join("\n");
-
-const formatPairJsonOutput = (input: {
-  readonly pairingUrl: string;
-  readonly token: string;
-  readonly expiresAt: DateTime.Utc;
-  readonly origin: string;
-  readonly environmentId: LocalServerPairCommandOutput["environmentId"];
-  readonly label: string;
-}): string =>
-  JSON.stringify({
-    pairingUrl: input.pairingUrl,
-    token: input.token,
-    expiresAt: DateTime.formatIso(input.expiresAt),
-    origin: input.origin,
-    environmentId: input.environmentId,
-    label: input.label,
-  } satisfies LocalServerPairCommandOutput);
 
 type EnvironmentProbeResult =
   | { readonly _tag: "descriptor"; readonly descriptor: ExecutionEnvironmentDescriptor }
@@ -484,11 +458,6 @@ const labelFlag = Flag.String("label").pipe(
   Flag.optional,
 );
 
-const jsonFlag = Flag.Boolean("json").pipe(
-  Flag.withDescription("Emit JSON instead of human-readable output."),
-  Flag.withDefault(false),
-);
-
 const tailscaleFlag = Flag.Boolean("tailscale").pipe(
   Flag.withDescription(
     "Publish the server over Tailscale Serve HTTPS and pair through the tailnet URL.",
@@ -507,7 +476,6 @@ export const pairCommand = Command.make("pair", {
   scopes: authScopesFlag(AuthStandardClientScopes),
   ttl: ttlFlag,
   label: labelFlag,
-  json: jsonFlag,
   tailscale: tailscaleFlag,
   tailscaleServePort: tailscaleServePortFlag,
 }).pipe(
@@ -517,11 +485,7 @@ export const pairCommand = Command.make("pair", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const cliLogLevel = yield* GlobalFlag.LogLevel;
-      // JSON is consumed by other processes, so keep storage/migration chatter
-      // off stdout. Human output defaults to Warn so it cannot bury the QR.
-      const logLevel = flags.json
-        ? ("Error" as const)
-        : Option.getOrElse(cliLogLevel, () => "Warn" as const);
+      const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
 
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
       // Each protocol keeps auth in its own database, so a token minted here
@@ -545,9 +509,7 @@ export const pairCommand = Command.make("pair", {
         pairingBaseUrl = resolved.baseUrl;
         notes.push(...resolved.notes);
       } else {
-        pairingBaseUrl = flags.json
-          ? resolveJsonPairingBaseUrl(target.state)
-          : resolveDirectPairingBaseUrl(target.state);
+        pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
         if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
           notes.push(
             "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
@@ -574,23 +536,14 @@ export const pairCommand = Command.make("pair", {
       const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
 
       yield* Console.log(
-        flags.json
-          ? formatPairJsonOutput({
-              pairingUrl,
-              token: issued.credential,
-              expiresAt: issued.expiresAt,
-              origin: target.state.origin,
-              environmentId: target.descriptor.environmentId,
-              label: target.descriptor.label,
-            })
-          : formatPairOutput({
-              serverLabel: target.descriptor.label,
-              origin: target.state.origin,
-              pairingUrl,
-              token: issued.credential,
-              expiresAt: issued.expiresAt,
-              notes,
-            }),
+        formatPairOutput({
+          serverLabel: target.descriptor.label,
+          origin: target.state.origin,
+          pairingUrl,
+          token: issued.credential,
+          expiresAt: issued.expiresAt,
+          notes,
+        }),
       );
     }).pipe(Effect.provide(FetchHttpClient.layer)),
   ),

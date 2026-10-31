@@ -629,7 +629,6 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
   const state = yield* Ref.make(initialState);
-  const startRequestedRef = yield* Ref.make(false);
   const mutex = yield* Semaphore.make(1);
   const outputTail = yield* Ref.make("");
   // One streaming decoder per stream keeps UTF-8 characters split across chunks intact.
@@ -675,7 +674,6 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   const start: Effect.Effect<void> = Effect.suspend(() =>
     mutex.withPermits(1)(
       Effect.gen(function* () {
-        yield* Ref.set(startRequestedRef, true);
         const current = yield* Ref.get(state);
         if (Option.isSome(current.active)) {
           if (!current.desiredRunning) {
@@ -1151,11 +1149,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
       ),
   );
 
-  yield* Effect.addFinalizer(() =>
-    Ref.get(startRequestedRef).pipe(
-      Effect.flatMap((startRequested) => (startRequested ? stop() : Effect.void)),
-    ),
-  );
+  yield* Effect.addFinalizer(() => stop());
 
   return {
     id: spec.id,

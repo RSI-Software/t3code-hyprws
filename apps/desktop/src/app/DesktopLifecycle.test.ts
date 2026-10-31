@@ -105,7 +105,6 @@ function layerDesktopWindow(
     createMainIfBackendReady: Effect.void,
     showConnectingSplash: Effect.void,
     handleBackendReady: () => Effect.void,
-    handleRendererReady: Effect.void,
     handleBackendNotReady: Effect.void,
     flushMainWindowBounds: input.flushMainWindowBounds ?? Effect.void,
     prepareCaptureReveal: Effect.void,
