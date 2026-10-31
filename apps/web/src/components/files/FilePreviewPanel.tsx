@@ -1506,17 +1506,34 @@ export default function FilePreviewPanel({
                 <MermaidFilePreview text={file.data.contents} />
               </Suspense>
             ) : isMarkdown && renderMarkdown ? (
-              <RenderedMarkdownSurface
-                key={relativePath}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                threadRef={threadRef}
-                contents={file.data.contents}
-                workspaceMutationId={workspaceMutationId}
-                readOnly={file.data.truncated || isHostFile || !canWriteFiles}
-                onPendingChange={onPendingChange}
-              />
+              <>
+                {/* fork-hook: markdown-editing/rich-preview-boundary */}
+                <RichMarkdownPreviewBoundary
+                  key={relativePath}
+                  enabled={richMarkdownPreview.richEditorEnabled}
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  contents={file.data.contents}
+                  theme={resolvedTheme}
+                  wordWrap={wordWrap}
+                  onOpenFile={onOpenFile}
+                  onPendingChange={onPendingChange}
+                >
+                  <RenderedMarkdownSurface
+                    key={relativePath}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={relativePath}
+                    threadRef={threadRef}
+                    contents={file.data.contents}
+                    workspaceMutationId={workspaceMutationId}
+                    readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                    onPendingChange={onPendingChange}
+                  />
+                </RichMarkdownPreviewBoundary>
+                {/* fork-hook-end */}
+              </>
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
                 key={relativePath}
