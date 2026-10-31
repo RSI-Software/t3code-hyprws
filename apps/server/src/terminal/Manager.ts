@@ -81,6 +81,7 @@ import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClie
 import { terminalOutputStream } from "./OutputProtocol.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import { recordManagedSpawnFork } from "./ManagedSpawn.fork.ts"; // fork-hook: zmux-estate/managed-spawn-import
 import { makeAttachmentHistoryFork } from "./AttachmentHistory.fork.ts"; // fork-hook: zmux-estate/attachment-history-import
 import {
   makeSettledSessionCloseFork,
@@ -372,6 +373,7 @@ interface ZmuxLaunchResolution {
 }
 
 interface PreparedManagedRetarget {
+  readonly shell: string; // fork-hook: zmux-estate/prepared-shell
   readonly process: PtyAdapter.PtyProcess;
   readonly shellLabel: string;
   readonly candidate: ShellCandidate;
@@ -2955,7 +2957,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         process: attempt.success,
         shell: candidate.shell,
         shellLabel: formatShellCandidate(candidate),
-        candidate,
       };
     }
 
@@ -3447,18 +3448,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               preparedRetarget ?? (yield* trySpawn(shellCandidates, spawnEnv, session));
             ptyProcess = spawnResult.process;
             startedShell = spawnResult.shellLabel;
-            if (managedTarget && spawnResult.candidate === zmuxCandidate) {
-              session.managedSessionTarget = managedTarget;
-              session.managedSessionIdentity = {
-                target: managedTarget,
-                candidate: spawnResult.candidate,
-              };
-            } else if (managedTarget) {
-              yield* appendSessionNotice(
-                session,
-                `zmux: attach failed for ${managedTarget} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
-              );
-            }
+            const managedCandidateFork =
+              preparedRetarget?.candidate ??
+              (zmuxCandidate && spawnResult.shellLabel === formatShellCandidate(zmuxCandidate)
+                ? zmuxCandidate
+                : null); // fork-hook: zmux-estate/spawned-managed-candidate
+            yield* recordManagedSpawnFork(session, managedTarget, managedCandidateFork, (notice) =>
+              appendSessionNotice(session, notice),
+            ); // fork-hook: zmux-estate/managed-spawn
 
             const processPid = ptyProcess.pid;
             let eventsActivated = false;
@@ -4197,6 +4194,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           cwd: current.cwd,
           worktreePath: current.worktreePath,
           status: "suspended",
+          shell: null, // fork-hook: zmux-estate/retained-shell
           restarting: false, // fork-hook: zmux-estate/terminal-restarting-init
           pid: null,
           history,
