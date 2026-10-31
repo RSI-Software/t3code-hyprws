@@ -251,6 +251,8 @@ function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number):
   return section;
 }
 
+export { sectionAtSidebarSlot as sectionAtSidebarSlotFork }; // fork-hook: thread-ordering/group-slot-section
+
 type SidebarDropTarget = {
   readonly section: "pinned" | "active" | "settled";
   readonly pinnedOrder: readonly string[];
