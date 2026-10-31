@@ -10,6 +10,7 @@ import {
 } from "./Sidebar.logic";
 import {
   projectSidebarThreadGroupSpansFork,
+  projectSidebarWorkingGroupDropFork,
   recordSidebarProjectedLayoutFork,
 } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-projection-import
 
@@ -37,6 +38,7 @@ export function createSidebarCollisionDetection(
   options: {
     items?: readonly SidebarListItem[];
     activationY?: number | null;
+    nestingFork?: boolean; // fork-hook: thread-ordering/group-nesting-collision
   } = {},
 ): CollisionDetection {
   const validity = new Map<string, boolean>();
@@ -45,6 +47,10 @@ export function createSidebarCollisionDetection(
   let boundarySection: "pinned" | "active" | undefined;
   return (args) => {
     let collisions = closestCenter(args);
+    if (options.nestingFork)
+      return collisions.filter(
+        (collision) => collision.id !== args.active.id && isValidTarget(String(collision.id)),
+      ); // fork-hook: thread-ordering/group-nesting-collision
     const pointer = args.pointerCoordinates;
     const items = options.items;
     const source = items?.find((item) => item.kind === "thread" && item.key === args.active.id);
@@ -115,6 +121,12 @@ export function createSidebarSortingStrategy(input: {
   function project({ rects, activeIndex, overIndex }: Layout) {
     const active = items[activeIndex];
     const over = items[overIndex] ?? active;
+    const workingGroupDropFork = projectSidebarWorkingGroupDropFork(items, {
+      rects,
+      activeIndex,
+      overIndex,
+    }); // fork-hook: thread-ordering/group-working-drop-preview
+    if (workingGroupDropFork !== undefined) return workingGroupDropFork; // fork-hook: thread-ordering/group-working-drop-preview
     if (active?.kind !== "thread" || !over || !rects[0]) return [];
     const target = resolveSidebarDropTarget(items, active.key, sidebarListItemId(over));
     if (!target) return [];
