@@ -196,6 +196,17 @@ export const caseOpeners = (text: string): ReadonlyArray<CaseOpener> => {
       openers.push({ start: index, titleLine: index, title: sameLine });
       continue;
     }
+    if (/\.each\s*(?:<[^>]*>)?\s*\(\s*\[/.test(line)) {
+      const source = lines.slice(index).join("\n");
+      const multiline = new RegExp(`${OPENER_HEAD}${TITLE_LITERAL}`, "s").exec(source);
+      const title = literalTitle(multiline);
+      if (title !== undefined && multiline !== null) {
+        const titleLine =
+          index + multiline[0].slice(0, multiline[0].lastIndexOf(title)).split("\n").length - 1;
+        openers.push({ start: index, titleLine, title });
+        continue;
+      }
+    }
     if (!WRAPPED_OPENER_HEAD.test(line)) continue;
     const wrapped = literalTitle(LEADING_TITLE.exec(lines[index + 1] ?? ""));
     if (wrapped !== undefined) openers.push({ start: index, titleLine: index + 1, title: wrapped });
