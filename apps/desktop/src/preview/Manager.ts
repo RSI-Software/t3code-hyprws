@@ -2434,13 +2434,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     if (!captureSession?.consumers.has("picture-in-picture") || captureSession.scope === null)
       return;
     const wc = yield* requireWebContents(tabId);
-    const captureContext = { operation: "frameCapture.capturePage", tabId, webContentsId: wc.id };
-    const image = yield* attemptPromise(captureContext, () => wc.capturePage()).pipe(
-      Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS),
-      Effect.catchTags({
-        TimeoutError: (cause) =>
-          Effect.fail(new PreviewOperationError({ ...captureContext, cause })),
-      }),
+    const image = yield* attemptPromise(
+      {
+        operation: "frameCapture.capturePage",
+        tabId,
+        webContentsId: wc.id,
+      },
+      () => wc.capturePage(),
     );
     const currentCaptureSession = yield* Effect.all(
       [SynchronizedRef.get(frameCaptureSessionsRef), SynchronizedRef.get(tabsRef)],

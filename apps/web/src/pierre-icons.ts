@@ -176,7 +176,6 @@ export const T3_PIERRE_ICONS = {
     kt: "t3-file-icon-kotlin",
     kts: "t3-file-icon-kotlin",
     lua: "t3-file-icon-lua",
-    luau: "t3-file-icon-lua",
     php: "t3-file-icon-php",
     ps1: "t3-file-icon-powershell",
     psm1: "t3-file-icon-powershell",
@@ -185,9 +184,6 @@ export const T3_PIERRE_ICONS = {
     scala: "t3-file-icon-scala",
     toml: "t3-file-icon-toml",
     xml: "t3-file-icon-xml",
-    xsd: "t3-file-icon-xml",
-    xsl: "t3-file-icon-xml",
-    xslt: "t3-file-icon-xml",
   },
 } satisfies FileTreeIcons;
 

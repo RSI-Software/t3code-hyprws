@@ -152,7 +152,7 @@ export function resolveQuickAction(
   }
 
   if (hasChanges) {
-    if (isBehind || (!gitStatus.hasUpstream && !hasOriginRemote)) {
+    if (!gitStatus.hasUpstream && !hasOriginRemote) {
       return { label: "Commit", disabled: false, kind: "run_action", action: "commit" };
     }
     if (hasOpenPr || isDefaultBranch) {

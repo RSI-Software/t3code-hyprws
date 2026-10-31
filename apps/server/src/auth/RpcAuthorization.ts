@@ -61,7 +61,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.projectsMutate]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverProbe]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetConfig]: AuthOrchestrationReadScope,
-  [WS_METHODS.serverGetNpmRelease]: AuthOrchestrationReadScope,
   [WS_METHODS.serverRefreshProviders]: AuthOrchestrationReadScope,
   [WS_METHODS.serverUpdateProvider]: AuthProvidersManageScope,
   [WS_METHODS.providerAuthStart]: AuthProvidersManageScope,
@@ -149,7 +148,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.githubIssuesSyncThreadLinks]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-sync-thread-links
   [WS_METHODS.sourceControlLookupRepository]: AuthOrchestrationReadScope,
   [WS_METHODS.sourceControlAppAccess]: AuthOrchestrationReadScope,
-  [WS_METHODS.sourceControlStarred]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeProjectClones]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsListEntries]: AuthFilesystemReadScope,
   [WS_METHODS.projectsListIgnoredFiles]: AuthFilesystemReadScope,

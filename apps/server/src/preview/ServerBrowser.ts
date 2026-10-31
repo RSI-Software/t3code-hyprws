@@ -210,8 +210,6 @@ export interface ServerBrowserViewer {
   readonly input: (message: unknown) => Effect.Effect<void>;
 }
 
-export type ProfileReporter = (input: PreviewReportProfilesInput) => Effect.Effect<void>;
-
 export class ServerBrowser extends Context.Service<
   ServerBrowser,
   {
@@ -246,7 +244,7 @@ export class ServerBrowser extends Context.Service<
 
     readonly clearProfile: (profileId: string) => Effect.Effect<void, PreviewClearProfileError>;
 
-    readonly profileReporter: Effect.Effect<ProfileReporter, never, Scope.Scope>;
+    readonly reportProfiles: (input: PreviewReportProfilesInput) => Effect.Effect<void>;
   }
 >()("t3/preview/ServerBrowser") {}
 
@@ -474,10 +472,7 @@ const make = Effect.gen(function* () {
   const launchersDir = NodePath.join(config.stateDir, "server-browser", "launchers");
 
   const tabs = new Map<string, ServerTab>();
-  const pendingTabs = new Map<
-    string,
-    { readonly agentId: string | null; promise?: Promise<ServerTab> }
-  >();
+  const pendingTabs = new Map<string, Promise<ServerTab>>();
 
   const closedPendingTabs = new Set<string>();
   const adoptedPages = new Map<string, { readonly page: Page; readonly openerTabId: string }>();
@@ -814,7 +809,6 @@ const make = Effect.gen(function* () {
     const control = new SessionControl(snapshot.automationOwner ?? null, () =>
       ServerBrowserPage.invalidateRefs(page),
     );
-    let pendingFileChooserOffer = Promise.resolve();
     const tab: ServerTab = {
       threadId: ThreadId.make(snapshot.threadId),
       tabId: snapshot.tabId,
@@ -830,11 +824,7 @@ const make = Effect.gen(function* () {
       control,
       agentOperating: false,
       fileChooserIntercepted: false,
-      onFileChooser: (chooser) => {
-        pendingFileChooserOffer = pendingFileChooserOffer
-          .then(() => offerFileChooser(tab, chooser))
-          .catch(constVoid);
-      },
+      onFileChooser: (chooser) => void offerFileChooser(tab, chooser),
       isolatedContext,
       desktop: desktop === null ? null : { close: desktop.close },
       profileId: snapshot.profileId,
@@ -896,12 +886,6 @@ const make = Effect.gen(function* () {
       void reportLoaded(tab);
     });
     page.on("framenavigated", (frame) => {
-      const open = tab.fileChooser;
-      if (open) {
-        void isFileChooserCurrent(open.chooser).then((current) => {
-          if (!current && tab.fileChooser?.chooser === open.chooser) closeFileChooser(tab);
-        });
-      }
       // Same-document navigations (SPA routes) fire no load event.
       if (frame === page.mainFrame() && !tab.loading) void reportLoaded(tab);
       if (!desktop) void recordFrameCopies(tab, frame);
@@ -1006,12 +990,6 @@ const make = Effect.gen(function* () {
   };
 
   const downloadsRoot = NodePath.join(config.stateDir, "server-browser", "downloads");
-  // Saved downloads are indexed in memory, so an earlier run's files can never be opened again.
-  yield* Effect.tryPromise(() => NodeFSP.rm(downloadsRoot, { recursive: true, force: true })).pipe(
-    Effect.catch((cause) =>
-      Effect.logWarning("server preview could not clear earlier downloads", { cause }),
-    ),
-  );
   // Tab ids are opaque server strings; hashing keeps them out of the path.
   const downloadDir = (tab: ServerTab) =>
     NodePath.join(
@@ -1111,17 +1089,6 @@ const make = Effect.gen(function* () {
         }
       : null;
 
-  // Not isConnected: upload helpers often click an input never added to the page. The handle's
-  // context is destroyed with its document, so a replaced document rejects.
-  const isFileChooserCurrent = (chooser: FileChooser) =>
-    chooser
-      .element()
-      .evaluate(
-        (element) =>
-          element.ownerDocument === (globalThis as unknown as { document: unknown }).document,
-      )
-      .catch(() => false);
-
   const offerFileChooser = async (tab: ServerTab, chooser: FileChooser) => {
     const previous = tab.fileChooser;
     const accept =
@@ -1129,7 +1096,6 @@ const make = Effect.gen(function* () {
         .element()
         .getAttribute("accept")
         .catch(() => null)) ?? "";
-    if (!(await isFileChooserCurrent(chooser))) return;
     if (previous) closeFileChooser(tab);
     tab.fileChooser = {
       id: NodeCrypto.randomUUID(),
@@ -1295,7 +1261,8 @@ const make = Effect.gen(function* () {
   };
 
   const adoptPopup = async (opener: ServerTab, popup: Page) => {
-    if (opener.closing) {
+    const agentId = opener.control.agentId;
+    if (opener.closing || (agentId !== null && atTabLimit(agentId))) {
       await popup.close().catch(constVoid);
       return;
     }
@@ -1305,7 +1272,7 @@ const make = Effect.gen(function* () {
       (viewer) => viewer.id === opener.control.controller,
     );
     await runPromise(
-      openTab({
+      manager.open({
         threadId: opener.threadId,
         ...(/^https?:/i.test(url) ? { url } : {}),
         runtime: "server",
@@ -1320,8 +1287,9 @@ const make = Effect.gen(function* () {
           }),
       }),
     ).then(
-      (tab) => {
-        if (opener.control.agentId === null) controller?.push({ _tag: "popup", tabId: tab.tabId });
+      (snapshot) => {
+        if (opener.control.agentId === null)
+          controller?.push({ _tag: "popup", tabId: snapshot.tabId });
       },
       async () => {
         await popup.close().catch(constVoid);
@@ -1332,7 +1300,7 @@ const make = Effect.gen(function* () {
   const ensureTab = (snapshot: PreviewSessionSnapshot): Promise<ServerTab> => {
     const key = tabKey(snapshot.threadId, snapshot.tabId);
     const pending = pendingTabs.get(key);
-    if (pending?.promise) return pending.promise;
+    if (pending) return pending;
     const existing = tabs.get(key);
     if (existing) return Promise.resolve(existing);
     const opening = createTab(snapshot)
@@ -1349,7 +1317,7 @@ const make = Effect.gen(function* () {
         pendingTabs.delete(key);
         closedPendingTabs.delete(key);
       });
-    pendingTabs.set(key, { agentId: snapshot.automationOwner ?? null, promise: opening });
+    pendingTabs.set(key, opening);
     return opening;
   };
 
@@ -1367,15 +1335,10 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const atTabLimit = (agentSessionId: string) => {
-    const opening = [...pendingTabs.entries()].filter(([key]) => !tabs.has(key));
-    return (
-      tabs.size + opening.length >= SERVER_TAB_LIMIT ||
-      [...tabs.values()].filter((tab) => tab.control.agentId === agentSessionId).length +
-        opening.filter(([, pending]) => pending.agentId === agentSessionId).length >=
-        AGENT_TAB_LIMIT
-    );
-  };
+  const atTabLimit = (agentSessionId: string) =>
+    tabs.size + pendingTabs.size >= SERVER_TAB_LIMIT ||
+    [...tabs.values()].filter((tab) => tab.control.agentId === agentSessionId).length >=
+      AGENT_TAB_LIMIT;
 
   const assertTabCapacity = (agentSessionId: string) => {
     if (atTabLimit(agentSessionId))
@@ -1384,52 +1347,6 @@ const make = Effect.gen(function* () {
         "tabLimit",
       );
   };
-
-  // A Playwright launch must settle before its capacity can be released.
-  const openTab = Effect.fn("ServerBrowser.openTab")(function* (
-    input: Parameters<typeof manager.open>[0],
-  ) {
-    let key: string = NodeCrypto.randomUUID();
-    const reservation = { agentId: input.automationOwner ?? null };
-    return yield* Effect.acquireUseRelease(
-      Effect.try({
-        try: () => {
-          if (input.automationOwner !== undefined) assertTabCapacity(input.automationOwner);
-          pendingTabs.set(key, reservation);
-        },
-        catch: ServerBrowserPage.toOperationError,
-      }),
-      () =>
-        manager
-          .open({
-            ...input,
-            beforePublish: (snapshot) => {
-              pendingTabs.delete(key);
-              key = tabKey(snapshot.threadId, snapshot.tabId);
-              pendingTabs.set(key, reservation);
-              input.beforePublish?.(snapshot);
-            },
-          })
-          .pipe(
-            Effect.flatMap((snapshot) =>
-              Effect.tryPromise({
-                try: () => ensureTab(snapshot),
-                catch: ServerBrowserPage.toOperationError,
-              }).pipe(
-                Effect.onError(() =>
-                  manager
-                    .close({ threadId: ThreadId.make(snapshot.threadId), tabId: snapshot.tabId })
-                    .pipe(Effect.ignore),
-                ),
-              ),
-            ),
-          ),
-      () =>
-        Effect.sync(() => {
-          pendingTabs.delete(key);
-        }),
-    );
-  }, Effect.uninterruptible);
 
   // Desktop browsing bypasses streamed viewers and server input tracking,
   // so these idle signals only apply to headless tabs.
@@ -1467,8 +1384,6 @@ const make = Effect.gen(function* () {
         ? ("agent" as const)
         : ("unclaimed" as const);
 
-  const reportsByClient = new Map<number, PreviewReportProfilesInput>();
-  let nextClient = 0;
   let reportedProfiles: {
     readonly profiles: ReadonlyArray<BrowserProfile>;
     readonly defaultProfileId: string;
@@ -1477,45 +1392,16 @@ const make = Effect.gen(function* () {
   // last report outlives the client, which lets agents record while no client is connected.
   let recordingFrameRate = DEFAULT_BROWSER_RECORDING_FRAME_RATE;
 
-  // Each client reports only the profiles in its own settings, so the catalog is
-  // their union while they stay connected. The last catalog stays usable after
-  // every client disconnects, as a single report did before.
-  const rebuildReportedProfiles = () => {
-    const byId = new Map<string, BrowserProfile>();
-    let latest: PreviewReportProfilesInput | undefined;
-    for (const report of reportsByClient.values()) {
-      for (const profile of report.profiles) byId.set(profile.id, profile);
-      latest = report;
-    }
-    if (latest === undefined) return;
-    const profiles = resolveBrowserProfiles([...byId.values()]);
-    reportedProfiles = {
-      profiles,
-      defaultProfileId:
-        findBrowserProfile(profiles, latest.defaultProfileId)?.id ?? DEFAULT_BROWSER_PROFILE_ID,
-    };
-  };
-
-  const profileReporter: ServerBrowser["Service"]["profileReporter"] = Effect.acquireRelease(
-    Effect.sync(() => nextClient++),
-    (client) =>
-      Effect.sync(() => {
-        reportsByClient.delete(client);
-        rebuildReportedProfiles();
-      }),
-  ).pipe(
-    Effect.map(
-      (client): ProfileReporter =>
-        (input) =>
-          Effect.sync(() => {
-            if (input.recordingFrameRate !== undefined)
-              recordingFrameRate = input.recordingFrameRate;
-            reportsByClient.delete(client);
-            reportsByClient.set(client, input);
-            rebuildReportedProfiles();
-          }),
-    ),
-  );
+  const reportProfiles: ServerBrowser["Service"]["reportProfiles"] = (input) =>
+    Effect.sync(() => {
+      if (input.recordingFrameRate !== undefined) recordingFrameRate = input.recordingFrameRate;
+      const profiles = resolveBrowserProfiles(input.profiles);
+      reportedProfiles = {
+        profiles,
+        defaultProfileId:
+          findBrowserProfile(profiles, input.defaultProfileId)?.id ?? DEFAULT_BROWSER_PROFILE_ID,
+      };
+    });
 
   const profileStatus = () => {
     const profiles = reportedProfiles?.profiles ?? BUILT_IN_BROWSER_PROFILES;
@@ -1969,18 +1855,23 @@ const make = Effect.gen(function* () {
             : undefined;
         const navigationTimeout = Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS);
         const profileId = existing ? undefined : resolveOpenProfile(open.profileId);
-        if (!existing) closeIdleAgentTabs();
+        if (!existing) {
+          closeIdleAgentTabs();
+          assertTabCapacity(request.agentSessionId);
+        }
         const tab =
           existing ??
-          (await runPromise(
-            openTab({
-              threadId: request.threadId,
-              ...(url ? { url } : {}),
-              ...(profileId === undefined ? {} : { profileId }),
-              runtime: "server",
-              reveal: false,
-              automationOwner: request.agentSessionId,
-            }),
+          (await ensureTab(
+            await runPromise(
+              manager.open({
+                threadId: request.threadId,
+                ...(url ? { url } : {}),
+                ...(profileId === undefined ? {} : { profileId }),
+                runtime: "server",
+                reveal: false,
+                automationOwner: request.agentSessionId,
+              }),
+            ),
           ));
         if (existing?.dialog)
           throw new BrowserControlInterrupted(
@@ -2242,9 +2133,7 @@ const make = Effect.gen(function* () {
   const mirrorManagerEvent = (event: PreviewEvent) =>
     Effect.promise(async () => {
       if (event.type === "opened" && event.snapshot.runtime === "server") {
-        const key = tabKey(event.snapshot.threadId, event.snapshot.tabId);
-        if (event.snapshot.automationOwner === undefined || pendingTabs.has(key) || tabs.has(key))
-          await ensureTab(event.snapshot).catch(constVoid);
+        await ensureTab(event.snapshot).catch(constVoid);
         return;
       }
       const key = tabKey(event.threadId, event.tabId);
@@ -2628,17 +2517,9 @@ const make = Effect.gen(function* () {
                   : {}),
               });
             } else {
-              const dispatch = () => dispatchViewerInput(tab, session, viewer, message);
-              if (
-                message.type === "mouse" &&
-                message.action === "move" &&
-                message.button === "none" &&
-                message.buttons === 0
-              ) {
-                await tab.control.humanLatest(viewer.id, `hover:${modifiersOf(message)}`, dispatch);
-              } else {
-                await tab.control.human(viewer.id, dispatch);
-              }
+              await tab.control.human(viewer.id, () =>
+                dispatchViewerInput(tab, session, viewer, message),
+              );
             }
           } catch {
             broadcastControl(tab);
@@ -2737,7 +2618,7 @@ const make = Effect.gen(function* () {
   return ServerBrowser.of({
     attachViewer,
     clearProfile,
-    profileReporter,
+    reportProfiles,
     openDownload,
     answerFileChooser,
   });

@@ -844,7 +844,7 @@ const collectOutput = Effect.fnUntraced(function* (
   onLine: ((line: string) => Effect.Effect<void, never>) | undefined,
   keepLineCallbacksAfterTruncation = false,
 ): Effect.fn.Return<{ readonly text: string; readonly truncated: boolean }, GitCommandError> {
-  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+  const decoder = new TextDecoder();
   const lineDecoder = keepLineCallbacksAfterTruncation && onLine ? new TextDecoder() : null;
   let bytes = 0;
   let text = "";
@@ -1371,7 +1371,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
   });
 
-  const readGitCommonDir = Effect.fn("readGitCommonDir")(function* (cwd: string) {
+  const resolveRepositoryPathsUncached = Effect.fn("resolveRepositoryPathsUncached")(function* (
+    cwd: string,
+  ) {
     // Git reports relative paths from the physical cwd, which can differ from a symlink.
     const commonDirResult = yield* executeGitWithStableDiagnostics(
       "GitVcsDriver.resolveRepositoryPaths.commonDir",
@@ -1405,16 +1407,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const resolvedGitCommonDir = path.isAbsolute(commonDirOutput)
       ? path.normalize(commonDirOutput)
       : path.resolve(physicalCwd, commonDirOutput);
-    return yield* fileSystem
+    const gitCommonDir = yield* fileSystem
       .realPath(resolvedGitCommonDir)
       .pipe(Effect.orElseSucceed(() => resolvedGitCommonDir));
-  });
-
-  const resolveRepositoryPathsUncached = Effect.fn("resolveRepositoryPathsUncached")(function* (
-    cwd: string,
-  ) {
-    const gitCommonDir = yield* readGitCommonDir(cwd);
-    if (gitCommonDir === null) return null;
     const [worktreeRootResult, currentBranchResult] = yield* Effect.all(
       [
         executeGit(
@@ -1552,14 +1547,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
   const invalidateStatusStaticCaches = Effect.fn("GitVcsDriverCore.invalidateStatusStaticCaches")(
-    function* (cwd: string, gitCommonDir?: string | null) {
-      const commonDir =
-        gitCommonDir === undefined
-          ? (yield* resolveRepositoryPaths(cwd).pipe(
-              Effect.catchTags({ GitCommandError: () => Effect.succeed(null) }),
-            ))?.gitCommonDir
-          : gitCommonDir;
-      const cacheKey = commonDir ?? normalizeRepositoryPathsCacheKey(cwd);
+    function* (cwd: string) {
+      const repositoryPaths = yield* resolveRepositoryPaths(cwd).pipe(
+        Effect.catchTags({ GitCommandError: () => Effect.succeed(null) }),
+      );
+      const cacheKey = repositoryPaths?.gitCommonDir ?? normalizeRepositoryPathsCacheKey(cwd);
       yield* Cache.invalidate(defaultBranchCache, cacheKey);
       yield* Cache.invalidate(originExistsCache, cacheKey);
     },
@@ -3562,7 +3554,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     if (bytes.includes(0)) {
       return yield* fileError("fs.readFile", `Cannot expand binary file '${input.newPath}'.`);
     }
-    return new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
+    return new TextDecoder("utf-8").decode(bytes);
   });
 
   const getReviewDiffFileContents = Effect.fn("getReviewDiffFileContents")(function* (
@@ -3951,21 +3943,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   });
   const invalidateListRefsSnapshot = Effect.fn("invalidateListRefsSnapshot")(function* (
     cwd: string,
-    gitCommonDir?: string | null,
   ) {
     const repositoryPathsCacheKey = normalizeRepositoryPathsCacheKey(cwd);
-    const commonDir =
-      gitCommonDir === undefined
-        ? (yield* Cache.get(repositoryPathsCache, repositoryPathsCacheKey))?.gitCommonDir
-        : gitCommonDir;
-    if (commonDir == null) return;
-    const previousGeneration = currentListRefsGeneration(commonDir);
-    bumpListRefsGeneration(commonDir);
-    bumpListRefsEpoch(commonDir);
+    const repositoryPaths = yield* Cache.get(repositoryPathsCache, repositoryPathsCacheKey);
+    if (repositoryPaths === null) return;
+    const previousGeneration = currentListRefsGeneration(repositoryPaths.gitCommonDir);
+    bumpListRefsGeneration(repositoryPaths.gitCommonDir);
+    bumpListRefsEpoch(repositoryPaths.gitCommonDir);
     yield* Cache.invalidate(
       listRefsRefreshSnapshotCache,
       new GitRefsRefreshCacheKey({
-        gitCommonDir: commonDir,
+        gitCommonDir: repositoryPaths.gitCommonDir,
         generation: previousGeneration,
       }),
     );
@@ -4836,26 +4824,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ]),
       ),
     );
-  const invalidateWorktreeCreationCaches = Effect.fn(
-    "GitVcsDriverCore.invalidateWorktreeCreationCaches",
-  )(function* (cwd: string) {
-    let gitCommonDir = yield* readGitCommonDir(cwd).pipe(
-      Effect.catchTags({ GitCommandError: () => Effect.succeed(null) }),
-    );
-    if (gitCommonDir === null) {
-      gitCommonDir = yield* Cache.getOption(
-        repositoryPathsCache,
-        normalizeRepositoryPathsCacheKey(cwd),
-      ).pipe(
-        Effect.map((cached) => Option.getOrNull(cached)?.gitCommonDir ?? null),
-        Effect.orElseSucceed(() => null),
-      );
-    }
-    yield* Effect.all([
-      invalidateListRefsSnapshot(cwd, gitCommonDir).pipe(Effect.ignore),
-      invalidateStatusStaticCaches(cwd, gitCommonDir).pipe(Effect.ignore),
-    ]);
-  });
   const initRepoWithListRefsInvalidation: GitVcsDriver.GitVcsDriver["Service"]["initRepo"] = (
     input,
   ) =>
@@ -4896,9 +4864,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     resolveBranchName,
     listRefs,
     createWorktree: Effect.fnUntraced(function* (input, options) {
-      return yield* createWorktree(input, options).pipe(
-        Effect.ensuring(invalidateWorktreeCreationCaches(input.cwd)),
-      );
+      return yield* withListRefsInvalidation(input.cwd, createWorktree(input, options));
     }),
     fetchRefIntoBranch: Effect.fnUntraced(function* (input) {
       return yield* withListRefsInvalidation(input.cwd, fetchRefIntoBranch(input));

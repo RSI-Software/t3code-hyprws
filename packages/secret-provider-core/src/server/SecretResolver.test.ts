@@ -6,9 +6,7 @@ import {
   type SecretReference,
   type ServerSettings,
 } from "@t3tools/contracts";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
@@ -28,10 +26,7 @@ const fake = (account: string) => ({
 });
 const ref = (reference: string, provider = personal): SecretReference => ({ provider, reference });
 
-function fakeDriver(
-  answer: (account: string, reference: string) => string | undefined,
-  wait: (references: ReadonlyArray<string>) => Effect.Effect<void> = () => Effect.void,
-) {
+function fakeDriver(answer: (account: string, reference: string) => string | undefined) {
   const reads: Array<{ readonly account: string; readonly references: ReadonlyArray<string> }> = [];
   const driver = defineSecretProviderDriver({
     kind: FAKE_KIND,
@@ -44,14 +39,10 @@ function fakeDriver(
       invalidReferenceMessage: "Use fake://item.",
     }),
     read: ({ account }, references) =>
-      wait(references).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            reads.push({ account, references });
-            return references.map((reference) => answer(account, reference));
-          }),
-        ),
-      ),
+      Effect.sync(() => {
+        reads.push({ account, references });
+        return references.map((reference) => answer(account, reference));
+      }),
   });
   return { driver, reads };
 }
@@ -95,30 +86,6 @@ describe("SecretResolver", () => {
       assert.strictEqual(reads.length, 2);
     }).pipe(Effect.provide(resolverLayer(driver)));
   });
-
-  it.effect("answers a cached reference while another reference waits on its provider", () =>
-    Effect.gen(function* () {
-      const started = yield* Deferred.make<void>();
-      const unlock = yield* Deferred.make<void>();
-      const { driver } = fakeDriver(
-        () => "sk-live",
-        (references) =>
-          references.includes("fake://slow")
-            ? Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(unlock)))
-            : Effect.void,
-      );
-      yield* Effect.gen(function* () {
-        const resolver = yield* SecretResolver.SecretResolver;
-        yield* resolver.read([ref("fake://cached")]);
-        const slow = yield* Effect.forkChild(resolver.read([ref("fake://slow")]));
-        yield* Deferred.await(started);
-
-        assert.deepStrictEqual(yield* resolver.read([ref("fake://cached")]), ["sk-live"]);
-        yield* Deferred.succeed(unlock, undefined);
-        assert.deepStrictEqual(yield* Fiber.join(slow), ["sk-live"]);
-      }).pipe(Effect.provide(resolverLayer(driver)));
-    }),
-  );
 
   it.effect("invalidates every reference when none are named", () => {
     const { driver, reads } = fakeDriver(() => "sk-live");

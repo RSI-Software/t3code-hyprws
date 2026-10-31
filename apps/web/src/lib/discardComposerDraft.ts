@@ -29,16 +29,6 @@ export function discardComposerDraft(target: ComposerThreadTarget): void {
     store.clearComposerContent(target);
   }
 
-  const releaseDiscardedDraft = () => {
-    releaseDraftAttachments([...draft.images, ...draft.files]);
-    // Draft-session removal already revoked these previews.
-    if (!discardsSession) {
-      for (const image of draft.images) {
-        if (image.previewUrl.startsWith("blob:")) URL.revokeObjectURL(image.previewUrl);
-      }
-    }
-  };
-
   showThreadUndoNotice({
     action: "Discarded",
     claim,
@@ -46,7 +36,7 @@ export function discardComposerDraft(target: ComposerThreadTarget): void {
     undo: async () => {
       const current = useComposerDraftStore.getState().draftsByThreadKey[key];
       if (current && composerDraftHasUserContent(current)) {
-        releaseDiscardedDraft();
+        releaseDraftAttachments([...draft.images, ...draft.files]);
         return AsyncResult.failure(Cause.fail(new Error("The draft has new content.")));
       }
       useComposerDraftStore.setState((state) => {
@@ -78,6 +68,6 @@ export function discardComposerDraft(target: ComposerThreadTarget): void {
       });
       return AsyncResult.success(undefined);
     },
-    commit: releaseDiscardedDraft,
+    commit: () => releaseDraftAttachments([...draft.images, ...draft.files]),
   });
 }

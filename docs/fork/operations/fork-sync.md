@@ -289,7 +289,7 @@ Applied by hand in **Settings > Rules > Rulesets**, all `active`; nothing change
 
 ### Runners
 
-Browser test jobs pin a Playwright-supported runner image; other fork workflows use `ubuntu-latest`.
+Every fork workflow runs on `ubuntu-latest`.
 `hyprws-release.yml` publishes a nightly on every trunk landing that passes the release gate (trunk tip plus green `hyprws CI`), with a six-hour fallback schedule.
 It keeps the newest 7 nightlies and deletes older ones with their tags; stable is never pruned.
 Stable fork releases are tagged by hand; `hyprws-release.yml` owns the build either way.

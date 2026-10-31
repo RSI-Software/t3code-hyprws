@@ -103,6 +103,10 @@ export class WorkspacePaths extends Context.Service<
   }
 >()("t3/workspace/WorkspacePaths") {}
 
+function toPosixRelativePath(input: string): string {
+  return input.replaceAll("\\", "/");
+}
+
 const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -184,10 +188,7 @@ const make = Effect.gen(function* () {
       }
 
       const absolutePath = path.resolve(input.workspaceRoot, normalizedInputPath);
-      // Only the host separator becomes `/`: on POSIX `\` is a file name character.
-      const relativeToRoot = path
-        .relative(input.workspaceRoot, absolutePath)
-        .replaceAll(path.sep, "/");
+      const relativeToRoot = toPosixRelativePath(path.relative(input.workspaceRoot, absolutePath));
       if (
         relativeToRoot.length === 0 ||
         relativeToRoot === "." ||

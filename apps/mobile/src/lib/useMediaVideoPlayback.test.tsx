@@ -119,7 +119,6 @@ import {
   PullRequestMediaContext,
   PullRequestMediaVisibleContext,
 } from "../features/pull-requests/PullRequestMedia";
-import { MediaVideoPlayer } from "../components/MediaVideoPlayer";
 
 function createPlayer() {
   let playing = false;
@@ -150,7 +149,7 @@ function createPlayer() {
   };
 }
 
-function setup(kind: "thread" | "PR" | "files", compact = false) {
+function setup(kind: "thread" | "PR", compact = false) {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.focused = true;
   mocks.appState = "active";
@@ -167,20 +166,10 @@ function setup(kind: "thread" | "PR" | "files", compact = false) {
   const environmentId = EnvironmentId.make("test");
   return {
     render(visible = true) {
-      if (kind === "files") mocks.focused = visible;
       act(() =>
         root.render(
           <RegistryContext.Provider value={registry}>
-            {kind === "files" ? (
-              <MediaVideoPlayer
-                name="clip.mp4"
-                thumbnailKey="workspace-video:test"
-                uri="https://media.example/clip.mp4"
-                fitToVideo
-                visible={visible}
-                resolvePlaybackUri={mocks.refresh}
-              />
-            ) : kind === "thread" ? (
+            {kind === "thread" ? (
               <ThreadMediaVisibleContext value={visible}>
                 <ThreadMarkdownVideo
                   source={{
@@ -278,31 +267,23 @@ it.each(["thread", "PR"] as const)(
   },
 );
 
-it.each([
-  ["PR", false],
-  ["PR", true],
-  ["files", false],
-] as const)(
-  "stops inactive %s thumbnail requests (compact: %s) and restarts on return",
-  async (kind, compact) => {
-    using screen = setup(kind, compact);
+it.each([false, true])(
+  "stops inactive PR thumbnail requests (compact: %s) and restarts on return",
+  async (compact) => {
+    using screen = setup("PR", compact);
     mocks.thumbnail.mockReturnValue(new Promise(() => {}));
     screen.render(false);
     expect(mocks.thumbnail).not.toHaveBeenCalled();
     await act(async () => screen.render(true));
-    const requests = kind === "files" ? 2 : 1;
-    expect(mocks.thumbnail).toHaveBeenCalledTimes(requests);
-    const aborted = Promise.all(
-      mocks.thumbnail.mock.calls.map(([, , signal]) => {
-        expect(signal.aborted).toBe(false);
-        return new Promise((resolve) => signal.addEventListener("abort", resolve));
-      }),
-    );
+    expect(mocks.thumbnail).toHaveBeenCalledTimes(1);
+    const signal = mocks.thumbnail.mock.calls[0]![2];
+    expect(signal.aborted).toBe(false);
+    const aborted = new Promise((resolve) => signal.addEventListener("abort", resolve));
     screen.render(false);
     await act(() => aborted);
-    expect(mocks.thumbnail).toHaveBeenCalledTimes(requests);
+    expect(mocks.thumbnail).toHaveBeenCalledTimes(1);
     await act(async () => screen.render(true));
-    expect(mocks.thumbnail).toHaveBeenCalledTimes(requests * 2);
+    expect(mocks.thumbnail).toHaveBeenCalledTimes(2);
   },
 );
 

@@ -29,7 +29,7 @@ const runWithPeerLinks = Effect.fn("environment.runWithPeerLinks")(function* <A,
   options?: { readonly quietLogs?: boolean },
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveCliAuthConfig(flags, logLevel, options);
+  const config = yield* resolveCliAuthConfig(flags, logLevel);
   return yield* PeerLinks.PeerLinks.pipe(
     Effect.flatMap(run),
     Effect.provide(

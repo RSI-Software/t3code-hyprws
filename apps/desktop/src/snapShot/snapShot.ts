@@ -539,15 +539,14 @@ function findBrowserTitleMatch<T extends { readonly name?: string | null }>(
   return browserMatches.length === 1 ? browserMatches[0] : undefined;
 }
 
-// Keyed by the lowercase tokens parseKeybindingShortcut stores; Electron has no `ArrowUp` token.
 const ELECTRON_KEY_NAMES: Readonly<Record<string, string>> = {
   " ": "Space",
   "+": "Plus",
-  arrowdown: "Down",
-  arrowleft: "Left",
-  arrowright: "Right",
-  arrowup: "Up",
-  escape: "Esc",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  ArrowUp: "Up",
+  Escape: "Esc",
 };
 
 export function sameSnapShotShortcut(left: SnapShotShortcut, right: SnapShotShortcut): boolean {

@@ -108,17 +108,9 @@ it("reads a title prettier wrapped onto the line after its opener", () => {
     `  (operation) => Effect.void,`,
     `);`,
     `it.effect(() => Effect.void);`,
-    `it.effect.each([`,
-    `  { loss: "socket", resumes: true },`,
-    `] as const)("handles $loss", () => Effect.void);`,
   ].join("\n");
-  assert.deepStrictEqual(testCaseTitles(text), [
-    "table %s",
-    "wrapped",
-    "refreshes after %s",
-    "handles $loss",
-  ]);
-  assert.deepStrictEqual(siblingCaseOpenerLines(text), [1, 2, 6, 11]);
+  assert.deepStrictEqual(testCaseTitles(text), ["table %s", "wrapped", "refreshes after %s"]);
+  assert.deepStrictEqual(siblingCaseOpenerLines(text), [1, 2, 6]);
   assert.deepStrictEqual(caseSourceLines(text, "refreshes after %s"), [
     `it.effect.each(["add", "replace"] as const)(`,
     `  "refreshes after %s",`,

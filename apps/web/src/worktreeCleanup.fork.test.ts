@@ -85,29 +85,6 @@ describe("getOrphanedWorktreePathsForThreads", () => {
     expect(result).toEqual(["/tmp/repo/worktrees/shared"]);
   });
 
-  it("keeps a surviving checkout with an equivalent trailing-separator path", () => {
-    const threads = [
-      makeThread({ id: ThreadId.make("thread-1"), worktreePath: "/tmp/repo/shared/" }),
-      makeThread({ id: ThreadId.make("thread-2"), worktreePath: "/tmp/repo/shared" }),
-    ];
-    expect(
-      getOrphanedWorktreePathsForThreads(threads, new Set([ThreadId.make("thread-1")])),
-    ).toEqual([]);
-  });
-
-  it("deduplicates equivalent Windows checkout paths", () => {
-    const threads = [
-      makeThread({ id: ThreadId.make("thread-1"), worktreePath: "C:/Repo/Shared/" }),
-      makeThread({ id: ThreadId.make("thread-2"), worktreePath: "c:\\repo\\shared" }),
-    ];
-    expect(
-      getOrphanedWorktreePathsForThreads(
-        threads,
-        new Set([ThreadId.make("thread-1"), ThreadId.make("thread-2")]),
-      ),
-    ).toEqual(["c:\\repo\\shared"]);
-  });
-
   it("ignores blank worktree paths", () => {
     const threads = [
       makeThread({ id: ThreadId.make("thread-1"), worktreePath: "   " }),

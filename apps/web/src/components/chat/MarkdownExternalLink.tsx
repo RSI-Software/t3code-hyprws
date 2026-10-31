@@ -1,6 +1,6 @@
 import { faviconUrlForOrigin } from "@t3tools/shared/favicon";
 import { GlobeIcon } from "lucide-react";
-import { Children, memo, useState, type ReactNode } from "react";
+import { Children, Fragment, memo, useState, type ReactNode } from "react";
 
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 
@@ -54,16 +54,18 @@ function leadingExternalLinkTextLength(text: string): number {
   return Math.min(text.length, 1);
 }
 
-// Keep short labels such as PR numbers intact in narrow table columns.
+// Long words such as URLs can break after any character so they fit narrow
+// table columns. Short ones, like a PR number, stay whole.
 function breakableExternalLinkText(text: string): ReactNode[] {
   return Array.from(text.matchAll(/\s+|\S+/g), ({ 0: word, index: start }) =>
-    word.length <= 16 ? (
-      word
-    ) : (
-      <span key={start} className="[overflow-wrap:anywhere]">
-        {word}
-      </span>
-    ),
+    word.length <= 16
+      ? word
+      : Array.from(word, (character, offset) => (
+          <Fragment key={`${start + offset}:${character}`}>
+            {character}
+            <wbr />
+          </Fragment>
+        )),
   );
 }
 
@@ -108,7 +110,7 @@ export function MarkdownExternalLinkContent({
 
   return (
     <>
-      <span className="[overflow-wrap:anywhere]">
+      <span className="whitespace-nowrap">
         <MarkdownLinkFavicon host={host} />
         {firstChild}
       </span>

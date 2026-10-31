@@ -19,7 +19,6 @@ export function WorkspaceFileVideoPreview(props: {
         resolvePlaybackUri={props.resolvePlaybackUri}
         name={props.name}
         thumbnailKey={props.thumbnailKey}
-        fitToVideo
         actionsSource={props.source?.actionsSource}
       />
     </View>

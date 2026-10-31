@@ -1,7 +1,8 @@
 import {
   makeProviderSettingsSchema,
-  SettingsSecretValue,
+  secretSetting,
   SourceControlProviderKind,
+  TrimmedString,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -33,7 +34,8 @@ function parseChangeRequestUrl(url: URL) {
 const KIND = SourceControlProviderKind.make("gitcafe");
 
 export const settings = makeProviderSettingsSchema({
-  token: SettingsSecretValue.pipe(
+  token: TrimmedString.pipe(
+    secretSetting,
     Schema.withDecodingDefault(Effect.succeed("")),
     Schema.annotateKey({
       title: "Token",

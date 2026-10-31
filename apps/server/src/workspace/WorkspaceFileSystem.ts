@@ -536,9 +536,6 @@ export const make = Effect.gen(function* () {
     yield* knownWorkspaces.assertContains(input.cwd);
     const target = yield* resolveWriteTarget(input);
     const realTargetPath = target.realTargetPath;
-    const replacesFile = yield* fileSystem
-      .exists(realTargetPath)
-      .pipe(Effect.orElseSucceed(() => false));
     yield* WorkspaceFileSystemFork.assertUnchangedSinceLoad(fileSystem, realTargetPath, input); // fork-hook: upstream-fixes/stale-write-check
 
     yield* fileSystem.makeDirectory(path.dirname(realTargetPath), { recursive: true }).pipe(
@@ -574,12 +571,7 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     });
-    // Editor autosave overwrites existing files, which leaves the indexed paths unchanged, and
-    // fff's watcher applies the new contents on its own. A forced rescan re-walks the whole
-    // workspace, and the save would wait for it.
-    if (!replacesFile) {
-      yield* workspaceEntries.refresh(input.cwd);
-    }
+    yield* workspaceEntries.refresh(input.cwd);
     return { relativePath: target.relativePath };
   });
 

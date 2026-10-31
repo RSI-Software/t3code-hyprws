@@ -1,8 +1,7 @@
-import { type ChangeEvent, type KeyboardEvent, useRef, useState } from "react";
+import { type ChangeEvent, type KeyboardEvent, useState } from "react";
 
 export function useCommitOnBlur(value: string, onCommit: (next: string) => void) {
   const [draft, setDraft] = useState<string | null>(null);
-  const valueOnFocus = useRef(value);
 
   return {
     value: draft ?? value,
@@ -10,13 +9,12 @@ export function useCommitOnBlur(value: string, onCommit: (next: string) => void)
       setDraft(event.target.value);
     },
     onFocus: () => {
-      valueOnFocus.current = value;
       setDraft(value);
     },
     onBlur: () => {
       const next = draft ?? value;
       setDraft(null);
-      if (next !== valueOnFocus.current && next !== value) {
+      if (next !== value) {
         onCommit(next);
       }
     },

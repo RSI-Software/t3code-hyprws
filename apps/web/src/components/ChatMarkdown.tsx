@@ -1795,8 +1795,7 @@ function ChatMarkdown({
               ? { rehypePlugins: CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS }
               : {})} // fork-hook: markdown-editing/chat-markdown-styled-html-select
             shared={!uncachedPlugins}
-            // Every block before the last is finished, so its parse can be reused.
-            cache={!props.isStreaming || index < blocks.length - 1}
+            cache={!props.isStreaming}
           />
         ))}
       </ChatMarkdownRendererContext>

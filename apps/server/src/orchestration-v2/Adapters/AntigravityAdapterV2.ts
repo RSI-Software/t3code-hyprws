@@ -238,8 +238,7 @@ export function makeAntigravityAcpAdapterFlavor(
     normalizeToolCall: normalizeAntigravityToolCall,
     extractSubagentUpdate: extractAntigravitySubagentUpdate,
     supportsImagePrompts: true,
-    // ACP 1.3.0 treats /compact as ordinary model input.
-    supportsCompaction: false,
+    supportsCompaction: true,
     requiresSignIn: isAntigravitySignInRequiredError,
   };
 }

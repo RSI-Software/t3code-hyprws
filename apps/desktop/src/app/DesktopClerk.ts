@@ -21,7 +21,6 @@ import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopUserData from "./DesktopUserData.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
-import { openClerkTokenStorage } from "./ClerkTokenStore.ts";
 import { desktopLaunchArguments } from "./DesktopLaunchArguments.fork.ts"; // fork-hook: multi-window/launch-arguments
 import * as DesktopWebLinks from "./DesktopWebLinks.ts";
 
@@ -86,13 +85,9 @@ export const desktopClerkFrontendApiHostname = resolveDesktopClerkFrontendApiHos
     : __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__,
 );
 
-function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean, userDataPath: string) {
+function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean) {
   return createClerkBridge({
-    storage: openClerkTokenStorage(
-      stateDir,
-      (directory) => storage({ path: directory }),
-      userDataPath,
-    ),
+    storage: storage({ path: stateDir }),
     manageSingleInstanceLock: false,
     passkeys: true,
     renderer: {
@@ -137,8 +132,7 @@ export const make = Effect.gen(function* () {
 
   yield* Effect.acquireRelease(
     Effect.try({
-      try: () =>
-        createDesktopClerkBridge(environment.stateDir, environment.isDevelopment, userDataPath),
+      try: () => createDesktopClerkBridge(environment.stateDir, environment.isDevelopment),
       catch: (cause) =>
         new DesktopClerkBridgeInitializationError({
           stateDir: environment.stateDir,

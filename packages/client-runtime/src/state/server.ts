@@ -113,7 +113,7 @@ export class ServerUpdateResumeTimeoutError extends Schema.TaggedError<ServerUpd
   },
 ) {
   override get message(): string {
-    return `Could not confirm that the server resumed on t3@${this.targetVersion}. Reconnect to check the update outcome.`;
+    return `The server did not resume on t3@${this.targetVersion}.`;
   }
 }
 
@@ -431,7 +431,6 @@ export function resolveServerUpdateProgressResult<E>(
   targetVersion: string,
   terminal: Option.Option<ServerSelfUpdateResult>,
   streamExit: Exit.Exit<void, E>,
-  accepted?: ServerSelfUpdateResult,
 ): Effect.Effect<ServerSelfUpdateResult, E | ServerUpdateProgressIncompleteError> {
   if (
     Option.isSome(terminal) &&
@@ -440,9 +439,6 @@ export function resolveServerUpdateProgressResult<E>(
     return Effect.succeed(terminal.value);
   }
   if (Exit.isFailure(streamExit)) {
-    if (accepted !== undefined && isLegacyUpdateHandoffLoss(streamExit.cause)) {
-      return Effect.succeed(accepted);
-    }
     return Effect.failCause(streamExit.cause);
   }
   return Effect.fail(new ServerUpdateProgressIncompleteError({ targetVersion }));
@@ -1017,7 +1013,6 @@ export function createServerEnvironmentAtoms<R, E>(
               currentConfig?.environment.capabilities.serverSelfUpdateProgress === true;
             const updateResult: ServerSelfUpdateResult = supportsProgress
               ? yield* Effect.gen(function* () {
-                  let receivedProgress = false;
                   const terminal = yield* Ref.make<Option.Option<ServerSelfUpdateResult>>(
                     Option.none(),
                   );
@@ -1029,7 +1024,6 @@ export function createServerEnvironmentAtoms<R, E>(
                     .pipe(
                       Stream.runForEach((event) =>
                         Effect.sync(() => {
-                          receivedProgress ||= event.type === "progress";
                           const state = serverUpdateStateForProgressEvent(
                             fromVersion,
                             targetVersion,
@@ -1047,18 +1041,10 @@ export function createServerEnvironmentAtoms<R, E>(
                       ),
                       Effect.exit,
                     );
-                  const selfUpdateMethod = currentConfig?.environment.capabilities.serverSelfUpdate;
-                  // Desktop preparation needs its terminal commit token.
-                  const accepted =
-                    receivedProgress &&
-                    (selfUpdateMethod === "boot-service" || selfUpdateMethod === "respawn")
-                      ? { targetVersion, method: selfUpdateMethod }
-                      : undefined;
                   return yield* resolveServerUpdateProgressResult(
                     targetVersion,
                     yield* Ref.get(terminal),
                     streamExit,
-                    accepted,
                   );
                 })
               : yield* Effect.gen(function* () {
@@ -1396,12 +1382,6 @@ export function createServerEnvironmentAtoms<R, E>(
     traceDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
-    }),
-    npmRelease: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:npm-release",
-      tag: WS_METHODS.serverGetNpmRelease,
-      staleTimeMs: 60_000,
-      refreshIntervalMs: 5 * 60_000,
     }),
     processDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-diagnostics",

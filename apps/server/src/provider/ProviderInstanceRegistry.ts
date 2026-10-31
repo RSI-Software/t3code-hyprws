@@ -7,7 +7,6 @@ import {
   type ProviderDriverKind,
   type ResolvedProviderInstanceEnvironment,
   type SecretReference,
-  secretReferencesInSettings,
   type ServerProvider,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -43,16 +42,11 @@ export class ProviderInstanceRegistry extends Context.Service<
   }
 >()("t3/provider/ProviderInstanceRegistry") {}
 
-interface InstanceSecrets {
-  readonly environment: ResolvedProviderInstanceEnvironment;
-  readonly config: Readonly<Record<string, string>>;
-}
-
 interface LiveEntry {
   readonly instance: ProviderInstance;
   readonly scope: Scope.Closeable;
   readonly entry: ProviderInstanceConfig;
-  readonly secrets: InstanceSecrets;
+  readonly environment: ResolvedProviderInstanceEnvironment;
 }
 
 interface RegistryState {
@@ -67,18 +61,8 @@ const entryEqual = (a: ProviderInstanceConfig, b: ProviderInstanceConfig): boole
 const secretReferencesIn = (environment: ProviderInstanceEnvironment): Array<SecretReference> =>
   environment.flatMap((variable) => (typeof variable.value === "string" ? [] : [variable.value]));
 
-const configSecretReferences = <R>(
-  driver: AnyProviderDriver<R> | undefined,
-  entry: ProviderInstanceConfig,
-) => (driver === undefined ? [] : secretReferencesInSettings(driver.configSchema, entry.config));
-
-const secretReferencesOf = <R>(
-  driversById: ReadonlyMap<ProviderDriverKind, AnyProviderDriver<R>>,
-  entry: ProviderInstanceConfig,
-): ReadonlyArray<SecretReference> => [
-  ...secretReferencesIn(entry.environment ?? []),
-  ...configSecretReferences(driversById.get(entry.driver), entry).map(({ reference }) => reference),
-];
+const secretReferencesOf = (entry: ProviderInstanceConfig): ReadonlyArray<SecretReference> =>
+  secretReferencesIn(entry.environment ?? []);
 
 const withoutSecretReferences = (
   environment: ProviderInstanceEnvironment,
@@ -87,38 +71,25 @@ const withoutSecretReferences = (
     typeof variable.value === "string" ? [{ ...variable, value: variable.value }] : [],
   );
 
-const readInstanceSecrets = Effect.fn("ProviderInstanceRegistry.readInstanceSecrets")(function* <R>(
-  driver: AnyProviderDriver<R> | undefined,
-  entry: ProviderInstanceConfig,
-) {
-  const variables = entry.environment ?? [];
-  const configFields = configSecretReferences(driver, entry);
-  const references = [
-    ...secretReferencesIn(variables),
-    ...configFields.map(({ reference }) => reference),
-  ];
-  const values =
-    references.length === 0 ? [] : yield* (yield* SecretResolver.SecretResolver).read(references);
-  const unreadable: Array<string> = [];
-  let index = 0;
-  const environment: ResolvedProviderInstanceEnvironment = variables.flatMap((variable) => {
-    if (typeof variable.value === "string") return [{ ...variable, value: variable.value }];
-    const secret = values[index++];
-    if (secret === undefined) {
-      unreadable.push(variable.name);
-      return [];
-    }
-    return [{ ...variable, value: secret, sensitive: true }];
-  });
-  const config: Record<string, string> = {};
-  for (const { field } of configFields) {
-    const secret = values[index++];
-    if (secret === undefined) unreadable.push(field);
-    else config[field] = secret;
-  }
-  const secrets: InstanceSecrets = { environment, config };
-  return { secrets, unreadable };
-});
+const readSecretEnvironment = Effect.fn("ProviderInstanceRegistry.readSecretEnvironment")(
+  function* (environment: ProviderInstanceEnvironment) {
+    const references = secretReferencesIn(environment);
+    const values =
+      references.length === 0 ? [] : yield* (yield* SecretResolver.SecretResolver).read(references);
+    const unreadable: Array<string> = [];
+    let index = 0;
+    const resolved: ResolvedProviderInstanceEnvironment = environment.flatMap((variable) => {
+      if (typeof variable.value === "string") return [{ ...variable, value: variable.value }];
+      const secret = values[index++];
+      if (secret === undefined) {
+        unreadable.push(variable.name);
+        return [];
+      }
+      return [{ ...variable, value: secret, sensitive: true }];
+    });
+    return { environment: resolved, unreadable };
+  },
+);
 
 /** Conflicting saved flags must preserve any explicit disable. */
 const resolveEntryEnabled = (entry: ProviderInstanceConfig, typedConfig: unknown): boolean => {
@@ -193,7 +164,7 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
 
   const typedConfig = decodeResult.success;
   const enabled = resolveEntryEnabled(entry, typedConfig);
-  if (deferSecrets && enabled && secretReferencesOf(driversById, entry).length > 0) {
+  if (deferSecrets && enabled && secretReferencesOf(entry).length > 0) {
     return {
       kind: "unavailable" as const,
       snapshot: yield* buildUnavailableProviderSnapshot({
@@ -205,12 +176,9 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
       }),
     };
   }
-  const { secrets, unreadable } = enabled
-    ? yield* readInstanceSecrets(driver, entry)
-    : {
-        secrets: { environment: withoutSecretReferences(entry.environment ?? []), config: {} },
-        unreadable: [],
-      };
+  const { environment, unreadable } = enabled
+    ? yield* readSecretEnvironment(entry.environment ?? [])
+    : { environment: withoutSecretReferences(entry.environment ?? []), unreadable: [] };
   // Starting with a blank credential would fail later with a less useful error, or fall back to
   // whatever the server inherited.
   if (unreadable.length > 0) {
@@ -226,19 +194,17 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
     };
   }
 
-  const childScope = yield* Scope.fork(parentScope);
+  const childScope = yield* Scope.make();
+  yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void).pipe(Effect.ignore));
 
   const createResult = yield* driver
     .create({
       instanceId,
       displayName: entry.displayName,
       accentColor: entry.accentColor,
-      environment: secrets.environment,
+      environment,
       enabled,
-      config:
-        Object.keys(secrets.config).length === 0
-          ? typedConfig
-          : { ...typedConfig, ...secrets.config },
+      config: typedConfig,
     })
     .pipe(Effect.provideService(Scope.Scope, childScope), Effect.result);
   if (createResult._tag === "Failure") {
@@ -266,7 +232,7 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
       instance: createResult.success,
       scope: childScope,
       entry,
-      secrets,
+      environment,
     },
   };
 });
@@ -306,13 +272,7 @@ const makeReconcile = <R>(input: {
           replacedIds.add(instanceId);
         }
       }
-      const retiredIds = [...removedIds, ...replacedIds];
-      if (retiredIds.length > 0) {
-        const remaining = new Map(previousEntries);
-        for (const id of retiredIds) remaining.delete(id);
-        yield* Ref.set(state.entries, remaining);
-      }
-      for (const id of retiredIds) {
+      for (const id of [...removedIds, ...replacedIds]) {
         const live = previousEntries.get(id);
         if (live) {
           yield* Scope.close(live.scope, Exit.void).pipe(Effect.ignore);
@@ -326,7 +286,7 @@ const makeReconcile = <R>(input: {
           const kept = previousEntries.has(instanceId) && !replacedIds.has(instanceId);
           return kept || !(yield* isEntryEnabled(driversById, entry))
             ? []
-            : secretReferencesOf(driversById, entry);
+            : secretReferencesOf(entry);
         }),
       ).pipe(Effect.map((perEntry) => perEntry.flat()));
       if (references.length > 0 && !deferSecrets) {
@@ -448,13 +408,13 @@ export const makeProviderInstanceRegistry = Effect.fn(
         const configMap = yield* Ref.get(configMapRef);
         const targets = yield* Effect.filter(Object.entries(configMap), ([rawInstanceId, entry]) =>
           (instanceId === undefined || rawInstanceId === instanceId) &&
-          secretReferencesOf(driversById, entry).length > 0
+          secretReferencesOf(entry).length > 0
             ? isEntryEnabled(driversById, entry)
             : Effect.succeed(false),
         );
         if (targets.length === 0) return;
         const resolver = yield* SecretResolver.SecretResolver;
-        const references = targets.flatMap(([, entry]) => secretReferencesOf(driversById, entry));
+        const references = targets.flatMap(([, entry]) => secretReferencesOf(entry));
         yield* resolver.invalidate(references);
         yield* resolver.read(references);
         const live = yield* Ref.get(entries);
@@ -462,12 +422,9 @@ export const makeProviderInstanceRegistry = Effect.fn(
         for (const [rawInstanceId, entry] of targets) {
           const current = live.get(ProviderInstanceId.make(rawInstanceId));
           if (current === undefined) continue;
-          const { secrets, unreadable } = yield* readInstanceSecrets(
-            driversById.get(entry.driver),
-            entry,
-          );
+          const { environment, unreadable } = yield* readSecretEnvironment(entry.environment ?? []);
           // A failed re-read keeps the working instance and the value it already holds.
-          if (unreadable.length === 0 && !Equal.equals(secrets, current.secrets)) {
+          if (unreadable.length === 0 && !Equal.equals(environment, current.environment)) {
             rebuild.add(current.instance.instanceId);
           }
         }
@@ -485,12 +442,10 @@ export const makeProviderInstanceRegistry = Effect.fn(
     ),
   );
   const startupReferences = yield* Effect.filter(Object.entries(input.configMap), ([, entry]) =>
-    secretReferencesOf(driversById, entry).length > 0
+    secretReferencesOf(entry).length > 0
       ? isEntryEnabled(driversById, entry)
       : Effect.succeed(false),
-  ).pipe(
-    Effect.map((targets) => targets.flatMap(([, entry]) => secretReferencesOf(driversById, entry))),
-  );
+  ).pipe(Effect.map((targets) => targets.flatMap(([, entry]) => secretReferencesOf(entry))));
   if (startupReferences.length > 0) {
     // The read waits outside the lock so other mutations are not held for a vault prompt; a
     // configuration saved meanwhile has already reconciled itself.

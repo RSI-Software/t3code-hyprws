@@ -76,7 +76,7 @@ function serializeCodeBlock(pre: Element): string {
 }
 
 function serializeTableCell(cell: Element): string {
-  return serializeChildren(cell, true).replace(/\n+/g, " ").trim();
+  return serializeChildren(cell).replace(/\n+/g, " ").trim().replaceAll("|", "\\|");
 }
 
 function tableSeparatorFor(headerCells: Element[]): string {
@@ -108,19 +108,14 @@ function serializeTable(table: Element): string {
   return `${lines.join("\n")}\n\n`;
 }
 
-function serializeListItem(
-  item: Element,
-  ordered: boolean,
-  index: number,
-  inTableCell: boolean,
-): string {
+function serializeListItem(item: Element, ordered: boolean, index: number): string {
   const checkbox = item.querySelector(
     ':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]',
   );
   const task = checkbox ? `[${(checkbox as HTMLInputElement).checked ? "x" : " "}] ` : "";
   const bullet = ordered ? `${index}. ` : "- ";
   const marker = `${bullet}${task}`;
-  let content = serializeChildren(item, inTableCell)
+  let content = serializeChildren(item)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!item.querySelector(":scope > p")) {
@@ -135,15 +130,15 @@ function serializeListItem(
   ].join("\n");
 }
 
-function serializeList(list: Element, ordered: boolean, inTableCell: boolean): string {
+function serializeList(list: Element, ordered: boolean): string {
   const start = Number.parseInt(list.getAttribute("start") ?? "1", 10) || 1;
   const items = [...list.children].filter((child) => child.tagName === "LI");
   if (items.length === 0) return "";
-  return `${items.map((item, index) => serializeListItem(item, ordered, start + index, inTableCell)).join("\n")}\n\n`;
+  return `${items.map((item, index) => serializeListItem(item, ordered, start + index)).join("\n")}\n\n`;
 }
 
-function serializeBlockquote(quote: Element, inTableCell: boolean): string {
-  const content = serializeChildren(quote, inTableCell)
+function serializeBlockquote(quote: Element): string {
+  const content = serializeChildren(quote)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!content) return "";
@@ -164,11 +159,11 @@ function serializeDetails(details: Element): string {
   return `<details${open}>\n<summary>${summary}</summary>${content ? `\n\n${content}` : ""}\n</details>\n\n`;
 }
 
-function serializeAnchor(anchor: Element, inTableCell: boolean): string {
+function serializeAnchor(anchor: Element): string {
   const markdownCopy = anchor.getAttribute("data-markdown-copy");
-  if (markdownCopy !== null) return escapeTablePipes(markdownCopy, inTableCell);
-  const content = serializeChildren(anchor, inTableCell);
-  const href = escapeTablePipes(anchor.getAttribute("href") ?? "", inTableCell);
+  if (markdownCopy !== null) return markdownCopy;
+  const content = serializeChildren(anchor);
+  const href = anchor.getAttribute("href") ?? "";
   if (!/^https?:\/\//i.test(href)) return content;
   const label = content.trim();
   if (!label) return "";
@@ -176,44 +171,32 @@ function serializeAnchor(anchor: Element, inTableCell: boolean): string {
   return `[${label}](${href})`;
 }
 
-/**
- * GFM splits a table row at every unescaped pipe, but its math-aware parsing
- * keeps a formula's pipes in the cell, so formula source is copied unescaped.
- */
-function escapeTablePipes(text: string, inTableCell: boolean): string {
-  return inTableCell ? text.replaceAll("|", "\\|") : text;
-}
-
-function serializeChildren(node: Node, inTableCell = false): string {
+function serializeChildren(node: Node): string {
   let out = "";
   for (const child of node.childNodes) {
-    out += serializeNode(child, inTableCell);
+    out += serializeNode(child);
   }
   return out;
 }
 
-function serializeNode(node: Node, inTableCell = false): string {
+function serializeNode(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
     const text = node.textContent ?? "";
     if (text.includes("\n") && text.trim().length === 0) return "\n";
-    return escapeTablePipes(text, inTableCell);
+    return text;
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
   const element = node as Element;
   if (element.hasAttribute("data-markdown-details")) {
-    return escapeTablePipes(serializeDetails(element), inTableCell);
+    return serializeDetails(element);
   }
   const markdownCopy = element.getAttribute("data-markdown-copy");
-  if (markdownCopy !== null) {
-    return element.hasAttribute("data-markdown-math")
-      ? markdownCopy
-      : escapeTablePipes(markdownCopy, inTableCell);
-  }
+  if (markdownCopy !== null) return markdownCopy;
   if (isSkippedElement(element)) return "";
 
   const headingLevel = /^H([1-6])$/.exec(element.tagName)?.[1];
   if (headingLevel) {
-    return `${"#".repeat(Number(headingLevel))} ${serializeChildren(element, inTableCell).trim()}\n\n`;
+    return `${"#".repeat(Number(headingLevel))} ${serializeChildren(element).trim()}\n\n`;
   }
 
   switch (element.tagName) {
@@ -222,45 +205,45 @@ function serializeNode(node: Node, inTableCell = false): string {
     case "HR":
       return "---\n\n";
     case "P":
-      return `${serializeChildren(element, inTableCell).trim()}\n\n`;
+      return `${serializeChildren(element).trim()}\n\n`;
     case "PRE":
-      return escapeTablePipes(serializeCodeBlock(element), inTableCell);
+      return serializeCodeBlock(element);
     case "CODE": {
-      const content = escapeTablePipes(element.textContent ?? "", inTableCell);
+      const content = element.textContent ?? "";
       return isBlockCodeElement(element, content) ? content : wrapInlineCode(content);
     }
     case "STRONG":
     case "B":
-      return wrapInlineMarker(serializeChildren(element, inTableCell), "**");
+      return wrapInlineMarker(serializeChildren(element), "**");
     case "EM":
     case "I":
-      return wrapInlineMarker(serializeChildren(element, inTableCell), "*");
+      return wrapInlineMarker(serializeChildren(element), "*");
     case "DEL":
     case "S":
-      return wrapInlineMarker(serializeChildren(element, inTableCell), "~~");
+      return wrapInlineMarker(serializeChildren(element), "~~");
     case "A":
-      return serializeAnchor(element, inTableCell);
+      return serializeAnchor(element);
     case "IMG": {
-      const alt = escapeTablePipes(element.getAttribute("alt") ?? "", inTableCell);
-      const src = escapeTablePipes(element.getAttribute("src") ?? "", inTableCell);
+      const alt = element.getAttribute("alt") ?? "";
+      const src = element.getAttribute("src") ?? "";
       return alt && src ? `![${alt}](${src})` : "";
     }
     case "UL":
-      return serializeList(element, false, inTableCell);
+      return serializeList(element, false);
     case "OL":
-      return serializeList(element, true, inTableCell);
+      return serializeList(element, true);
     case "BLOCKQUOTE":
-      return serializeBlockquote(element, inTableCell);
+      return serializeBlockquote(element);
     case "TABLE":
-      return escapeTablePipes(serializeTable(element), inTableCell);
+      return serializeTable(element);
     case "DIV":
     case "SECTION":
     case "ARTICLE": {
-      const content = serializeChildren(element, inTableCell);
+      const content = serializeChildren(element);
       return content && !content.endsWith("\n") ? `${content}\n` : content;
     }
     default:
-      return serializeChildren(element, inTableCell);
+      return serializeChildren(element);
   }
 }
 

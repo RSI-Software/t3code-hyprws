@@ -205,28 +205,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// Repeated references expand once per path, so a small shared graph can grow exponentially.
-const TRACE_ATTRIBUTE_MAX_NODES = 10_000;
-
-interface NormalizeState {
-  // Only the current ancestors, so a value repeated under two keys is not a cycle.
-  readonly seen: WeakSet<object>;
-  remainingNodes: number;
+function markSeen(value: object, seen: WeakSet<object>): boolean {
+  if (seen.has(value)) {
+    return true;
+  }
+  seen.add(value);
+  return false;
 }
 
-function enterNode(value: object, state: NormalizeState): string | undefined {
-  if (state.seen.has(value)) {
-    return "[Circular]";
-  }
-  if (state.remainingNodes <= 0) {
-    return "[Truncated]";
-  }
-  state.remainingNodes--;
-  state.seen.add(value);
-  return undefined;
-}
-
-function normalizeJsonValue(value: unknown, state: NormalizeState): unknown {
+function normalizeJsonValue(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
   if (
     value === null ||
     value === undefined ||
@@ -250,59 +237,46 @@ function normalizeJsonValue(value: unknown, state: NormalizeState): unknown {
     };
   }
   if (Array.isArray(value)) {
-    const marker = enterNode(value, state);
-    if (marker) {
-      return marker;
+    if (markSeen(value, seen)) {
+      return "[Circular]";
     }
-    const normalized = value.map((entry) => normalizeJsonValue(entry, state));
-    state.seen.delete(value);
-    return normalized;
+    return value.map((entry) => normalizeJsonValue(entry, seen));
   }
   if (value instanceof Map) {
-    const marker = enterNode(value, state);
-    if (marker) {
-      return marker;
+    if (markSeen(value, seen)) {
+      return "[Circular]";
     }
-    const normalized = Object.fromEntries(
+    return Object.fromEntries(
       Array.from(value.entries(), ([key, entryValue]) => [
         String(key),
-        normalizeJsonValue(entryValue, state),
+        normalizeJsonValue(entryValue, seen),
       ]),
     );
-    state.seen.delete(value);
-    return normalized;
   }
   if (value instanceof Set) {
-    const marker = enterNode(value, state);
-    if (marker) {
-      return marker;
+    if (markSeen(value, seen)) {
+      return "[Circular]";
     }
-    const normalized = Array.from(value.values(), (entry) => normalizeJsonValue(entry, state));
-    state.seen.delete(value);
-    return normalized;
+    return Array.from(value.values(), (entry) => normalizeJsonValue(entry, seen));
   }
   if (!isPlainObject(value)) {
     return String(value);
   }
-  const marker = enterNode(value, state);
-  if (marker) {
-    return marker;
+  if (markSeen(value, seen)) {
+    return "[Circular]";
   }
-  const normalized = Object.fromEntries(
-    Object.entries(value).map(([key, entryValue]) => [key, normalizeJsonValue(entryValue, state)]),
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [key, normalizeJsonValue(entryValue, seen)]),
   );
-  state.seen.delete(value);
-  return normalized;
 }
 
 export function compactTraceAttributes(
   attributes: Readonly<Record<string, unknown>>,
 ): TraceAttributes {
-  const state: NormalizeState = { seen: new WeakSet(), remainingNodes: TRACE_ATTRIBUTE_MAX_NODES };
   const entries: Array<[string, unknown]> = [];
   for (const [key, value] of Object.entries(attributes)) {
     if (value !== undefined) {
-      entries.push([key, normalizeJsonValue(value, state)]);
+      entries.push([key, normalizeJsonValue(value)]);
     }
   }
   return Object.fromEntries(entries);

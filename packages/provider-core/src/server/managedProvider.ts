@@ -295,10 +295,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     );
   }
 
-  // A failed check must not end this subscription: the next settings change
-  // retries, like the periodic and initial checks below.
   yield* Stream.runForEach(input.streamSettings, (nextSettings) =>
-    Effect.asVoid(applySnapshot(nextSettings)).pipe(Effect.ignoreCause({ log: true })),
+    Effect.asVoid(applySnapshot(nextSettings)),
   ).pipe(Effect.forkScoped);
 
   yield* Effect.forever(

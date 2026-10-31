@@ -43,7 +43,7 @@ const UsageResponse = Schema.Struct({
 
 // Select before decoding so an OAuth or self-hosted connection cannot fall
 // through to another stored account. NULL-active rows predate the selection flag.
-const readStoredApiKey = (databasePath: string, integrationId: "opencode" | "opencode-go") =>
+const readConsoleApiKey = (databasePath: string) =>
   Effect.try(() => {
     const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -51,10 +51,10 @@ const readStoredApiKey = (databasePath: string, integrationId: "opencode" | "ope
       const row = database
         .prepare(
           `SELECT value FROM credential
-           WHERE integration_id = ? AND active IS NOT 0
+           WHERE integration_id = 'opencode' AND active IS NOT 0
            ORDER BY active DESC, time_created DESC, id DESC LIMIT 1`,
         )
-        .get(integrationId);
+        .get();
       const stored =
         typeof row?.value === "string"
           ? Option.getOrUndefined(decodeStoredKey(row.value))
@@ -108,17 +108,11 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
     // Console supplies Go credentials in OpenCode 2. Inline auth explicitly
     // overrides local credentials, including the Console connection.
     const databaseFile = env.OPENCODE_DB ?? "opencode.db";
-    const databasePath = path.resolve(dataHome, "opencode", databaseFile);
-    const storedKeys =
+    const consoleKey =
       env.OPENCODE_AUTH_CONTENT || databaseFile === ":memory:"
-        ? []
-        : [
-            yield* readStoredApiKey(databasePath, "opencode"),
-            // OpenCode 2 imports auth.json once, so a replaced Go key only exists here.
-            yield* readStoredApiKey(databasePath, "opencode-go"),
-          ];
-    const keys = [...new Set([...storedKeys, goKey].filter((key): key is string => Boolean(key)))];
-    let apiKey = keys[0];
+        ? undefined
+        : yield* readConsoleApiKey(path.resolve(dataHome, "opencode", databaseFile));
+    let apiKey = consoleKey || goKey;
     if (!apiKey) return unsupported;
 
     const client = yield* HttpClient.HttpClient;
@@ -129,9 +123,8 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
         ),
       );
     let response = yield* readUsage(apiKey);
-    for (const key of keys.slice(1)) {
-      if (response.status !== 401 && response.status !== 403) break;
-      apiKey = key;
+    if ((response.status === 401 || response.status === 403) && goKey && goKey !== apiKey) {
+      apiKey = goKey;
       response = yield* readUsage(apiKey);
     }
     // A valid Zen key can exist without a Go subscription.

@@ -642,10 +642,17 @@ interface ComposerDraftModelState {
   modelSelectionByProvider: Partial<Record<ProviderInstanceId, ModelSelection>>;
 }
 
-function selectionsByInstance(
+function providerSelectionsFromModelSelection(
   modelSelection: ModelSelection | null | undefined,
-): Partial<Record<string, ModelSelection>> | null {
-  return modelSelection ? { [modelSelection.instanceId]: modelSelection } : null;
+): ProviderOptionSelectionsByProvider | null {
+  if (!modelSelection) {
+    return null;
+  }
+  const options = modelSelection.options;
+  if (!options || options.length === 0) {
+    return null;
+  }
+  return { [modelSelection.instanceId]: options };
 }
 
 function modelSelectionByProviderToOptions(
@@ -1098,8 +1105,6 @@ export function deriveEffectiveComposerModelState(input: {
   providers: ReadonlyArray<ServerProvider>;
   selectedProvider: ProviderDriverKind;
   selectedInstanceId?: ProviderInstanceId | null | undefined;
-  /** The instance the draft, thread or project asked for; differs from the selection on fallback. */
-  requestedInstanceId?: ProviderInstanceId | null | undefined;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
@@ -1159,65 +1164,16 @@ export function deriveEffectiveComposerModelState(input: {
         activeSelection.model,
       ))
     : baseModel;
-  // Options come from the first of the draft, thread and project that has any. Their selections
-  // stay with them, so a fallback instance can check which model the options belong to.
-  const optionSelections =
-    [
-      input.draft?.modelSelectionByProvider,
-      selectionsByInstance(input.threadModelSelection),
-      selectionsByInstance(input.projectModelSelection),
-    ].find((selections) => modelSelectionByProviderToOptions(selections) !== null) ?? null;
-  const modelOptions = modelSelectionByProviderToOptions(optionSelections);
+  const modelOptions =
+    modelSelectionByProviderToOptions(input.draft?.modelSelectionByProvider) ??
+    providerSelectionsFromModelSelection(input.threadModelSelection) ??
+    providerSelectionsFromModelSelection(input.projectModelSelection) ??
+    null;
 
   return {
     selectedModel,
-    modelOptions: withFallbackInstanceOptions({
-      ...input,
-      modelOptions,
-      optionSelections,
-      selectedModel,
-    }),
+    modelOptions,
   };
-}
-
-/**
- * When the requested instance is disabled or unavailable, the composer shows another instance of
- * the same driver. When that instance has no options of its own and shows the model the requested
- * instance's options were picked with, it takes those options instead of the model's defaults.
- */
-function withFallbackInstanceOptions(input: {
-  readonly modelOptions: ProviderOptionSelectionsByProvider | null;
-  readonly optionSelections: Partial<Record<string, ModelSelection>> | null;
-  readonly selectedModel: string;
-  readonly providers: ReadonlyArray<ServerProvider>;
-  readonly selectedProvider: ProviderDriverKind;
-  readonly selectedInstanceId?: ProviderInstanceId | null | undefined;
-  readonly requestedInstanceId?: ProviderInstanceId | null | undefined;
-}): ProviderOptionSelectionsByProvider | null {
-  const { modelOptions, selectedInstanceId, requestedInstanceId } = input;
-  if (
-    !modelOptions ||
-    !selectedInstanceId ||
-    !requestedInstanceId ||
-    selectedInstanceId === requestedInstanceId ||
-    modelOptions[selectedInstanceId] !== undefined
-  ) {
-    return modelOptions;
-  }
-  const requestedOptions = modelOptions[requestedInstanceId];
-  const requestedDriver = input.providers.find(
-    (provider) => provider.instanceId === requestedInstanceId,
-  )?.driver;
-  // The model of the selection the options came from, which can differ from the shown model's source.
-  const requestedModel = input.optionSelections?.[requestedInstanceId]?.model;
-  if (
-    !requestedOptions ||
-    requestedDriver !== input.selectedProvider ||
-    requestedModel !== input.selectedModel
-  ) {
-    return modelOptions;
-  }
-  return { ...modelOptions, [selectedInstanceId]: requestedOptions };
 }
 
 function revokeObjectPreviewUrl(previewUrl: string): void {

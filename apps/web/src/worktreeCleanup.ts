@@ -1,6 +1,12 @@
-import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
-
 import type { ThreadShell } from "./types";
+
+function normalizeWorktreePath(path: string | null): string | null {
+  const trimmed = path?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed;
+}
 
 export function getOrphanedWorktreePathForThread(
   threads: ReadonlyArray<Pick<ThreadShell, "id" | "worktreePath">>,
@@ -11,20 +17,17 @@ export function getOrphanedWorktreePathForThread(
     return null;
   }
 
-  const targetWorktreePath = targetThread.worktreePath?.trim();
+  const targetWorktreePath = normalizeWorktreePath(targetThread.worktreePath);
   if (!targetWorktreePath) {
     return null;
   }
 
-  // Threads can store one worktree as `/repo/wt` and `/repo/wt/`, and
-  // confirming deletion force-removes the checkout for every thread on it.
-  const targetKey = normalizeProjectPathForComparison(targetWorktreePath);
-  const isShared = threads.some(
-    (thread) =>
-      thread.id !== threadId &&
-      thread.worktreePath !== null &&
-      normalizeProjectPathForComparison(thread.worktreePath) === targetKey,
-  );
+  const isShared = threads.some((thread) => {
+    if (thread.id === threadId) {
+      return false;
+    }
+    return normalizeWorktreePath(thread.worktreePath) === targetWorktreePath;
+  });
 
   return isShared ? null : targetWorktreePath;
 }
@@ -40,7 +43,7 @@ export function getOrphanedWorktreePathsForThreads(
   const survivingPaths = new Set<string>();
   for (const thread of threads) {
     if (threadIds.has(thread.id)) continue;
-    const path = normalizeProjectPathForComparison(thread.worktreePath ?? ""); // fork-hook: upstream-fixes/batch-surviving-worktree-path
+    const path = normalizeWorktreePath(thread.worktreePath);
     if (path) survivingPaths.add(path);
   }
 
@@ -48,7 +51,7 @@ export function getOrphanedWorktreePathsForThreads(
   const seen = new Set<string>();
   for (const thread of threads) {
     if (!threadIds.has(thread.id)) continue;
-    const path = normalizeProjectPathForComparison(thread.worktreePath ?? ""); // fork-hook: upstream-fixes/batch-orphaned-worktree-path
+    const path = normalizeWorktreePath(thread.worktreePath);
     if (!path || survivingPaths.has(path) || seen.has(path)) continue;
     seen.add(path);
     orphaned.push(path);

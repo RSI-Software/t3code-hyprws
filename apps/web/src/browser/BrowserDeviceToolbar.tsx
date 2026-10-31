@@ -51,7 +51,6 @@ export function BrowserDeviceToolbar({
   const [customSize, setCustomSize] = useState<{
     readonly width: string;
     readonly height: string;
-    readonly axis?: "width" | "height";
   } | null>(null);
   const presentedSize = customSize ?? {
     width: String(setting.width),
@@ -62,25 +61,15 @@ export function BrowserDeviceToolbar({
     PREVIEW_VIEWPORT_PRESETS.some((preset) => preset.id === setting.presetId)
       ? setting.presetId
       : RESPONSIVE_VALUE;
-  const typedWidth = Number(presentedSize.width);
-  const typedHeight = Number(presentedSize.height);
-  const { width: customWidth, height: customHeight } =
-    aspectRatio === null || customSize?.axis === undefined
-      ? { width: typedWidth, height: typedHeight }
-      : resizeFreeformViewport(
-          { width: typedWidth, height: typedHeight },
-          { x: 0, y: 0 },
-          1,
-          customSize?.axis === "height" ? "south" : "east",
-          aspectRatio,
-        );
+  const customWidth = Number(presentedSize.width);
+  const customHeight = Number(presentedSize.height);
   const customValid =
-    Number.isInteger(typedWidth) &&
-    Number.isInteger(typedHeight) &&
-    typedWidth >= PREVIEW_VIEWPORT_MIN_DIMENSION &&
-    typedWidth <= PREVIEW_VIEWPORT_MAX_DIMENSION &&
-    typedHeight >= PREVIEW_VIEWPORT_MIN_DIMENSION &&
-    typedHeight <= PREVIEW_VIEWPORT_MAX_DIMENSION &&
+    Number.isInteger(customWidth) &&
+    Number.isInteger(customHeight) &&
+    customWidth >= PREVIEW_VIEWPORT_MIN_DIMENSION &&
+    customWidth <= PREVIEW_VIEWPORT_MAX_DIMENSION &&
+    customHeight >= PREVIEW_VIEWPORT_MIN_DIMENSION &&
+    customHeight <= PREVIEW_VIEWPORT_MAX_DIMENSION &&
     customWidth * customHeight <= PREVIEW_VIEWPORT_MAX_AREA;
 
   const apply = (next: PreviewViewportSetting, nextAspectRatio = aspectRatio) => {
@@ -107,7 +96,6 @@ export function BrowserDeviceToolbar({
       const next = {
         width: axis === "width" ? value : (current?.width ?? String(setting.width)),
         height: axis === "height" ? value : (current?.height ?? String(setting.height)),
-        axis,
       };
       const numeric = Number(value);
       if (
@@ -127,11 +115,7 @@ export function BrowserDeviceToolbar({
         axis === "width" ? "east" : "south",
         aspectRatio,
       );
-      return {
-        ...next,
-        width: axis === "width" ? value : String(resized.width),
-        height: axis === "height" ? value : String(resized.height),
-      };
+      return { width: String(resized.width), height: String(resized.height) };
     });
   };
 

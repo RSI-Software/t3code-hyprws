@@ -13,8 +13,6 @@ import {
   supersededTitlesByPath,
 } from "./lib/fork-supersedes.ts";
 
-import { relocatedTestScaffolding } from "./lib/fork-test-scaffolding.ts";
-
 export type ScanAuthoringRule = "upstream-test" | "replaced-export";
 
 export interface ScanAuthoringWarning {
@@ -402,15 +400,8 @@ export const collectAuthoringWarnings = (
                   occurrences(headText, line) < occurrences(targetText, line)),
             );
       const declared = declaredSupersededLines(input, path);
-      const scaffolding =
-        declared.size === 0 || targetText === undefined
-          ? new Set<string>()
-          : relocatedTestScaffolding(
-              targetText,
-              headText ?? "",
-              input.siblingTexts.get(forkTestSibling(path)) ?? "",
-            ).lines;
-      const undeclared = upstream.filter((line) => !declared.has(line) && !scaffolding.has(line));
+      const undeclared =
+        declared.size === 0 ? upstream : upstream.filter((line) => !declared.has(line));
       if (undeclared.length === 0) continue;
       const first = undeclared[0] ?? "";
       warn(

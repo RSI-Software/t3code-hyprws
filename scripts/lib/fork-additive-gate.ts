@@ -9,7 +9,6 @@ import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
 import { readBlobs } from "./fork-git-reader.ts";
-import { relocatedTestScaffolding } from "./fork-test-scaffolding.ts";
 import { caseSourceLines, enclosedSupersededTitles, forkTestSibling } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
@@ -318,13 +317,7 @@ const testFindings = (
       named.length === 0
         ? new Set<string>()
         : new Set(named.flatMap((title) => caseLines(upstreamText, title)));
-    const movedScaffolding =
-      named.length > 0
-        ? relocatedTestScaffolding(upstreamText, headText, siblingText ?? "")
-        : { lines: new Set<string>(), suites: 0 };
-    const unsuperseded = unmoved.filter(
-      (line) => !excused.has(line) && !movedScaffolding.lines.has(line),
-    );
+    const unsuperseded = unmoved.filter((line) => !excused.has(line));
     if (unsuperseded.length > 0)
       findings.push({
         check: "tests",
@@ -338,7 +331,7 @@ const testFindings = (
     // replacement title, so each documented declaration counts as still
     // present — one documented case, one excusal
     // (RSI-Software/t3code-hyprws#1208).
-    const present = headPresent + named.length + movedScaffolding.suites;
+    const present = headPresent + named.length;
     if (present < upstreamPresent)
       findings.push({
         check: "tests",

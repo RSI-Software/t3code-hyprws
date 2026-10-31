@@ -487,7 +487,7 @@ export function ProviderEnvironmentSection(props: {
               <div className="flex min-w-0 flex-col gap-1.5 rounded-lg border p-2">
                 <div className="flex min-w-0 items-center gap-1.5">
                   {nameInput}
-                  {source}
+                  {source === null ? null : <div className="w-48 shrink-0">{source}</div>}
                   {removeButton}
                 </div>
                 <div className="flex min-w-0 items-start gap-1.5">
@@ -1196,7 +1196,6 @@ export function ProviderInstanceCard({
       idPrefix={`provider-instance-${instanceId}`}
       variant="settings"
       onChange={updateConfig}
-      environmentId={environmentId}
     />
   ) : (
     <SettingsRow

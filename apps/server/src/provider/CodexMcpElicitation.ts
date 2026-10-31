@@ -76,14 +76,7 @@ function mcpElicitationPersistenceDecision(
   return null;
 }
 
-// Claude hands over the same MCP request with its own envelope; these are the
-// only fields the response is built from.
-type McpElicitationResponseInput = {
-  readonly mode: string;
-  readonly requestedSchema?: unknown;
-};
-
-function mcpElicitationFormFields(payload: McpElicitationResponseInput) {
+function mcpElicitationFormFields(payload: EffectCodexSchema.McpServerElicitationRequestParams) {
   if (payload.mode === "url" || !isMcpElicitationForm(payload.requestedSchema)) {
     return undefined;
   }
@@ -178,7 +171,7 @@ export function describeMcpElicitation(
 }
 
 export function toMcpElicitationResponse(
-  payload: McpElicitationResponseInput,
+  payload: EffectCodexSchema.McpServerElicitationRequestParams,
   decision: ProviderApprovalDecision,
 ): EffectCodexSchema.McpServerElicitationRequestResponse {
   if (decision === "decline" || decision === "cancel") {
@@ -203,9 +196,8 @@ export function toMcpElicitationResponse(
     const chosenOption = options.find((option) =>
       persist
         ? mcpElicitationPersistenceDecision(option.value) === decision
-        : /^(?:once|accept|approve|allow)(?:[_\s-]*(?:once(?:[_\s-]*only)?|this[_\s-]*time))?$/i.test(
-            option.value.trim(),
-          ) && mcpElicitationPersistenceDecision(option.value) === null,
+        : /once|accept|approve|allow/i.test(option.value) &&
+          mcpElicitationPersistenceDecision(option.value) === null,
     );
     if (chosenOption) {
       content[key] = chosenOption.value;

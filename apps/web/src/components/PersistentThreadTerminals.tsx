@@ -319,7 +319,7 @@ export interface PersistentThreadTerminalPanelProps {
   onSplitTerminalVertical: () => void;
   onNewTerminal: (sessionMode?: TerminalSessionMode) => void; // fork-hook: zmux-estate/plain-shell-panel-action
   onActiveTerminalChange: (terminalId: string) => void;
-  onCloseTerminal: (terminalId: string, threadRef?: ScopedThreadRef) => void;
+  onCloseTerminal: (terminalId: string) => void;
   splitShortcutLabel?: string | undefined;
   splitVerticalShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;

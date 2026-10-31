@@ -894,8 +894,7 @@ const NET_ERROR_CODES: Readonly<Record<string, number>> = {
 };
 
 export const parseNetError = (errorText: string) => {
-  // Names can hold digits, as in ERR_HTTP2_PROTOCOL_ERROR.
-  const description = /ERR_[A-Z\d_]+/.exec(errorText)?.[0] ?? errorText;
+  const description = /ERR_[A-Z_]+/.exec(errorText)?.[0] ?? errorText;
   return { description, code: NET_ERROR_CODES[description] ?? -2 };
 };
 

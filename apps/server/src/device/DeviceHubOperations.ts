@@ -7,7 +7,7 @@ import {
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import type { DeviceHostReady, DeviceOperations, HostDevice } from "./DeviceHost.ts";
 
@@ -239,10 +239,7 @@ export const makeDeviceHubOperations = (options: {
           (cause) =>
             new DeviceOperationError({
               operation: "screenshot",
-              reason:
-                HttpClientError.isHttpClientError(cause) && cause.reason._tag === "StatusCodeError"
-                  ? "hub_rejected"
-                  : "request_failed",
+              reason: "request_failed",
               cause,
             }),
         ),

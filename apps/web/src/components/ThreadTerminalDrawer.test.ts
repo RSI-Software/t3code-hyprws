@@ -40,13 +40,7 @@ describe("terminal selection actions", () => {
 });
 
 it("retains visible output and selection until a replacement subscription receives its snapshot", () => {
-  const terminal = {
-    resetAndWrite: vi.fn(),
-    write: vi.fn(),
-    getSelection: vi.fn(() => "selected"),
-    getSelectionCellCount: vi.fn(() => 8),
-    clearSelection: vi.fn(),
-  };
+  const terminal = { resetAndWrite: vi.fn(), write: vi.fn(), clearSelection: vi.fn() };
   const snapshot = {
     threadId: "thread",
     terminalId: "term-1",
@@ -96,13 +90,7 @@ it("retains visible output and selection until a replacement subscription receiv
 });
 
 it("reports an attach failure that leaves the output unchanged", () => {
-  const terminal = {
-    resetAndWrite: vi.fn(),
-    write: vi.fn(),
-    getSelection: vi.fn(() => "selected"),
-    getSelectionCellCount: vi.fn(() => 8),
-    clearSelection: vi.fn(),
-  };
+  const terminal = { resetAndWrite: vi.fn(), write: vi.fn(), clearSelection: vi.fn() };
   const previous = { ...EMPTY_TERMINAL_BUFFER_STATE, error: null };
   const failed = { ...previous, error: "Terminal attach failed" };
 
@@ -111,7 +99,5 @@ it("reports an attach failure that leaves the output unchanged", () => {
   ).toBe(INITIAL_TERMINAL_OUTPUT_CURSOR);
   expect(terminal.write).toHaveBeenCalledWith("\r\n[terminal] Terminal attach failed\r\n");
   expect(terminal.resetAndWrite).not.toHaveBeenCalled();
-  expect(terminal.getSelection).not.toHaveBeenCalled();
-  expect(terminal.getSelectionCellCount).not.toHaveBeenCalled();
   expect(terminal.clearSelection).not.toHaveBeenCalled();
 });

@@ -8,12 +8,11 @@ import {
 } from "@t3tools/contracts";
 import {
   DEFAULT_RESOLVED_KEYBINDINGS,
-  parseKeybindingShortcut,
   parseKeybindingWhenExpression,
   US_SHIFTED_TO_UNSHIFTED_KEYS,
 } from "@t3tools/shared/keybindings";
 
-import { shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
+import { shortcutKeyFromEvent } from "../../keybindings";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -181,18 +180,13 @@ function conflictsWithWhen(leftWhen: string, rightWhen: string): boolean {
 export function keybindingConflictLabels(
   rows: ReadonlyArray<KeybindingRow>,
   input: { readonly rowId: string; readonly key: string; readonly when: string },
-  platform = navigator.platform,
 ): ReadonlyArray<string> {
   if (input.key.trim().length === 0) return [];
-  const shortcut = parseKeybindingShortcut(input.key);
-  if (!shortcut) return [];
-  // Compare resolved chords so mod+k and ctrl+k collide where mod is Ctrl.
-  const conflictKey = shortcutConflictKey(shortcut, platform);
   const conflicts: Array<string> = [];
   for (const candidate of rows) {
     if (
       candidate.id !== input.rowId &&
-      shortcutConflictKey(candidate.binding.shortcut, platform) === conflictKey &&
+      candidate.key === input.key &&
       conflictsWithWhen(candidate.when, input.when)
     ) {
       conflicts.push(commandLabel(candidate.command));
@@ -248,7 +242,6 @@ export function groupKeybindingRows(
 
 export function buildKeybindingRows(
   keybindings: ResolvedKeybindingsConfig,
-  platform = navigator.platform,
 ): ReadonlyArray<KeybindingRow> {
   const rowsById = new Map<string, KeybindingRow>();
   for (const binding of keybindings) {
@@ -271,15 +264,11 @@ export function buildKeybindingRows(
   const rows = [...rowsById.values()];
 
   const rowsWithConflicts = rows.map((row) => {
-    const conflicts = keybindingConflictLabels(
-      rows,
-      {
-        rowId: row.id,
-        key: row.key,
-        when: row.when,
-      },
-      platform,
-    );
+    const conflicts = keybindingConflictLabels(rows, {
+      rowId: row.id,
+      key: row.key,
+      when: row.when,
+    });
     return conflicts.length > 0
       ? Object.assign({}, row, { conflicts: [...new Set(conflicts)].toSorted() })
       : row;

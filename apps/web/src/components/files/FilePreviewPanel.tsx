@@ -228,7 +228,7 @@ function WorkspaceImagePreview(props: {
   );
 }
 
-export function WorkspaceBrowserPreview(props: {
+function WorkspaceBrowserPreview(props: {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
   readonly draft: boolean;
@@ -237,25 +237,18 @@ export function WorkspaceBrowserPreview(props: {
   readonly title: string;
   readonly workspaceMutationId: string | null;
 }) {
-  const pdf = isPdfPreviewFile(props.absolutePath);
   const resource = workspaceAssetResource({
-    kind: pdf ? "media-file" : "workspace-file",
+    kind: "workspace-file",
     threadRef: props.threadRef,
     draft: props.draft,
     workspaceRoot: props.workspaceRoot,
     absolutePath: props.absolutePath,
   });
-  const assetUrl = useAssetUrlState(
-    props.environmentId,
-    resource,
-    pdf ? props.workspaceMutationId : undefined,
-  );
-  const fileRevision = pdf && assetUrl._tag === "Success" ? assetUrl.fileRevision : undefined;
-  const revision = fileRevision ?? props.workspaceMutationId;
+  const assetUrl = useAssetUrlState(props.environmentId, resource);
   const revisionSuffix =
-    revision === null
+    props.workspaceMutationId === null
       ? ""
-      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}${fileRevision !== undefined ? "file" : "workspace"}-revision=${encodeURIComponent(revision)}`;
+      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}workspace-revision=${encodeURIComponent(props.workspaceMutationId)}`;
 
   if (assetUrl._tag === "Failure") {
     return (
@@ -264,10 +257,7 @@ export function WorkspaceBrowserPreview(props: {
       </div>
     );
   }
-  if (
-    assetUrl._tag !== "Success" ||
-    (pdf && assetUrl.fileRevision === undefined && assetUrl.waiting)
-  ) {
+  if (assetUrl._tag !== "Success") {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
         <Spinner size="lg" />
@@ -277,10 +267,9 @@ export function WorkspaceBrowserPreview(props: {
   return (
     <BrowserDocumentFrame
       src={`${assetUrl.url}${revisionSuffix}`}
-      documentKey={`${props.environmentId}:${resource._tag}:${props.threadRef.threadId}:${props.absolutePath}:${revision}`}
-      documentId={`${props.environmentId}:${resource._tag}:${props.threadRef.threadId}:${props.absolutePath}`}
+      documentKey={`${props.environmentId}:${resource._tag}:${props.threadRef.threadId}:${props.absolutePath}:${props.workspaceMutationId}`}
       title={props.title}
-      pdf={pdf}
+      pdf={isPdfPreviewFile(props.absolutePath)}
     />
   );
 }
@@ -1528,7 +1517,7 @@ export default function FilePreviewPanel({
                     threadRef={threadRef}
                     contents={file.data.contents}
                     workspaceMutationId={workspaceMutationId}
-                    readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                    readOnly={isHostFile || !canWriteFiles}
                     onPendingChange={onPendingChange}
                   />
                 </RichMarkdownPreviewBoundary>

@@ -10,7 +10,7 @@ import { useThreadSelection } from "./use-thread-selection";
 import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
 
 export function useSelectedThreadGitState() {
-  const { selectedThread } = useThreadSelection();
+  const { selectedThread, selectedThreadProject } = useThreadSelection();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
 
   const selectedThreadGitTarget = {
@@ -29,7 +29,7 @@ export function useSelectedThreadGitState() {
 
   const selectedThreadBranchTarget = {
     environmentId: selectedThread?.environmentId ?? null,
-    cwd: selectedThreadCwd,
+    cwd: selectedThreadProject?.workspaceRoot ?? null,
     query: null,
   };
   const selectedThreadBranchState = useBranches(selectedThreadBranchTarget);

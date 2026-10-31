@@ -1,10 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import { isForkServiceVersion } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/update-everything-npm-gate-import
 
 import { APP_VERSION } from "~/branding";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { isElectron } from "~/env";
 import { useEnvironments } from "~/state/environments";
+import { useNpmReleasePublished } from "~/state/npmRelease";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentUpdateStatesAtom } from "~/state/server";
 import { environmentSessionStatesAtom } from "~/state/session";
@@ -20,6 +22,7 @@ import {
   collectUpdateEverythingResult,
   describeUpdateEverything,
   runUpdateEverything,
+  type SkippedMachine,
   type UpdateRunMachine,
 } from "./updateEverything.logic";
 import {
@@ -66,9 +69,30 @@ export function useUpdateEverything(
     canMaintain: canUpdateServer(sessionStates[index]!),
     updateState: updateStates[index]!,
   }));
-  const { targets: servers, skipped } = channelSwitch
-    ? collectChannelSwitchTargets(machines, channelSwitch)
-    : collectServerUpdateTargets(machines, targetVersion);
+  // A track switch's target came from npm already.
+  const {
+    targets: behindServers,
+    skipped: unreachable,
+    waitForNpm,
+  } = channelSwitch
+    ? { ...collectChannelSwitchTargets(machines, channelSwitch), waitForNpm: [] }
+    : collectServerUpdateTargets(machines, targetVersion, localUpdateVersion !== null);
+  const fork = isForkServiceVersion(targetVersion); // fork-hook: distribution/update-everything-npm-gate-fork (fork releases install from GitHub)
+  if (fork) waitForNpm.splice(0); // fork-hook: distribution/update-everything-npm-gate
+  const published = useNpmReleasePublished(waitForNpm.length > 0 ? targetVersion : null);
+  const servers = published
+    ? behindServers
+    : behindServers.filter((server) => !waitForNpm.includes(server));
+  const skipped: ReadonlyArray<SkippedMachine> = [
+    ...unreachable,
+    ...behindServers
+      .filter((server) => !servers.includes(server))
+      .map((server) => ({
+        environmentId: server.environmentId,
+        label: server.serverLabel,
+        reason: `t3@${targetVersion} is not on npm yet`,
+      })),
+  ];
   // Track-only hosts save a setting and restart nothing, so they are neither listed nor counted.
   const moving = servers.filter((server) => server.trackOnly !== true);
   const restarts = collectRestartingMachines(machines, moving, localUpdateVersion !== null);

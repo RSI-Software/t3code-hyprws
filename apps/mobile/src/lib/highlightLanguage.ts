@@ -1,4 +1,3 @@
-import "@t3tools/client-runtime/assembly-highlighting";
 import { getFiletypeFromFileName } from "@pierre/diffs/utils/getFiletypeFromFileName";
 
 import { HIGHLIGHTS_LANGUAGE_IDS } from "./highlights.generated";

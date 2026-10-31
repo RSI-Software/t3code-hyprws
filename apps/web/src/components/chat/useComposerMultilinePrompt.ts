@@ -27,16 +27,9 @@ export function useComposerMultilinePrompt(): readonly [
   const [isMultiline, setIsMultiline] = useState(false);
   const observeBody = (body: HTMLElement | null) => {
     if (!body) return;
-    // Measuring reads layout, so one measurement per frame runs after all of the frame's DOM
-    // writes instead of forcing a layout after each mutation.
-    let frame: number | null = null;
     const measure = () => {
-      if (frame !== null) return;
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        const next = measureComposerMultilinePrompt(body);
-        if (next !== null) setIsMultiline(next);
-      });
+      const next = measureComposerMultilinePrompt(body);
+      if (next !== null) setIsMultiline(next);
     };
     measure();
     const editor = body.querySelector<HTMLElement>('[data-testid="composer-editor"]');
@@ -44,7 +37,6 @@ export function useComposerMultilinePrompt(): readonly [
     const mutationObserver = new MutationObserver(measure);
     mutationObserver.observe(body, { childList: true, characterData: true, subtree: true });
     return () => {
-      if (frame !== null) cancelAnimationFrame(frame);
       stopObserving();
       mutationObserver.disconnect();
     };

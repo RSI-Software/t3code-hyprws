@@ -522,7 +522,6 @@ function normalizeToolCallStatus(
     case "completed":
       return "completed";
     case "failed":
-    case "cancelled":
       return "failed";
     default:
       return fallback;
@@ -1393,15 +1392,17 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
         step: entry.content.trim().length > 0 ? entry.content.trim() : `Step ${index + 1}`,
         status: normalizePlanStepStatus(entry.status),
       }));
-      events.push({
-        _tag: "PlanUpdated",
-        payload: {
-          nativePlanId: "legacy",
-          kind: "items",
-          plan,
-        },
-        rawPayload: params,
-      });
+      if (plan.length > 0) {
+        events.push({
+          _tag: "PlanUpdated",
+          payload: {
+            nativePlanId: "legacy",
+            kind: "items",
+            plan,
+          },
+          rawPayload: params,
+        });
+      }
       break;
     }
     case "plan_update": {

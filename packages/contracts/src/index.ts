@@ -78,7 +78,6 @@ export * from "./projectFileRevision.fork.ts"; // fork-hook: upstream-fixes/file
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./secretReference.ts";
-export * from "./settingsSecretValue.ts";
 export * from "./clientRpcPermissions.ts";
 export * from "./textGeneration.fork.ts"; // fork-hook: thread-ordering/title-budget-export
 export * from "./threadGroups.fork.ts"; // fork-hook: thread-ordering/thread-groups-export
