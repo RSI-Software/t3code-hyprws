@@ -15,5 +15,7 @@ export const layerUnusedWsRpcServicesFork = Layer.mergeAll(
   Layer.mock(ThreadGroups.ThreadGroupsServiceFork)({}),
   Layer.mock(ColleagueSharesFork)({
     wrapHandlers: (_subject, handlers) => handlers,
+    guardRpc: () => (self) => self,
+    isShared: () => false,
   }),
 );
