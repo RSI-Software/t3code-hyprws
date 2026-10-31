@@ -81,6 +81,7 @@ import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClie
 import { terminalOutputStream } from "./OutputProtocol.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import { makeAttachmentHistoryFork } from "./AttachmentHistory.fork.ts"; // fork-hook: zmux-estate/attachment-history-import
 import {
   makeSettledSessionCloseFork,
   makeSettlementAttachmentReleaseFork,
@@ -2102,7 +2103,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       encodedHistoryThreadPart(threadId),
       `${Base64Url.encode(terminalId)}.${Base64Url.encode(attachmentId)}`,
     );
-    if (encodedName.length <= MAX_FILE_NAME_BYTES) return path.join(logsDir, encodedName);
+    if (encodedName.length <= MAX_HISTORY_FILENAME_BYTES) return path.join(logsDir, encodedName);
     const hashedTerminalPart = `${hashId(terminalId)}.${hashId(attachmentId)}`;
     return path.join(
       logsDir,
@@ -2120,6 +2121,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       ...(terminalId === DEFAULT_TERMINAL_ID ? [legacyHistoryPath(threadId)] : []),
     ]),
   ];
+  const attachmentHistoryFork = makeAttachmentHistoryFork({
+    historyPath,
+    historyPaths,
+    attachmentPath: attachmentHistoryPathFork,
+  }); // fork-hook: zmux-estate/attachment-history-paths
 
   const historyExists = (filePath: string) => {
     const name = path.basename(filePath);
@@ -2400,6 +2406,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         return;
       }
       const [threadId, terminalId, attachmentId] = parsed.value;
+      const { historyPath } = attachmentHistoryFork(attachmentId); // fork-hook: zmux-estate/attachment-history-persist
 
       yield* fileSystem
         .writeFileString(historyPath(threadId, terminalId, attachmentId), request.history.value())
@@ -2477,6 +2484,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     terminalId: string,
     attachmentId: string | null,
   ) {
+    const { historyPath, historyPaths } = attachmentHistoryFork(attachmentId); // fork-hook: zmux-estate/attachment-history-path
     const nextPath = historyPath(threadId, terminalId);
     for (const sourcePath of historyPaths(threadId, terminalId)) {
       const migrating = sourcePath !== nextPath;
@@ -2541,6 +2549,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     terminalId: string,
     attachmentId: string | null,
   ) {
+    const { historyPaths } = attachmentHistoryFork(attachmentId); // fork-hook: zmux-estate/legacy-history-default-attachment
     yield* Effect.forEach(
       historyPaths(threadId, terminalId),
       (filePath) =>
