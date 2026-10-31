@@ -1,6 +1,8 @@
 import type { SidebarThreadGroup } from "../state/threadGroups";
+import type { SortingStrategy } from "@dnd-kit/sortable";
 import {
   buildSidebarThreadGroupLayout,
+  sectionAtSidebarSlotFork,
   sidebarListItemId,
   type SidebarListItem,
 } from "./Sidebar.logic";
@@ -79,8 +81,6 @@ export function projectSidebarThreadGroupSpansFork(
   if (!items.some(isGroupMarker)) return;
   const indices = new Map(items.map((item, index) => [sidebarListItemId(item), index]));
   const moved = moveSidebarListItem(items, input.activeIndex, input.overIndex);
-  // Working rows never take a drop, so the Working run keeps its order; it is
-  // projected only to keep its group headers.
   for (const opener of [
     "pinned-header",
     "pinned-divider",
@@ -138,6 +138,41 @@ function sectionBounds(
         item.marker === "settled-header"),
   );
   return [start, end < 0 ? items.length : end];
+}
+
+/** Membership previews follow the pointer even when the inbox sorts by activity. */
+export function projectSidebarWorkingGroupDropFork(
+  items: readonly SidebarListItem[],
+  {
+    rects,
+    activeIndex,
+    overIndex,
+  }: Pick<Parameters<SortingStrategy>[0], "rects" | "activeIndex" | "overIndex">,
+): ReturnType<SortingStrategy>[] | undefined {
+  const moved = moveSidebarListItem(items, activeIndex, overIndex);
+  const active = items[activeIndex];
+  if (active?.kind !== "thread") return undefined;
+  const destination = sectionAtSidebarSlotFork(moved, overIndex);
+  if (active.section !== "working" && destination !== "working") return undefined;
+  if (destination !== "active" && destination !== "working") return [];
+  const indices = new Map(items.map((item, index) => [sidebarListItemId(item), index]));
+  const transforms = items.map(() => ({ x: 0, y: 0, scaleX: 1, scaleY: 1 }));
+  const heights = moved.map((item) => rects[indices.get(sidebarListItemId(item))!]?.height ?? 0);
+  let top = rects.find((rect) => rect !== undefined)?.top ?? 0;
+  for (const [index, item] of moved.entries()) {
+    const original = indices.get(sidebarListItemId(item))!;
+    const rect = rects[original];
+    if (rect === undefined) continue;
+    const previous = rects[original - 1];
+    // Keep shelf spacing attached to its header when a row crosses it.
+    if (item.kind === "marker" && previous !== undefined)
+      top += Math.max(0, rect.top - previous.bottom - 1);
+    transforms[original] = { x: 0, y: top - rect.top, scaleX: 1, scaleY: 1 };
+    top += heights[index]! + 1;
+  }
+  recordSidebarProjectedLayoutFork(items, moved, heights, transforms);
+  transforms[activeIndex] = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
+  return transforms;
 }
 
 export interface SidebarProjectedLayoutFork {

@@ -3,6 +3,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import type { SidebarThreadGroup, SidebarThreadGroupMembershipTarget } from "../state/threadGroups";
 import {
   resolveSidebarDropTarget,
+  sectionAtSidebarSlotFork,
   sidebarListItemId,
   type SidebarListItem,
   type SidebarSection,
@@ -80,7 +81,10 @@ export function sidebarThreadGroupTreeFork(input: {
     }
     const thread = { section: item.section };
     const member =
-      item.section === "active" || item.section === "pinned" || item.section === "snoozed"
+      item.section === "active" ||
+      item.section === "working" ||
+      item.section === "pinned" ||
+      item.section === "snoozed"
         ? memberOf.get(item.key)
         : undefined;
     if (member !== undefined) {
@@ -88,7 +92,10 @@ export function sidebarThreadGroupTreeFork(input: {
       nodes.set(id, { depth, group: member, hidden: hidden.has(item.key), parent: member, thread });
       continue;
     }
-    const parent = item.section === "active" ? ({ kind: "thread", key: item.key } as const) : null;
+    const parent =
+      item.section === "active" || item.section === "working"
+        ? ({ kind: "thread", key: item.key } as const)
+        : null;
     nodes.set(id, { depth: 0, group: null, hidden: false, parent, thread });
   }
   return {
@@ -117,9 +124,9 @@ function slotFor(
   const overIndex = tree.indices.get(overId);
   const active = tree.nodes.get(activeId);
   if (activeIndex === undefined || overIndex === undefined || active?.thread == null) return null;
-  const section = resolveSidebarDropTarget(tree.items, activeId, overId)?.section;
-  if (section === undefined) return null;
   const moved = arrayMove([...tree.items], activeIndex, overIndex);
+  const section = sectionAtSidebarSlotFork(moved, overIndex);
+  if (section === "snoozed") return null;
   const neighbour = (from: number, step: 1 | -1) => {
     for (let index = from + step; index >= 0 && index < moved.length; index += step) {
       const node = tree.nodes.get(sidebarListItemId(moved[index]!));
@@ -132,7 +139,7 @@ function slotFor(
   const parent = above?.parent ?? null;
   const canNest =
     parent !== null &&
-    (section === "active"
+    (section === "active" || section === "working"
       ? active.thread.section !== "pinned"
       : section === "pinned" && active.group === parent);
   // The span continues below the slot, or the lifted row is the collapsed
@@ -193,7 +200,10 @@ export function isSidebarThreadGroupSlotValidFork(
   if (slot === null) return undefined;
   if (slot.minDepth > slot.maxDepth) return false;
   const member = tree.nodes.get(activeId)?.group != null;
-  return slot.section === "active" && (member || slot.maxDepth === 1) ? true : undefined;
+  return (slot.section === "active" || slot.section === "working") &&
+    (member || slot.maxDepth === 1)
+    ? true
+    : undefined;
 }
 
 export interface SidebarThreadGroupDrop {
