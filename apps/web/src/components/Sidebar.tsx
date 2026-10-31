@@ -714,7 +714,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const inheritedSnoozes = inheritedSidebarSnoozeOwnersFork(snoozed, input.threadGroups, (thread) =>
     effectiveSnoozed(thread, { now: preciseNow }),
   ); // fork-hook: thread-ordering/group-snooze-drag
-  for (const key of inheritedSnoozes.keys()) draggable.delete(key); // fork-hook: thread-ordering/group-snooze-drag
+  for (const key of inheritedSnoozes.keys()) draggableThreadKeys.delete(key); // fork-hook: thread-ordering/group-snooze-drag
   // Availability gates dragging only; sorting must stay consistent across clients.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = sortActiveBySend
