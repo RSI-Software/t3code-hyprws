@@ -128,28 +128,28 @@ const trackInstaller = (install: (session: Session) => void) =>
 
 ## Domain index
 
-| Domain                                  | Status | Tiers present     | Retires when                              |
-| --------------------------------------- | ------ | ----------------- | ----------------------------------------- |
-| [multi-window](#multi-window)           | Active | core, qol, bugfix | Upstream ships multi-window support       |
-| [workspaces](#workspaces)               | Active | core, qol         | Upstream ships per-window project filters |
-| [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable bookmarks          |
-| [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach             |
-| [github-issues](#github-issues)         | Active | core, bugfix      | Upstream ships multi-environment Issues   |
-| [thread-artifacts](#thread-artifacts)   | Active | core              | Upstream links agent documents to threads |
-| [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread agent selection      |
-| [device-auth](#device-auth)             | Active | core              | Upstream ships native client approval     |
-| [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships rich Markdown editing      |
-| [workspace-files](#workspace-files)     | Active | core              | Upstream supports linked artifacts        |
-| [fork-meta](#fork-meta)                 | Active | core, qol, bugfix | Never; it documents the fork              |
-| [distribution](#distribution)           | Active | core              | Never, while the fork ships builds        |
-| [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Per commit, on the upstream fix           |
-| [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships named groups               |
-| [thread-fork](#thread-fork)             | Active | core              | Upstream ships a thread-menu fork entry   |
-| [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach externally      |
-| [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream exposes worktree lifecycle hooks |
-| [delegated-rounds](#delegated-rounds)   | Active | core              | Upstream ships delegated follow-ups       |
-| [voice-input](#voice-input)             | Active | core              | Upstream supports external desktop STT    |
-| [colleague-collab](#colleague-collab)   | Active | core              | Upstream ships per-thread sharing         |
+| Domain                                  | Status  | Tiers present     | Retires when                              |
+| --------------------------------------- | ------- | ----------------- | ----------------------------------------- |
+| [multi-window](#multi-window)           | Active  | core, qol, bugfix | Upstream ships multi-window support       |
+| [workspaces](#workspaces)               | Active  | core, qol         | Upstream ships per-window project filters |
+| [browser-bookmarks](#browser-bookmarks) | Active  | core              | Upstream ships durable bookmarks          |
+| [backend-attach](#backend-attach)       | Retired | core              | Retired; a fold drops its commits         |
+| [github-issues](#github-issues)         | Active  | core, bugfix      | Upstream ships multi-environment Issues   |
+| [thread-artifacts](#thread-artifacts)   | Active  | core              | Upstream links agent documents to threads |
+| [custom-agents](#custom-agents)         | Active  | core              | Upstream main-thread agent selection      |
+| [device-auth](#device-auth)             | Active  | core              | Upstream ships native client approval     |
+| [markdown-editing](#markdown-editing)   | Active  | core              | Upstream ships rich Markdown editing      |
+| [workspace-files](#workspace-files)     | Active  | core              | Upstream supports linked artifacts        |
+| [fork-meta](#fork-meta)                 | Active  | core, qol, bugfix | Never; it documents the fork              |
+| [distribution](#distribution)           | Active  | core              | Never, while the fork ships builds        |
+| [upstream-fixes](#upstream-fixes)       | Active  | bugfix            | Per commit, on the upstream fix           |
+| [thread-ordering](#thread-ordering)     | Active  | qol               | Upstream ships named groups               |
+| [thread-fork](#thread-fork)             | Active  | core              | Upstream ships a thread-menu fork entry   |
+| [zmux-estate](#zmux-estate)             | Active  | core              | Upstream terminals attach externally      |
+| [worktrunk-hooks](#worktrunk-hooks)     | Active  | core, bugfix      | Upstream exposes worktree lifecycle hooks |
+| [delegated-rounds](#delegated-rounds)   | Active  | core              | Upstream ships delegated follow-ups       |
+| [voice-input](#voice-input)             | Active  | core              | Upstream supports external desktop STT    |
+| [colleague-collab](#colleague-collab)   | Active  | core              | Upstream ships per-thread sharing         |
 
 A domain is a reason the fork exists, not a feature area.
 
@@ -572,69 +572,14 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | `apps/desktop/src/updates/updateChannels.fork.ts`                                                                                                                                                                                                                                                                                                                                                                   | Fork-only; a conflict means upstream took the path |
 | `packages/shared/src/forkVersion.ts`, `apps/web/src/versionSkew.fork.ts`, `apps/web/src/versionSkew.fork.test.ts`, `packages/shared/src/cliRelease.fork.test.ts`, `packages/ssh/src/tunnel.fork.test.ts`, `scripts/install.fork.test.ts`, `docs/fork/user/install-and-update.md`                                                                                                                                    | Fork-only; a conflict means upstream took the path |
-| `apps/web/src/versionSkew.ts`, `apps/web/src/components/sidebar/useUpdateEverything.ts`, `packages/shared/src/cliRelease.ts`, `packages/shared/src/cliRelease.test.ts`, `packages/ssh/src/tunnel.test.ts`                                                                                                                                                                                                           | Shared server and orchestration seams              |
+| `apps/web/src/versionSkew.ts`, `packages/shared/src/cliRelease.ts`, `packages/shared/src/cliRelease.test.ts`, `packages/ssh/src/tunnel.test.ts`                                                                                                                                                                                                                                                                     | Shared server and orchestration seams              |
 | `apps/desktop/src/updates/DesktopUpdates.fork.test.ts`, `apps/desktop/src/updates/DesktopUpdates.ts`, `apps/desktop/src/updates/updatesTestHarness.ts`                                                                                                                                                                                                                                                              | Shared desktop and Electron seams                  |
 | `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `scripts/install.sh`, `scripts/resolve-nightly-release.ts`, `scripts/build-desktop-artifact.ts`, `scripts/build-desktop-artifact.test.ts`, `scripts/update-release-package-versions.ts`, `package.json`, `engines`, `packageManager`, `docs/fork/internals/scripts.md`, `README.md`, `docs/README.md`, `docs/user/install.md`, `docs/user/updating.md` | Shared tooling, workflows, and docs                |
 
 ## backend-attach
 
-### Need
-
-- **Service:** `t3code.service` (`t3 service`)
-- **Desktop:** always spawns its own backend
-- **Result:** two writers on one state database
-
-### Shape
-
-```text
-apps/desktop/src/app/
-├── DesktopBackendMode.ts          picks managed or client-only
-├── DesktopRunningLocalServers.ts  discovers, pairs, checks id and origin
-└── DesktopAttachedPrimary.ts      attaches one server; main holds the bearer
-apps/web/src/
-├── connection/
-│   └── DesktopLocalAutoPair.tsx   off when the bridge can attach
-└── environments/primary/
-    └── attachedPrimary.fork.ts    the renderer's primary target
-packages/
-├── client-runtime/src/connection/
-│   └── savedConnectionPrecedence.fork.ts  keeps the saved connection
-└── shared/src/
-    └── serverRuntimeState.ts      runtime state, plus the fork's devUrl
-```
-
-The `--backend-mode` flag and the persisted `backendMode` setting are fork-owned.
-
-**Flip:** a packaged `managed` launch goes `client-only` when `server-runtime.json` names a reachable server.
-
-**Attach:** only when discovery finds exactly one server; with several, the window runs without a primary.
-
-**Precedence trap:** upstream's platform primary deletes a saved registration for its environment, which suits a spawned backend.
-An attached server comes and goes, so client-only shadows the saved connection instead and restores it when the attachment drops.
-
-### Retirement condition
-
-Upstream declined desktop attach: `pingdotgg/t3code#9376` closed unmerged.
-Retire commit by commit only if a tagged upstream release ships it.
-
-### Rebase scan
-
-Every `fork-hook: backend-attach/` marker is a seam that `fork:sync` re-applies; the marked hooks import the fork-owned modules.
-
-```bash
-git grep -l 'fork-hook: backend-attach/'
-```
-
-The table holds the shared files; `fork:scan` refuses one it omits.
-
-| Path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Why it matters                        |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `packages/contracts/src/localServerDiscovery.ts`, `packages/contracts/src/ipc.ts`, `packages/contracts/src/settings.ts`, `packages/contracts/src/index.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Shared contracts and wire schemas     |
-| `apps/server/src/cli/pair.ts`, `apps/server/src/serverRuntimeState.ts`, `apps/server/src/config.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Shared server and orchestration seams |
-| `apps/web/src/connection/DesktopLocalAutoPair.tsx`, `apps/web/src/environments/primary/target.ts`, `apps/web/src/components/sidebar/useUpdateEverything.ts`, `apps/web/src/environmentPresence.ts`, `apps/web/src/routes/__root.tsx`, `apps/web/src/lib/openPullRequestLink.ts`, `apps/web/src/connection/platform.ts`, `apps/web/src/components/settings/ConnectionsSettings.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Shared web surfaces                   |
-| `apps/desktop/src/backend/DesktopBackendManager.ts`, `apps/desktop/src/backend/DesktopBackendConfiguration.ts`, `apps/desktop/src/app/DesktopBackendMode.ts`, `apps/desktop/src/app/DesktopRunningLocalServers.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`, `apps/desktop/src/app/DesktopLifecycle.ts`, `apps/desktop/src/window/DesktopWindow.ts`, `apps/desktop/src/ipc/methods/backendMode.ts`, `apps/desktop/src/ipc/methods/localServerDiscovery.ts`, `apps/desktop/src/ipc/methods/window.ts`, `apps/desktop/src/settings/DesktopAppSettings.ts`, `apps/desktop/src/main.ts`, `apps/desktop/src/preload.ts`, `apps/desktop/src/app/DesktopConnectionCatalogStore.ts`, `apps/desktop/src/settings/DesktopClientSettings.test.ts`, `apps/desktop/src/electron/ElectronProtocol.ts`, `apps/desktop/src/app/DesktopEnvironment.test.ts`, `apps/desktop/src/app/DesktopLifecycle.test.ts`, `apps/desktop/src/backend/DesktopBackendPool.test.ts`, `apps/desktop/src/window/DesktopApplicationMenu.test.ts`, `apps/desktop/src/app/DesktopApp.ts`, `apps/desktop/src/window/DesktopWindow.test.ts` | Shared desktop and Electron seams     |
-| `packages/shared/src/serverRuntimeState.ts`, `packages/shared/package.json`, `packages/client-runtime/src/state/authHttp.ts`, `packages/client-runtime/src/state/auth.ts`, `packages/client-runtime/src/connection/presentation.ts`, `packages/client-runtime/src/connection/registry.ts`, `packages/client-runtime/src/connection/resolver.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Shared packages                       |
-| `docs/user/source-control.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Shared tooling, workflows, and docs   |
+Retired: run a `t3 service` and turn the desktop's **Local environment** off.
+The revert sits on top of the domain's commits; a fold drops them together.
 
 ## workspace-files
 
