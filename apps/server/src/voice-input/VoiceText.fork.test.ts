@@ -24,7 +24,11 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork";
 import * as VoiceText from "./VoiceText.fork.ts";
-import { expandVoiceTextTemplateFork, voiceRecentMessagesFork } from "./voiceTextPrompts.fork.ts";
+import {
+  expandVoiceTextTemplateFork,
+  RETIRED_VOICE_TEXT_PROMPTS_FORK,
+  voiceRecentMessagesFork,
+} from "./voiceTextPrompts.fork.ts";
 
 const projectId = ProjectId.make("dictation-project");
 const modelSelection = {
@@ -146,7 +150,9 @@ function harness() {
     run,
     calls,
     reads,
-    storedJson: () => new TextDecoder().decode(stored.values().next().value),
+    seed: (settings: unknown) => {
+      stored.set("fork-voice-text", new TextEncoder().encode(JSON.stringify(settings)));
+    },
     setServerModel: (model: ModelSelection) => {
       serverModel = model;
     },
@@ -170,16 +176,21 @@ describe("dictation text generation", () => {
       expect(later.defaults.recentMessageCount).toBe(0);
     }),
   );
-  it.effect("stores only custom prompts so saved defaults follow built-in changes", () =>
+  it.effect("treats saved copies of built-in prompts as defaults and keeps custom ones", () =>
     Effect.gen(function* () {
       const h = harness();
-      yield* h.run((s) =>
-        s.configure({ config: { ...config, formattingPrompt: "Format {{text}}" } }),
-      );
+      h.seed({
+        defaults: {
+          ...config,
+          cleanupPrompt: RETIRED_VOICE_TEXT_PROMPTS_FORK.cleanupPrompt,
+          formattingPrompt: "Format {{text}}",
+        },
+        projects: {},
+      });
       const saved = yield* h.run((s) => s.settings);
       expect(saved.defaults).not.toHaveProperty("cleanupPrompt");
+      expect(saved.defaults).not.toHaveProperty("contextPrompt");
       expect(saved.defaults.formattingPrompt).toBe("Format {{text}}");
-      expect(h.storedJson()).not.toContain("cleanupPrompt");
       yield* h.run((s) => s.transform({ projectId, operation: "cleanup", text: "draft" }));
       expect(h.calls[0]?.prompt).toContain("<dictation>\ndraft\n</dictation>");
     }),

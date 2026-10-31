@@ -5,7 +5,7 @@ import {
 } from "@t3tools/contracts";
 
 // Settings saved before prompts became optional hold copies of these first built-in prompts.
-const RETIRED_DEFAULT_PROMPTS: Partial<Record<VoiceTextPromptKeyFork, string>> = {
+export const RETIRED_VOICE_TEXT_PROMPTS_FORK: Partial<Record<VoiceTextPromptKeyFork, string>> = {
   cleanupPrompt:
     "Correct this developer's transcription. Fix likely misheard technical terms, spelling, punctuation, and obvious speech disfluencies. Preserve meaning, uncertainty, requests, and the speaker's voice. Do not answer the request or add information. Use the context only as reference.\n\nProject context:\n{{project_context}}\n\nRecent conversation:\n{{recent_messages}}\n\nText to correct:\n{{text}}",
   formattingPrompt:
@@ -18,7 +18,7 @@ export function normalizeVoiceTextConfigFork(config: VoiceTextConfigFork): Voice
   const custom = (key: VoiceTextPromptKeyFork, value: string | undefined) =>
     value === undefined ||
     value === VOICE_TEXT_DEFAULT_PROMPTS_FORK[key] ||
-    value === RETIRED_DEFAULT_PROMPTS[key]
+    value === RETIRED_VOICE_TEXT_PROMPTS_FORK[key]
       ? undefined
       : value;
   const cleanup = custom("cleanupPrompt", cleanupPrompt);
