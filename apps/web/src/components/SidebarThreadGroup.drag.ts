@@ -6,8 +6,7 @@ import {
   type SidebarThreadGroup,
   type SidebarThreadGroupMembershipTarget,
 } from "../state/threadGroups";
-import { resolveSidebarDropTarget, type SidebarListItem } from "./Sidebar.logic";
-type SidebarDropTarget = NonNullable<ReturnType<typeof resolveSidebarDropTarget>>;
+import type { SidebarListItem } from "./Sidebar.logic";
 import type { SidebarThreadGroupSpan } from "./SidebarThreadGroup.markers";
 import {
   isSidebarThreadGroupSlotValidFork,
@@ -109,10 +108,10 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   const reset = () => updateDrag(() => null);
   const isValidTarget = (activeKey: string, overId: string) =>
     isSidebarThreadGroupSlotValidFork(tree, activeKey, overId);
-  const release = (event: DragEndEvent, target: SidebarDropTarget | null) => {
+  const release = (event: DragEndEvent) => {
     const current = dragRef.current;
     updateDrag(() => null);
-    if (current === null || event.over === null || target === null) return;
+    if (current === null || event.over === null) return;
     const { drop } = project(String(event.active.id), String(event.over.id), current.steps);
     if (drop === null) return;
     if (!setMembership(drop.threadIds, drop.target) || drop.target.kind !== "new") return;
@@ -125,6 +124,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   };
 
   return {
+    nesting: drag?.steps === 1,
     projection,
     dissolvingGroupKey: sidebarThreadGroupDissolvingFork(tree, projection),
     over,

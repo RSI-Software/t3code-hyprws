@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createSidebarCollisionDetection } from "./Sidebar.drag.ts";
-import { sidebarMarkerId, type SidebarListItem, type SidebarSection } from "./Sidebar.logic.ts";
+import { createSidebarCollisionDetection, createSidebarSortingStrategy } from "./Sidebar.drag.ts";
+import {
+  buildSidebarListItems,
+  resolveSidebarDropTarget,
+  sidebarListItemId,
+  sidebarMarkerId,
+  type SidebarListItem,
+  type SidebarSection,
+} from "./Sidebar.logic.ts";
 import { sidebarThreadGroupHeaderMarker } from "./SidebarThreadGroup.markers.ts";
+import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span.ts";
 
 const thread = (key: string, section: SidebarSection): SidebarListItem => ({
   kind: "thread",
@@ -109,4 +117,53 @@ describe("createSidebarCollisionDetection group headers", () => {
     };
     expect(detector(withoutHeader)[0]?.id).toBe("member");
   });
+
+  it("keeps the lifted card from hiding the destination when nesting", () => {
+    const { items, args } = collisionArgs(130);
+    const atSource = { ...args, collisionRect: rect(400, 82) };
+    expect(createSidebarCollisionDetection(() => true, { items })(atSource)[0]?.id).toBe("source");
+    expect(
+      createSidebarCollisionDetection(() => true, { items, nestingFork: true })(atSource)[0]?.id,
+    ).toBe(HEADER_ID);
+    expect(
+      createSidebarCollisionDetection((id) => id === "member", { items, nestingFork: true })(
+        atSource,
+      )[0]?.id,
+    ).toBe("member");
+  });
+});
+
+it.each(["idle", "working"])("previews a %s group drop across Working", (source) => {
+  const items = buildSidebarListItems({
+    hasNoThreads: false,
+    pinnedKeys: [],
+    activeKeys: ["idle"],
+    workingKeys: ["working"],
+    hasSnoozedThreads: false,
+    snoozedVisibleKeys: [],
+    settledKeys: [],
+  });
+  const destination = source === "idle" ? "working" : sidebarMarkerId("working-header");
+  const activeIndex = items.findIndex((item) => sidebarListItemId(item) === source);
+  const overIndex = items.findIndex((item) => sidebarListItemId(item) === destination);
+  const rects = items.map((item, index) => rect(index * 83, item.kind === "thread" ? 82 : 32));
+  delete rects[0];
+  const strategy = createSidebarSortingStrategy({
+    items,
+    settledOrder: [],
+    settledExpanded: false,
+  });
+  const args = {
+    activeIndex,
+    overIndex,
+    rects,
+    activeNodeRect: rects[activeIndex]!,
+    index: activeIndex,
+  };
+  if (source === "idle") expect(resolveSidebarDropTarget(items, source, destination)).toBeNull();
+  expect(strategy(args)).toEqual({ x: 0, y: 0, scaleX: 1, scaleY: 1 });
+  const layout = sidebarProjectedLayoutFork(items)!;
+  if (source === "idle") expect(layout.offsets.get(source)).toBeGreaterThan(0);
+  else expect(layout.offsets.get(source)).toBeLessThan(0);
+  expect(layout.heights.get(source)).toBe(82);
 });
