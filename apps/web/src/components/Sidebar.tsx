@@ -2280,11 +2280,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   }, [listMotionPass, shelfExpansionKey]);
   const threadGroupDragFork = useSidebarThreadGroupDragFork({
     items: sidebarListItems,
-    spans: [
-      ...pinnedThreadGroups.spans,
-      ...activeThreadGroups.spans,
-      ...snoozedThreadGroupsFork.spans,
-    ], // fork-hook: thread-ordering/group-pinned-drag
+    spans: threadGroupSpans, // fork-hook: thread-ordering/group-pinned-drag
     threadByKey,
     setMembership: setThreadGroupMembership,
     canGroup: (threadKeys, groupKey) => {
@@ -2327,7 +2323,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
-    enabled: !isContextDrag,
+    enabled: dragState?.contextDrag !== true, // fork-hook: thread-ordering/group-working-drop-preview
     boundaryLabelHeight: SIDEBAR_DRAG_LABEL_HEIGHT,
     settledOrder: draggedSettledOrder,
     ...(draggedActiveOrder === undefined ? {} : { activeOrder: draggedActiveOrder }),
@@ -2373,6 +2369,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       {
         items: sidebarListItems,
         activationY: dragActivationY ?? null,
+        nestingFork: threadGroupDragFork.nesting, // fork-hook: thread-ordering/group-nesting-collision
       },
     );
   })();
@@ -2385,7 +2382,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ? null
         : resolveSidebarDropTarget(sidebarListItems, activeKey, String(event.over.id));
     const activeThread = threadByKey.get(activeKey);
-    groupDragReleaseFork(event, target); // fork-hook: thread-ordering/group-drag-release
+    groupDragReleaseFork(event); // fork-hook: thread-ordering/group-drag-release
     if (activeSection === undefined || target === null || activeThread === undefined) return;
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     const plan = planSidebarThreadDrop({
