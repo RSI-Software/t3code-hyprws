@@ -1,14 +1,21 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  EnvironmentAuthenticatedPrincipal,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
+  ORCHESTRATION_V2_WS_METHODS,
   ProjectId,
+  ProviderInstanceId,
+  RpcScopeAuthorization,
   ThreadId,
+  WS_METHODS,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -29,13 +36,43 @@ const otherProject = ProjectId.make("p-other");
 const projectOf = { [shared]: sharedProject, [other]: otherProject } as Record<string, ProjectId>;
 const pairedSubjects = new Set<string>();
 
+const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
+const instanceId = ProviderInstanceId.make("codex");
+const threadShell = (id: ThreadId): OrchestrationV2ThreadShell => ({
+  id,
+  projectId: projectOf[id]!,
+  title: `Thread ${id}`,
+  providerInstanceId: instanceId,
+  modelSelection: { instanceId, model: "gpt-5.4" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  branch: null,
+  worktreePath: null,
+  activeProviderThreadId: null,
+  lineage: { rootThreadId: id, parentThreadId: null, relationshipToParent: null },
+  forkedFrom: null,
+  createdBy: "user",
+  creationSource: "web",
+  latestRunId: null,
+  activeRunId: null,
+  status: "idle",
+  pendingRuntimeRequest: null,
+  latestVisibleMessage: null,
+  latestUserMessageAt: null,
+  hasActionableProposedPlan: false,
+  itemCount: 0,
+  visibleItemCount: 0,
+  createdAt: now,
+  updatedAt: now,
+  archivedAt: null,
+  settledOverride: null,
+  settledAt: null,
+  lastVisitedAt: null,
+  deletedAt: null,
+});
+
 const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
-  getThreadShell: (threadId) =>
-    Effect.succeed({
-      id: threadId,
-      projectId: projectOf[threadId],
-      deletedAt: null,
-    } as never as OrchestrationV2ThreadShell),
+  getThreadShell: (threadId) => Effect.succeed(threadShell(ThreadId.make(threadId))),
 });
 const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
   createPairingLink: () => Effect.succeed({ credential: "token" } as never),
@@ -57,8 +94,19 @@ const database = it.layer(
     config,
   ),
 );
-const withService = <A, E>(effect: Effect.Effect<A, E, ColleagueShares.ColleagueSharesFork>) =>
-  Effect.andThen(ensureForkSchema(), Effect.provide(effect, ColleagueShares.layer));
+const withService = <A, E>(
+  effect: Effect.Effect<A, E, ColleagueShares.ColleagueSharesFork>,
+  env: Record<string, string> = {},
+) =>
+  Effect.andThen(
+    ensureForkSchema(),
+    Effect.provide(
+      effect,
+      ColleagueShares.layer.pipe(
+        Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
+      ),
+    ),
+  );
 
 const snapshot = () =>
   ({
@@ -98,6 +146,10 @@ const handlers = {
 
 const visibleThreads = (item: OrchestrationV2ShellStreamItem) =>
   item.kind === "snapshot" ? item.snapshot.threads.map((thread) => thread.id) : [];
+const frozenThreads = (item: OrchestrationV2ShellStreamItem) =>
+  item.kind === "snapshot"
+    ? item.snapshot.threads.filter((thread) => thread.colleagueFrozenFork).map(({ id }) => id)
+    : [];
 
 const visibleProjects = (item: OrchestrationV2ShellStreamItem) =>
   item.kind === "snapshot" ? item.snapshot.projects.map(({ id }) => id) : [];
@@ -142,9 +194,16 @@ database("ColleagueSharesFork", (it) => {
         } as never);
         assert.deepStrictEqual(visibleProjects(yield* Queue.take(items)), [otherProject]);
         projectOf[shared] = sharedProject;
+        // Stopping keeps a frozen copy; a re-share returns the live thread.
         yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
-        assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
-        assert.deepStrictEqual(shellInputs.map(Object.keys), [[], [], [], []]);
+        const afterStop = yield* Queue.take(items);
+        assert.deepStrictEqual(frozenThreads(afterStop), [shared]);
+        assert.deepStrictEqual(visibleProjects(afterStop), [sharedProject]);
+        yield* service.share({ threadId: shared, colleagueName: "Sam" });
+        const afterReshare = yield* Queue.take(items);
+        assert.deepStrictEqual(visibleThreads(afterReshare), [shared]);
+        assert.deepStrictEqual(frozenThreads(afterReshare), []);
+        assert.deepStrictEqual(shellInputs.map(Object.keys), [[], [], [], [], []]);
         yield* Fiber.interrupt(fiber);
 
         const owner = service.wrapHandlers("owner", handlers);
@@ -185,8 +244,16 @@ database("ColleagueSharesFork", (it) => {
           Effect.forkChild,
         );
         yield* Queue.take(live);
-        // Unsharing pauses the stream instead of failing it; a re-share resumes after sequence 4.
+        // Stopping freezes the thread: its stream reports the cached copy current, sends are
+        // refused, and a re-share resumes after sequence 4.
         yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
+        assert.deepStrictEqual(yield* Queue.take(live), { kind: "synchronized" });
+        assert.isTrue(
+          Exit.isFailure(yield* Effect.exit(dispatch(message(shared), undefined as never))),
+        );
+        const stopped = yield* service.threadShares(shared);
+        assert.deepStrictEqual(stopped.sharedWith, []);
+        assert.deepStrictEqual(stopped.colleagues, [{ subject: "colleague:sam", name: "Sam" }]);
         yield* service.share({ threadId: shared, colleagueName: "Sam" });
         yield* Queue.take(live);
         assert.deepStrictEqual(threadInputs, [undefined, 4]);
@@ -197,5 +264,82 @@ database("ColleagueSharesFork", (it) => {
         assert.isTrue(again.knownColleague);
       }),
     ),
+  );
+
+  it.effect("refuses a colleague's RPCs outside its closed set and unshared threads", () =>
+    withService(
+      Effect.gen(function* () {
+        const service = yield* ColleagueShares.ColleagueSharesFork;
+        yield* service.share({ threadId: shared, colleagueName: "Sam" });
+        const check = (subject: string, method: string, payload: unknown = {}) =>
+          Effect.service(RpcScopeAuthorization).pipe(
+            service.guardRpc(subject),
+            Effect.provideService(RpcScopeAuthorization, (effect) => effect),
+            Effect.flatMap((authorize) =>
+              Effect.exit(
+                authorize(Effect.void as never, { rpc: { _tag: method }, payload } as never),
+              ),
+            ),
+            Effect.map(Exit.isSuccess),
+            Effect.scoped,
+          );
+        const allowed = (method: string, payload: unknown = {}) =>
+          check("colleague:sam", method, payload);
+        assert.isTrue(yield* check("owner", WS_METHODS.terminalOpen));
+        const turnDiff = ORCHESTRATION_V2_WS_METHODS.getTurnDiff;
+        assert.isTrue(yield* allowed(WS_METHODS.serverGetConfig));
+        assert.isTrue(yield* allowed(turnDiff, { threadId: shared }));
+        assert.isFalse(yield* allowed(turnDiff, { threadId: other }));
+        assert.isFalse(yield* allowed(WS_METHODS.terminalOpen));
+        assert.isFalse(yield* allowed(WS_METHODS.projectsMutate));
+        const asset = (resource: object) => allowed(WS_METHODS.assetsCreateUrl, { resource });
+        assert.isTrue(yield* asset({ _tag: "attachment", attachmentId: "a" }));
+        assert.isTrue(
+          yield* asset({ _tag: "tool-output-image", threadId: shared, itemId: "i", index: 0 }),
+        );
+        assert.isFalse(
+          yield* asset({ _tag: "tool-output-image", threadId: other, itemId: "i", index: 0 }),
+        );
+        assert.isFalse(
+          yield* asset({ _tag: "workspace-file", threadId: shared, path: "/etc/passwd" }),
+        );
+
+        const httpRead = (subject: string, threadId: ThreadId) =>
+          ColleagueShares.requireColleagueHttpThreadFork(threadId).pipe(
+            Effect.provideService(EnvironmentAuthenticatedPrincipal, { subject } as never),
+            Effect.exit,
+            Effect.map(Exit.isSuccess),
+          );
+        assert.isTrue(yield* httpRead("colleague:sam", shared));
+        assert.isFalse(yield* httpRead("colleague:sam", other));
+        assert.isTrue(yield* httpRead("owner", other));
+      }),
+    ),
+  );
+
+  it.effect("bases the link on the sharing client's public origin", () =>
+    Effect.gen(function* () {
+      const linkBase = (linkBaseUrl: string, env?: Record<string, string>) =>
+        withService(
+          Effect.gen(function* () {
+            const service = yield* ColleagueShares.ColleagueSharesFork;
+            const { pairingUrl } = yield* service.share({
+              threadId: shared,
+              colleagueName: "Sam",
+              linkBaseUrl,
+            });
+            return new URL(pairingUrl).origin;
+          }),
+          env,
+        );
+      assert.strictEqual(yield* linkBase("https://t3.example.com/app"), "https://t3.example.com");
+      assert.notStrictEqual(yield* linkBase("http://localhost:9999"), "http://localhost:9999");
+      assert.strictEqual(
+        yield* linkBase("https://t3.example.com", {
+          T3CODE_COLLEAGUE_PUBLIC_URL: "https://override.example.com",
+        }),
+        "https://override.example.com",
+      );
+    }),
   );
 });

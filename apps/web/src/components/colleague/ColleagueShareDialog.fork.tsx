@@ -18,6 +18,7 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useEnvironmentQueryRefresh, useEnvironmentQuerySelector } from "~/state/query";
+import { readPreparedConnection } from "~/state/session";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -49,6 +50,12 @@ const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRunt
   staleTimeMs: 0,
   idleTtlMs: 0,
 });
+
+// The server keeps a public origin the host reached it on as the link base; it ignores loopback.
+const linkBase = (threadRef: ScopedThreadRef) => {
+  const linkBaseUrl = readPreparedConnection(threadRef.environmentId)?.httpBaseUrl;
+  return linkBaseUrl === undefined ? {} : { linkBaseUrl };
+};
 
 export function ColleagueShareDialogHostFork() {
   const threadRef = useAtomValue(colleagueShareDialogThreadAtom);
@@ -106,7 +113,7 @@ function ColleagueShareDialog({
     setState({ status: "creating" });
     const result = await share({
       environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, colleagueName },
+      input: { threadId: threadRef.threadId, colleagueName, ...linkBase(threadRef) },
     });
     refreshShares();
     if (result._tag === "Success") {
