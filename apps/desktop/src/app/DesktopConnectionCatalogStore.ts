@@ -29,6 +29,7 @@ import * as Schema from "effect/Schema";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopSavedEnvironments from "../settings/DesktopSavedEnvironments.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { privateCatalogWritesFork } from "./privateCatalogWrites.fork.ts"; // fork-hook: upstream-fixes/private-catalog-writes-import
 
 const EncryptedConnectionCatalogDocument = Schema.Struct({
   version: Schema.Literal(1),
@@ -227,6 +228,7 @@ const writeDocument = Effect.fn("desktop.connectionCatalogStore.writeDocument")(
   readonly contents: string;
   readonly suffix: string;
 }): Effect.fn.Return<void, DesktopConnectionCatalogStoreWriteError> {
+  Object.assign(input, privateCatalogWritesFork(input.fileSystem)); // fork-hook: upstream-fixes/private-catalog-writes
   const directory = input.path.dirname(input.catalogPath);
   const tempPath = `${input.catalogPath}.${process.pid}.${input.suffix}.tmp`;
   yield* input.fileSystem.makeDirectory(directory, { recursive: true }).pipe(
