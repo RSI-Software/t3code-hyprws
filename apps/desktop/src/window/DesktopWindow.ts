@@ -126,7 +126,6 @@ export class DesktopWindow extends Context.Service<
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     readonly showConnectingSplash: Effect.Effect<void>;
-    readonly handleRendererReady: Effect.Effect<void, DesktopWindowError>; // fork-hook: backend-attach/renderer-ready-type
     readonly handleBackendReady: (httpBaseUrl: URL) => Effect.Effect<void, DesktopWindowError>;
     readonly handleBackendNotReady: Effect.Effect<void>;
     readonly flushMainWindowBounds: Effect.Effect<void>;
@@ -1106,12 +1105,6 @@ export const make = Effect.gen(function* () {
           Effect.flatMap((staged) => (staged.queued ? Effect.void : requestWindow(staged.request))), // fork-hook: multi-window/dispatch-drain-arguments
         ),
   ); // fork-hook: multi-window/startup-drain-stage-arguments-def
-  const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
-    // The packaged or Vite renderer is loadable whether or not this desktop
-    // process owns a backend.
-    Effect.andThen(Effect.suspend(() => startupDrain.drain(drainServices, resolveDrainOpeners))),
-    Effect.withSpan("desktop.window.handleRendererReady"),
-  ); // fork-hook: backend-attach/renderer-ready
   const startupDrainLocalOff: Partial<Pick<DesktopWindow["Service"], "createMainIfBackendReady">> =
     {
       // With Local environment off no backend signals ready, so the bootstrap's open call drains.
@@ -1159,7 +1152,6 @@ export const make = Effect.gen(function* () {
     createMainIfBackendReady,
     ...startupDrainLocalOff, // fork-hook: multi-window/startup-drain-local-off
     showConnectingSplash,
-    handleRendererReady, // fork-hook: backend-attach/renderer-ready-entry
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });

@@ -246,10 +246,7 @@ const writeDocument = Effect.fn("desktop.connectionCatalogStore.writeDocument")(
     ),
   );
   yield* Effect.gen(function* () {
-    // The document holds every connection credential this app has been given,
-    // so it is created private and the rename carries that mode onto the
-    // catalog itself.
-    yield* input.fileSystem.writeFileString(tempPath, `${encoded}\n`, { mode: 0o600 }).pipe(
+    yield* input.fileSystem.writeFileString(tempPath, `${encoded}\n`).pipe(
       Effect.mapError(
         (cause) =>
           new DesktopConnectionCatalogStoreWriteError({
