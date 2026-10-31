@@ -1,3 +1,37 @@
+import {
+  VOICE_TEXT_DEFAULT_PROMPTS_FORK,
+  type VoiceTextConfigFork,
+  type VoiceTextPromptKeyFork,
+} from "@t3tools/contracts";
+
+// Settings saved before prompts became optional hold copies of these first built-in prompts.
+const RETIRED_DEFAULT_PROMPTS: Partial<Record<VoiceTextPromptKeyFork, string>> = {
+  cleanupPrompt:
+    "Correct this developer's transcription. Fix likely misheard technical terms, spelling, punctuation, and obvious speech disfluencies. Preserve meaning, uncertainty, requests, and the speaker's voice. Do not answer the request or add information. Use the context only as reference.\n\nProject context:\n{{project_context}}\n\nRecent conversation:\n{{recent_messages}}\n\nText to correct:\n{{text}}",
+  formattingPrompt:
+    "Format this draft for readability. Use paragraphs and, where useful, lists. Preserve its meaning, technical details, questions, and voice. Do not answer the request or add information. Use the context only as reference.\n\nProject context:\n{{project_context}}\n\nRecent conversation:\n{{recent_messages}}\n\nText to format:\n{{text}}",
+};
+
+/** Drops saved prompts that match a built-in default so they follow future default changes. */
+export function normalizeVoiceTextConfigFork(config: VoiceTextConfigFork): VoiceTextConfigFork {
+  const { cleanupPrompt, formattingPrompt, contextPrompt, ...rest } = config;
+  const custom = (key: VoiceTextPromptKeyFork, value: string | undefined) =>
+    value === undefined ||
+    value === VOICE_TEXT_DEFAULT_PROMPTS_FORK[key] ||
+    value === RETIRED_DEFAULT_PROMPTS[key]
+      ? undefined
+      : value;
+  const cleanup = custom("cleanupPrompt", cleanupPrompt);
+  const formatting = custom("formattingPrompt", formattingPrompt);
+  const context = custom("contextPrompt", contextPrompt);
+  return {
+    ...rest,
+    ...(cleanup === undefined ? {} : { cleanupPrompt: cleanup }),
+    ...(formatting === undefined ? {} : { formattingPrompt: formatting }),
+    ...(context === undefined ? {} : { contextPrompt: context }),
+  };
+}
+
 /** Substitute once: text containing another placeholder must remain literal. */
 export function expandVoiceTextTemplateFork(
   template: string,

@@ -5,7 +5,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
   TextGenerationError,
-  VOICE_TEXT_STARTER_PROMPTS_FORK,
+  VOICE_TEXT_DEFAULT_PROMPTS_FORK,
   type VoiceTextConfigFork,
   type ModelSelection,
 } from "@t3tools/contracts";
@@ -39,7 +39,7 @@ const config: VoiceTextConfigFork = {
   recentMessageCount: 0,
   projectContext: "React, Zustand, Hyprland",
   terms: "",
-  ...VOICE_TEXT_STARTER_PROMPTS_FORK,
+  ...VOICE_TEXT_DEFAULT_PROMPTS_FORK,
 };
 
 function harness() {
@@ -146,6 +146,7 @@ function harness() {
     run,
     calls,
     reads,
+    storedJson: () => new TextDecoder().decode(stored.values().next().value),
     setServerModel: (model: ModelSelection) => {
       serverModel = model;
     },
@@ -167,6 +168,20 @@ describe("dictation text generation", () => {
       const later = yield* h.run((s) => s.settings);
       expect(later.defaults.modelSelection).toEqual(initial.defaults.modelSelection);
       expect(later.defaults.recentMessageCount).toBe(0);
+    }),
+  );
+  it.effect("stores only custom prompts so saved defaults follow built-in changes", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      yield* h.run((s) =>
+        s.configure({ config: { ...config, formattingPrompt: "Format {{text}}" } }),
+      );
+      const saved = yield* h.run((s) => s.settings);
+      expect(saved.defaults).not.toHaveProperty("cleanupPrompt");
+      expect(saved.defaults.formattingPrompt).toBe("Format {{text}}");
+      expect(h.storedJson()).not.toContain("cleanupPrompt");
+      yield* h.run((s) => s.transform({ projectId, operation: "cleanup", text: "draft" }));
+      expect(h.calls[0]?.prompt).toContain("<dictation>\ndraft\n</dictation>");
     }),
   );
   it.effect("uses the project's edited prompt, context, and independently selected model", () =>
