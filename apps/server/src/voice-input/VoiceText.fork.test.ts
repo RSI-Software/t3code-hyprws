@@ -150,6 +150,7 @@ function harness() {
     run,
     calls,
     reads,
+    storedJson: () => new TextDecoder().decode(stored.get("fork-voice-text")),
     seed: (settings: unknown) => {
       stored.set("fork-voice-text", new TextEncoder().encode(JSON.stringify(settings)));
     },
@@ -176,7 +177,7 @@ describe("dictation text generation", () => {
       expect(later.defaults.recentMessageCount).toBe(0);
     }),
   );
-  it.effect("treats saved copies of built-in prompts as defaults and keeps custom ones", () =>
+  it.effect("stores only custom prompts, migrating saved copies of built-in ones", () =>
     Effect.gen(function* () {
       const h = harness();
       h.seed({
@@ -193,6 +194,16 @@ describe("dictation text generation", () => {
       expect(saved.defaults.formattingPrompt).toBe("Format {{text}}");
       yield* h.run((s) => s.transform({ projectId, operation: "cleanup", text: "draft" }));
       expect(h.calls[0]?.prompt).toContain("<dictation>\ndraft\n</dictation>");
+      yield* h.run((s) =>
+        s.configure({
+          config: {
+            ...saved.defaults,
+            cleanupPrompt: VOICE_TEXT_DEFAULT_PROMPTS_FORK.cleanupPrompt,
+          },
+        }),
+      );
+      expect(h.storedJson()).not.toContain("cleanupPrompt");
+      expect(h.storedJson()).toContain("Format {{text}}");
     }),
   );
   it.effect("uses the project's edited prompt, context, and independently selected model", () =>
