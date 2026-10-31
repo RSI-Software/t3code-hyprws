@@ -3286,6 +3286,7 @@ export const layer = Layer.unwrap(
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const sql = yield* SqlClient.SqlClient;
     const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-route-service-yield
+    const colleaguesFork = yield* ColleagueSharesFork; // fork-hook: colleague-collab/ws-rpc-guard-service
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3322,6 +3323,7 @@ export const layer = Layer.unwrap(
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
           yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
             Effect.provideService(RpcServer.Protocol, withTerminalOutputWindow(protocol)),
+            colleaguesFork.guardRpc(session.subject), // fork-hook: colleague-collab/ws-rpc-guard
             Effect.provide(
               Layer.merge(
                 RpcAuthorization.layer(session.scopes, (method, payload) => {

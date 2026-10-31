@@ -10,7 +10,7 @@ Their messages run on your machine, with your agents, marked with their name.
 3. Type their name, then **Share**
 4. Send them the link
 
-The link opens their desktop app, pairs it with your server, and opens the thread.
+The link opens their desktop app, asks them to open your shared thread, and adds it to their sidebar.
 It expires after 24 hours.
 
 ## Share more threads
@@ -21,19 +21,21 @@ The thread appears in their sidebar right away; no new link needed.
 ## Stop sharing
 
 Open **Share to colleague** on the thread, then **Stop sharing** beside their name.
-The thread leaves their sidebar.
-If they have it open, it stops updating and their messages no longer send.
+Their copy stays in their sidebar, frozen at that moment and marked **Disconnected from host**.
+They can still read and copy it; sends are refused.
+Sharing again brings it back to live.
 
 ## What they can reach
 
 - **Sidebar:** only the threads you shared
 - **Messages:** only to shared threads
-- **Everything else:** a paired client's normal access
+- **Reads:** diffs and search in shared threads
+- **Nothing else:** no terminals, files, or settings
 
-Pairing is environment-wide: share only with people you trust on that machine.
 To cut access completely, revoke their session in **Settings → Connections**.
 
 ## Reachability
 
 Your colleague's app must reach your server, for example over Tailscale or your own domain.
-Set `T3CODE_COLLEAGUE_PUBLIC_URL` to the address they use, such as `https://t3.example.com`.
+The link uses the address you opened T3 Code from, when it is not `localhost`.
+Set `T3CODE_COLLEAGUE_PUBLIC_URL` to override it, such as `https://t3.example.com`.
