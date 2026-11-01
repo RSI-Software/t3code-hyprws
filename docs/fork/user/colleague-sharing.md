@@ -12,7 +12,7 @@ Their messages run on your machine, with your agents, marked with their name.
 
 The link is a normal `https` page, so any chat makes it clickable.
 It offers **Open in desktop app** or **Continue in this browser**.
-The app asks them to open your shared thread and adds it to their sidebar.
+Either opens your shared thread; the app also adds it to their sidebar.
 The link expires after 24 hours.
 
 ## Share more threads
