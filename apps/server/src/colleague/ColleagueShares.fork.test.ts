@@ -347,6 +347,8 @@ database("ColleagueSharesFork", (it) => {
           { hostname: "api.example.com", path: "^/api", service: "http://localhost:3773" },
           { hostname: "other.example.com", service: "http://localhost:4000" },
           { hostname: "other.example.com", service: "http://localhost:3773" },
+          { hostname: "pair.example.com", path: "^/pair", service: "http://localhost:4000" },
+          { hostname: "pair.example.com", service: "http://localhost:3773" },
           { hostname: "t3.example.com", service: "http://localhost:3773" },
           { service: "http_status:503" },
         ]),

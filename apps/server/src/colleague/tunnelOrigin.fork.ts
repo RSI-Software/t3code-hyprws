@@ -35,25 +35,35 @@ const servesPort = (service: string | undefined, port: number) => {
   return isLoopbackHost(url.hostname) && servicePort === port;
 };
 
+// A rule hostname is exact or `*.suffix`; an empty one is the catch-all.
+const ruleMatches = (ruleHostname: string | undefined, hostname: string) =>
+  ruleHostname === undefined ||
+  ruleHostname === "" ||
+  ruleHostname === hostname ||
+  (ruleHostname.startsWith("*.") && hostname.endsWith(ruleHostname.slice(1)));
+
 /**
- * The https origin of an exact hostname whose whole-host route reaches this server's port.
- * cloudflared takes the first matching rule, so a hostname counts only by its first pathless rule.
+ * The https origin of an exact hostname whose whole-host rule reaches this server's port.
+ * cloudflared takes the first matching rule, so any earlier rule for that hostname that routes
+ * elsewhere, by path or not, could take the pairing page and disqualifies it.
  */
 const tunnelOriginForPort = (config: TunnelConfig, port: number): string | undefined => {
-  const seen = new Set<string>();
-  const wildcardSuffixes: string[] = [];
-  for (const { hostname, path, service } of config.config.ingress ?? []) {
-    if (hostname === undefined || hostname === "") continue;
-    if (path !== undefined && path !== "") continue;
-    if (hostname.startsWith("*.")) wildcardSuffixes.push(hostname.slice(1));
-    if (hostname.includes("*")) continue;
-    if (seen.has(hostname) || wildcardSuffixes.some((suffix) => hostname.endsWith(suffix))) {
-      continue;
-    }
-    seen.add(hostname);
-    if (servesPort(service, port)) return `https://${hostname}`;
-  }
-  return undefined;
+  const ingress = config.config.ingress ?? [];
+  const rule = ingress.find(
+    ({ hostname, path, service }, at) =>
+      hostname !== undefined &&
+      hostname !== "" &&
+      !hostname.includes("*") &&
+      (path === undefined || path === "") &&
+      servesPort(service, port) &&
+      ingress
+        .slice(0, at)
+        .every(
+          (earlier) =>
+            !ruleMatches(earlier.hostname, hostname) || servesPort(earlier.service, port),
+        ),
+  );
+  return rule === undefined ? undefined : `https://${rule.hostname}`;
 };
 
 /** Asks each local cloudflared which public hostname routes to `port`. */
