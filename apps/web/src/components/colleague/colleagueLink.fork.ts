@@ -1,21 +1,38 @@
 // Fork-only (colleague-collab): a colleague link offers a shared thread, not a backend, and opens
 // that thread once its pairing succeeds. A plain pairing link falls through to the upstream flow.
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  fetchRemoteEnvironmentDescriptor,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { COLLEAGUE_THREAD_LINK_PARAM, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
+import * as Effect from "effect/Effect";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { connectPairing } from "../../connection/onboarding";
+import { resolvePrimaryEnvironmentHttpUrl } from "../../environments/primary";
+import * as PrimaryEnvironmentHttpLayer from "../../environments/primary/httpLayer";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
-const linkThreadId = (pairingUrl: string) =>
+/** The shared thread a colleague link names, if any. */
+export const linkThreadIdFork = (pairingUrl: string) =>
   new URL(pairingUrl).searchParams.get(COLLEAGUE_THREAD_LINK_PARAM)?.trim();
+
+/** The shared thread on this server, or home when the server cannot name its environment. */
+export const sharedThreadPathFork = (threadId: string) =>
+  Effect.runPromise(
+    fetchRemoteEnvironmentDescriptor({ httpBaseUrl: resolvePrimaryEnvironmentHttpUrl("/") }).pipe(
+      Effect.provide(PrimaryEnvironmentHttpLayer.layer),
+      Effect.map(({ environmentId }) => `/${environmentId}/${encodeURIComponent(threadId)}`),
+      Effect.orElseSucceed(() => "/"),
+    ),
+  );
 
 const reportFailure = (error: unknown) =>
   toastManager.add(
@@ -31,7 +48,7 @@ export function useColleagueLinkPairingFork() {
   const router = useRouter();
   const connect = useAtomCommand(connectPairing, { reportFailure: false });
   return async (pairingUrl: string, origin: string, paired: Set<string>): Promise<boolean> => {
-    const threadId = linkThreadId(pairingUrl);
+    const threadId = linkThreadIdFork(pairingUrl);
     if (!threadId) return false;
     const confirmed =
       (await requestConfirmDialog(

@@ -34,7 +34,9 @@ export const Route = createFileRoute("/pair")({
 function PairRouteView() {
   const router = useRouter();
   const { authGateState } = Route.useRouteContext();
-  const colleagueLanding = useColleagueLinkLandingFork(authGateState?.status === "requires-auth"); // fork-hook: colleague-collab/pair-landing
+  const colleagueLanding = useColleagueLinkLandingFork(
+    authGateState?.status === "requires-auth" ? authGateState : undefined,
+  ); // fork-hook: colleague-collab/pair-landing
   if (colleagueLanding) return colleagueLanding; // fork-hook: colleague-collab/pair-landing-return
 
   if (!authGateState) {
