@@ -708,7 +708,7 @@ A tagged upstream release ships a thread-level fork entry in the thread menu.
 - **Stop:** unsharing stores a frozen shell copy; the colleague's shell keeps it with `colleagueFrozenFork`
 - **Frozen client:** a **Disconnected from host** banner and a locked composer; a re-share resumes
 - **HTTP:** colleague subjects are refused the HTTP shell and unshared thread snapshots
-- **Link:** the thread id rides the pairing URL query; the base is `T3CODE_COLLEAGUE_PUBLIC_URL`, else the sharing client's non-loopback origin
+- **Link:** the thread id rides the pairing URL query; the base is the local cloudflared hostname routing to the server port, else the sharing client's non-loopback origin
 - **Client address:** behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is recorded
 
 ### Retirement condition
@@ -946,6 +946,7 @@ A tagged upstream release shares a single thread with another person's client an
 | `apps/server/src/server.ts`, `apps/server/src/persistence/ForkSchema.ts`                                                                                                                                   | Layer and table                                    |
 | `packages/contracts/src/rpc.ts`, `packages/contracts/src/index.ts`                                                                                                                                         | RPC group and export                               |
 | `apps/web/src/components/desktop/DesktopWebLinkCoordinator.tsx`                                                                                                                                            | Colleague link branch: prompt, pair, open thread   |
+| `apps/web/src/routes/pair.tsx`                                                                                                                                                                             | Browser landing: open in app or continue           |
 | `apps/web/src/components/PermissionUpdateNotice.ts`                                                                                                                                                        | No re-pair nag for a colleague grant               |
 | `apps/web/src/components/Sidebar.tsx`, `apps/web/src/components/threadActionMenu.logic.ts`, `apps/web/src/hooks/useThreadActionMenu.ts`                                                                    | Thread menu entry                                  |
 | `apps/web/src/routes/__root.tsx`                                                                                                                                                                           | Dialog host                                        |
