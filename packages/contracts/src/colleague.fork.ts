@@ -29,8 +29,10 @@ export const ColleagueShareThreadInputFork = Schema.Struct({
 export type ColleagueShareThreadInputFork = typeof ColleagueShareThreadInputFork.Type;
 
 export const ColleagueShareThreadResultFork = Schema.Struct({
+  /** An https link when the server has a public address; its page offers the app or the browser. */
   pairingUrl: Schema.String,
-  appLink: Schema.String,
+  /** No public address was found, so the link reaches this server only from its own network. */
+  localOnly: Schema.Boolean,
   /** The colleague already had a share, so their paired app shows this thread without the link. */
   knownColleague: Schema.Boolean,
 });

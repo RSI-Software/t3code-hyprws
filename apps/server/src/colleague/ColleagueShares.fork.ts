@@ -26,8 +26,7 @@ import {
   RpcScopeAuthorization,
   WS_METHODS,
 } from "@t3tools/contracts";
-import { buildPairingAppLink } from "@t3tools/shared/remote";
-import * as Config from "effect/Config";
+import { isPrivateNetworkHost } from "@t3tools/shared/hostClassification";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -39,6 +38,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
+import { HttpClient } from "effect/http";
 
 import { failEnvironmentScopeRequired } from "../auth/http.ts";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
@@ -49,6 +49,7 @@ import {
   isLoopbackHost,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
+import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
 
 const COLLEAGUE_SUBJECT_PREFIX = "colleague:";
 const SHARE_LINK_TTL = Duration.hours(24);
@@ -313,18 +314,24 @@ const make = Effect.gen(function* () {
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
   const config = yield* ServerConfig.ServerConfig;
   const threads = yield* ThreadManagement.ThreadManagementService;
-  const publicUrl = yield* Config.String("T3CODE_COLLEAGUE_PUBLIC_URL").pipe(Config.option);
-  // The env override, then the origin the sharing client reached this server on, then a guess.
-  const pairingBaseUrl = (linkBaseUrl: string | undefined) =>
-    Option.getOrElse(
-      publicUrl,
-      () =>
-        publicOrigin(linkBaseUrl) ??
-        config.devUrl?.origin ??
-        resolveHeadlessConnectionString(config.host, config.port, {
-          privateNetworkOnly: config.privateNetworkOnly,
-        }),
+  const httpClient = yield* HttpClient.HttpClient;
+  // The local tunnel's public hostname, then the origin the sharing client reached, then a guess.
+  const pairingBaseUrl = Effect.fn("ColleagueSharesFork.pairingBaseUrl")(function* (
+    linkBaseUrl: string | undefined,
+  ) {
+    const tunnelOrigin = yield* discoverTunnelOrigin(config.port).pipe(
+      Effect.provideService(HttpClient.HttpClient, httpClient),
     );
+    const base =
+      tunnelOrigin ??
+      publicOrigin(linkBaseUrl) ??
+      config.devUrl?.origin ??
+      resolveHeadlessConnectionString(config.host, config.port, {
+        privateNetworkOnly: config.privateNetworkOnly,
+      });
+    const { hostname } = new URL(base);
+    return { base, localOnly: isPrivateNetworkHost(hostname) };
+  });
 
   const readShares = sql<ShareRow>`
     SELECT subject, thread_id, colleague_name, frozen_shell_json FROM fork_colleague_shares
@@ -387,10 +394,10 @@ const make = Effect.gen(function* () {
       ),
     );
     // Pairing ignores the query, so the thread rides inside the pairing URL to the colleague's app.
-    const pairing = new URL(buildPairingUrl(pairingBaseUrl(input.linkBaseUrl), issued.credential));
+    const { base, localOnly } = yield* pairingBaseUrl(input.linkBaseUrl);
+    const pairing = new URL(buildPairingUrl(base, issued.credential));
     pairing.searchParams.set(COLLEAGUE_THREAD_LINK_PARAM, thread.id);
-    const pairingUrl = pairing.toString();
-    return { pairingUrl, appLink: buildPairingAppLink(pairingUrl), knownColleague };
+    return { pairingUrl: pairing.toString(), localOnly, knownColleague };
   });
 
   const isShared = (subject: string, threadId: string) =>
