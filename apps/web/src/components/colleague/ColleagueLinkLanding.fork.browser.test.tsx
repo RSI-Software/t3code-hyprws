@@ -2,34 +2,32 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { render } from "../../../test/render";
 import { submitServerAuthCredential } from "../../environments/primary";
-import { PairingRouteSurface } from "../auth/PairingRouteSurface";
 import { useColleagueLinkLandingFork } from "./ColleagueLinkLanding.fork";
+import { sharedThreadPathFork } from "./colleagueLink.fork";
 
 vi.mock("../../environments/primary", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../environments/primary")>()),
   submitServerAuthCredential: vi.fn().mockResolvedValue(undefined),
 }));
+// Never settles, so the test page is not navigated away.
+vi.mock("./colleagueLink.fork", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./colleagueLink.fork")>()),
+  sharedThreadPathFork: vi.fn(() => new Promise<string>(() => {})),
+}));
 
-// As routes/pair.tsx composes them: the landing holds the pairing surface back.
 function PairRoute() {
-  const landing = useColleagueLinkLandingFork(true);
-  return (
-    landing ?? (
-      <PairingRouteSurface
-        auth={{
-          policy: "loopback-browser",
-          bootstrapMethods: ["one-time-token"],
-          sessionMethods: ["browser-session-cookie"],
-          sessionCookieName: "t3_session",
-        }}
-        onAuthenticated={() => {}}
-      />
-    )
-  );
+  return useColleagueLinkLandingFork({
+    auth: {
+      policy: "loopback-browser",
+      bootstrapMethods: ["one-time-token"],
+      sessionMethods: ["browser-session-cookie"],
+      sessionCookieName: "t3_session",
+    },
+  });
 }
 
 describe("colleague link landing", () => {
-  it("keeps the one-time token until the colleague continues in this browser", async () => {
+  it("pairs only on continue, then opens the shared thread", async () => {
     window.history.replaceState({}, "", "/pair?thread=t1#token=colleague-token");
     const pairingUrl = window.location.href;
     await using screen = await render(<PairRoute />, { router: false });
@@ -43,8 +41,7 @@ describe("colleague link landing", () => {
 
     await screen.getByRole("button", { name: "Continue in this browser" }).click();
 
-    await vi.waitFor(() =>
-      expect(submitServerAuthCredential).toHaveBeenCalledExactlyOnceWith("colleague-token"),
-    );
+    await vi.waitFor(() => expect(sharedThreadPathFork).toHaveBeenCalledExactlyOnceWith("t1"));
+    expect(submitServerAuthCredential).toHaveBeenCalledExactlyOnceWith("colleague-token");
   });
 });
