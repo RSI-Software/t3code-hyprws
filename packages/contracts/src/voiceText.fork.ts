@@ -11,8 +11,12 @@ export const VoiceTextHttpErrorFork = Schema.Struct({
 });
 export const isVoiceTextHttpErrorFork = Schema.is(VoiceTextHttpErrorFork);
 
-/** Editable starter values; saved environment and project settings own every prompt. */
-export const VOICE_TEXT_STARTER_PROMPTS_FORK = prompts;
+export const VOICE_TEXT_DEFAULT_PROMPTS_FORK = prompts;
+export type VoiceTextPromptKeyFork = keyof typeof prompts;
+export const voiceTextPromptFork = (
+  config: Partial<Record<VoiceTextPromptKeyFork, string>>,
+  key: VoiceTextPromptKeyFork,
+) => config[key] ?? VOICE_TEXT_DEFAULT_PROMPTS_FORK[key];
 const prompt = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(20_000));
 export const VoiceTextModeFork = Schema.Literals(["off", "manual", "auto"]);
 export type VoiceTextModeFork = typeof VoiceTextModeFork.Type;
@@ -22,9 +26,10 @@ export const VoiceTextConfigFork = Schema.Struct({
   formattingMode: VoiceTextModeFork,
   formattingMinWords: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10_000 })),
   recentMessageCount: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 20 })),
-  cleanupPrompt: prompt,
-  formattingPrompt: prompt,
-  contextPrompt: prompt,
+  /** A saved prompt is a custom override; an absent key follows the current built-in default. */
+  cleanupPrompt: Schema.optionalKey(prompt),
+  formattingPrompt: Schema.optionalKey(prompt),
+  contextPrompt: Schema.optionalKey(prompt),
   projectContext: Schema.String.check(Schema.isMaxLength(20_000)),
   /** One term per line; `heard, misheard -> Term` adds a spelling rule. Terms are sent as `prompt`. */
   terms: Schema.String.check(Schema.isMaxLength(20_000)).pipe(
