@@ -5,7 +5,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { assert, it } from "@effect/vitest";
+import { assert, it, vi } from "@effect/vitest";
 
 import { run, type ForkCiStep } from "./fork-ci.ts";
 
@@ -42,7 +42,7 @@ const untaggedFixture = (): { root: string; head: string; base: string } => {
   return { root, head: git(root, ["rev-parse", "HEAD"]), base };
 };
 
-it("fails an untagged tip through the delta check, before the scan", () => {
+it("fails an untagged tip through the delta check and still runs the rest", () => {
   const { root, head } = untaggedFixture();
   try {
     const calls: Array<ReadonlyArray<string>> = [];
@@ -62,8 +62,9 @@ it("fails an untagged tip through the delta check, before the scan", () => {
       return 0;
     };
     assert.strictEqual(run([], root, step), 1);
-    // The CI form from the workflow's Fork ledger step, and nothing else ran.
-    assert.deepStrictEqual(calls, [["vp", "run", "fork:delta", "--check", "--head", head]]);
+    // The CI form from the workflow's Fork ledger step, then the rest of the battery.
+    assert.deepStrictEqual(calls[0], ["vp", "run", "fork:delta", "--check", "--head", head]);
+    assert.deepStrictEqual(calls.at(-1), ["vp", "run", "--filter", "@t3tools/scripts", "test"]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -119,21 +120,30 @@ it("runs delta, stale-delete, fixup fold, merge-tree, scan, knip, check, typeche
   }
 });
 
-it("fails a misformatted file through vp check, reformatting nothing", () => {
-  // A failing read-only check stops the battery: the earlier steps pass
-  // stubbed, the check reports nonzero, and the suite never runs. The
-  // exact check argv below is what proves the Scope close condition: no
-  // --fix and no extra argument, so no file is reformatted.
-  const { root } = untaggedFixture();
+it("names every red step and the --only rerun, reformatting nothing", () => {
+  // Red steps stop nothing: every other step still runs. The exact check argv
+  // proves the Scope close condition: no --fix, so no file is reformatted.
+  const { root, head } = untaggedFixture();
   try {
     const calls: Array<ReadonlyArray<string>> = [];
     const step: ForkCiStep = (command, args) => {
       calls.push([command, ...args]);
-      return command === "vp" && args.length === 1 && args[0] === "check" ? 1 : 0;
+      return args[0] === "check" || args[1] === "typecheck" ? 1 : 0;
     };
+    const stderr: Array<string> = [];
+    using _stderr = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
     assert.strictEqual(run([], root, step), 1);
-    const [delta, staleDelete, fixupFold, mergeTree, scan, knip, check] = calls;
-    assert.strictEqual(calls.length, 7);
+    const summary = stderr.join("");
+    assert.include(
+      summary,
+      `fork:ci: red on ${head.slice(0, 7)}: check, typecheck; green: delta, stale-delete, fixup-fold, merge-tree, scan, knip, scripts\n`,
+    );
+    assert.include(summary, "vp run fork:ci --only check,typecheck\n");
+    const [delta, staleDelete, fixupFold, mergeTree, scan, knip, check, typecheck, suite] = calls;
+    assert.strictEqual(calls.length, 9);
     assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(staleDelete?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(fixupFold?.slice(0, 2), ["vp", "run"]);
@@ -141,6 +151,8 @@ it("fails a misformatted file through vp check, reformatting nothing", () => {
     assert.deepStrictEqual(scan?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(knip, ["vp", "run", "knip:check"]);
     assert.deepStrictEqual(check, ["vp", "check"]);
+    assert.deepStrictEqual(typecheck, ["vp", "run", "typecheck"]);
+    assert.deepStrictEqual(suite, ["vp", "run", "--filter", "@t3tools/scripts", "test"]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -187,7 +199,7 @@ it("skips stale-delete on a sync candidate and scans from its base", () => {
   }
 });
 
-it("refuses a head-only merge-tree conflict and stops before the scan", () => {
+it("refuses a head-only merge-tree conflict", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-ci-test-"));
   const commit = (files: Record<string, string>, message: string): string => {
     for (const [name, text] of Object.entries(files)) {
@@ -231,7 +243,33 @@ it("refuses a head-only merge-tree conflict and stops before the scan", () => {
     git(root, ["checkout", "--quiet", "--detach", trunk]);
     const refused = runWith(commit({ "a.txt": "a fork\n" }, "fork edit on an upstream line"));
     assert.strictEqual(refused.code, 1);
-    assert.strictEqual(refused.calls.at(-1), "merge-tree");
+    assert.include(refused.calls, "fork:scan");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("--only reruns just the named steps, in battery order", () => {
+  const { root, head } = untaggedFixture();
+  try {
+    const calls: Array<ReadonlyArray<string>> = [];
+    const step: ForkCiStep = (command, args) => {
+      calls.push([command, ...args]);
+      return 0;
+    };
+    assert.strictEqual(run(["--only", "typecheck,delta"], root, step), 0);
+    assert.deepStrictEqual(calls, [
+      ["vp", "run", "fork:delta", "--check", "--head", head],
+      ["vp", "run", "typecheck"],
+    ]);
+    calls.length = 0;
+    assert.strictEqual(run(["--only", "typecheck,lint"], root, step), 2);
+    assert.strictEqual(run(["--only"], root, step), 2);
+    assert.deepStrictEqual(calls, []);
+    // Without the upstream ref the ledger steps go red, and the rest still run.
+    git(root, ["update-ref", "-d", "refs/remotes/upstream/main"]);
+    assert.strictEqual(run(["--only", "delta,fixup-fold,typecheck"], root, step), 1);
+    assert.deepStrictEqual(calls, [["vp", "run", "typecheck"]]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }

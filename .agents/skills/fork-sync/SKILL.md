@@ -127,11 +127,13 @@ Adaptation the candidate needs (build or test fixes, ports) commits at the tip o
 - **Merge-tree:** path conflicts with upstream
   - Move the hook lines off its changed lines
 - **Local checks:** each rerun runs `fork:ci`
+  - It names every red step
+  - Recheck: `vp run fork:ci --only <steps>`
   - Focused tests: `vp test run`
 - **Gate:** candidate CI in the land run
 
 Run `vp test run` inside the package.
-Rerun once after tip work so the marker covers it.
+Fix every red step, recheck them, then rerun once so the marker covers the tip work.
 
 [reshape]: ../../../docs/fork/operations/fork-sync.md#reshape
 
