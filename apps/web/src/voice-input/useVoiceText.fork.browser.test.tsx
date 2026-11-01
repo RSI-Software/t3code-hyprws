@@ -4,7 +4,7 @@ import {
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
-  VOICE_TEXT_STARTER_PROMPTS_FORK,
+  VOICE_TEXT_DEFAULT_PROMPTS_FORK,
   type VoiceTextConfigFork,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -82,7 +82,7 @@ async function setup() {
     recentMessageCount: 0,
     projectContext: "",
     terms: "",
-    ...VOICE_TEXT_STARTER_PROMPTS_FORK,
+    ...VOICE_TEXT_DEFAULT_PROMPTS_FORK,
   };
   mocks.request.mockReset().mockImplementation(async ({ operation, text }) => ({
     text: operation === "cleanup" ? text.replace("use affect", "useEffect") : `Formatted: ${text}`,

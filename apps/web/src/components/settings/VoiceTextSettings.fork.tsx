@@ -1,10 +1,11 @@
 import {
   AuthSettingsWriteScope,
   AuthOrchestrationOperateScope,
-  VOICE_TEXT_STARTER_PROMPTS_FORK,
+  voiceTextPromptFork,
   type EnvironmentId,
   type ProjectId,
   type VoiceTextConfigFork,
+  type VoiceTextPromptKeyFork,
 } from "@t3tools/contracts";
 import {
   saveVoiceTextSettingsFork,
@@ -59,6 +60,13 @@ export function VoiceTextSettingsFork({
   );
   const update = (patch: Partial<VoiceTextConfigFork>) => {
     if (form) setEdited({ ...form, ...patch });
+    setMessage(null);
+  };
+  const resetPrompt = (key: VoiceTextPromptKeyFork) => {
+    if (!form) return;
+    const next = { ...form };
+    delete next[key];
+    setEdited(next);
     setMessage(null);
   };
   const runRequest = async <A,>(
@@ -266,17 +274,19 @@ export function VoiceTextSettingsFork({
             <SettingsRow
               key={key}
               title={title}
-              description={`Available fields: ${placeholders}.`}
+              description={`${form[key] === undefined ? "Built-in default." : "Custom."} Available fields: ${placeholders}.`}
               resetAction={
-                <SettingResetButton
-                  label={title.toLowerCase()}
-                  onClick={() => update({ [key]: VOICE_TEXT_STARTER_PROMPTS_FORK[key] })}
-                />
+                form[key] === undefined ? null : (
+                  <SettingResetButton
+                    label={title.toLowerCase()}
+                    onClick={() => resetPrompt(key)}
+                  />
+                )
               }
             >
               <div className="mt-3 max-w-2xl pb-3.5">
                 <Textarea
-                  value={form[key]}
+                  value={voiceTextPromptFork(form, key)}
                   aria-label={title}
                   rows={5}
                   onChange={(event) => update({ [key]: event.target.value })}
@@ -333,7 +343,9 @@ export function VoiceTextSettingsFork({
           <Button
             type="button"
             size="sm"
-            disabled={!canWrite || busy !== null || promptFields.some(([key]) => !form[key].trim())}
+            disabled={
+              !canWrite || busy !== null || promptFields.some(([key]) => form[key]?.trim() === "")
+            }
             onClick={() => void save()}
           >
             {busy === "save" ? "Saving…" : "Save text processing"}
