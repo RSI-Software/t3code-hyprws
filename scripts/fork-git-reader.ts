@@ -239,6 +239,7 @@ export const buildGuardInput = (
   range: ScanRange,
   commits: ReadonlyArray<ForkCommit>,
   filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
+  backports: ReadonlySet<string> = new Set(),
 ): AuthoringGuardInput | undefined => {
   const guarded = resolveGuardedCommits(git, options, range, commits);
   const guardCommits = guarded.flatMap((commit) =>
@@ -311,6 +312,7 @@ export const buildGuardInput = (
       : readUpstreamTestTexts(git, range.target, patchesBySha, upstreamTestFiles);
   return {
     commits: guardCommits,
+    backports,
     filesBySha,
     patchesBySha,
     upstreamFiles,

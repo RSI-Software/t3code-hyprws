@@ -240,6 +240,33 @@ const lostUpstreamLines = (
   return lost;
 };
 
+/** The significant lines each backport commit removes, by path: upstream's own removals, never loss. */
+const backportRemovals = (
+  runner: CommandRunner,
+  worktree: string,
+  backports: Iterable<string>,
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const removed = new Map<string, Array<string>>();
+  for (const sha of backports) {
+    const patch = gitOut(runner, worktree, [
+      "-c",
+      "core.quotePath=false",
+      "show",
+      "--format=",
+      "--unified=0",
+      "--no-renames",
+      sha,
+    ]);
+    let path = "";
+    for (const line of (patch ?? "").split("\n")) {
+      if (line.startsWith("--- ")) path = line.startsWith("--- a/") ? line.slice(6) : "";
+      else if (line.startsWith("-") && path !== "")
+        removed.set(path, [...(removed.get(path) ?? []), ...significantLines(line.slice(1))]);
+    }
+  }
+  return removed;
+};
+
 /** Enough of the loss to recognise the case it came from, without pasting the file into a report. */
 const LOST_LINE_SAMPLE = 5;
 
@@ -255,8 +282,10 @@ const testFindings = (
   target: string,
   upstreamTarget: string,
   head = "HEAD",
+  backports: Iterable<string> = [],
 ): ReadonlyArray<AdditiveFinding> => {
   const findings: Array<AdditiveFinding> = [];
+  const backported = backportRemovals(runner, worktree, backports);
   const paths = treeNames(runner, worktree, target).filter(isTestPath);
   const blobs = readBlobs(
     worktree,
@@ -304,7 +333,10 @@ const testFindings = (
       significantLines(upstreamCountText),
     );
     const carried = lostUpstreamLines(significantLines(upstreamText), forkCopies);
-    const lost = lostUpstreamLines(carried, headLines);
+    const lost = lostUpstreamLines(
+      lostUpstreamLines(carried, headLines),
+      backported.get(path) ?? [],
+    );
     const siblingText = showTree(head, forkTestSibling(path));
     const siblingLines = new Set(significantLines(siblingText ?? ""));
     const unmoved = lost.filter((line) => !siblingLines.has(line));
@@ -364,13 +396,15 @@ export const checkAdditive = (
   runner: CommandRunner,
   worktree: string,
   trees: { readonly base: string; readonly since: string | null },
-  options: { head?: string } = {},
+  options: { head?: string; backports?: Iterable<string> } = {},
 ): ReadonlyArray<AdditiveFinding> => {
   const head = options.head ?? "HEAD";
   return [
     ...missingUpstreamFiles(runner, worktree, trees.base, head),
     ...migrationFindings(runner, worktree, trees.base, head),
-    ...(trees.since === null ? [] : testFindings(runner, worktree, trees.since, trees.base, head)),
+    ...(trees.since === null
+      ? []
+      : testFindings(runner, worktree, trees.since, trees.base, head, options.backports)),
   ];
 };
 
