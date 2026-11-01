@@ -62,6 +62,31 @@ export const readBlobs = (cwd: string, specs: Iterable<string>): ReadonlyMap<str
   return blobs;
 };
 
+/**
+ * Fork commits since `since` whose patch live upstream `tip` already carries: exact backports, which
+ * the test guards may not read as fork loss. An unscoped run or an unresolved tip finds none.
+ */
+export const readUpstreamBackports = (
+  git: Pick<GitReader, "run">,
+  tip: string,
+  head: string,
+  since: string | null,
+): ReadonlySet<string> => {
+  if (since === null) return new Set();
+  let cherry: string;
+  try {
+    cherry = git.run(["cherry", tip, head, since]);
+  } catch {
+    return new Set();
+  }
+  return new Set(
+    cherry
+      .split("\n")
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.slice(2)),
+  );
+};
+
 export class SystemGit {
   readonly cwd: string;
 
