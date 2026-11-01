@@ -14,12 +14,12 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
-import * as ConfigProvider from "effect/ConfigProvider";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
@@ -94,18 +94,28 @@ const database = it.layer(
     config,
   ),
 );
+type Ingress = ReadonlyArray<{ hostname?: string; path?: string; service: string }>;
+
+// A local cloudflared answering on its first metrics port with these ingress rules, or none.
+const tunnelClient = (ingress?: Ingress) =>
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make((request) =>
+      ingress !== undefined && request.url === "http://127.0.0.1:20241/config"
+        ? Effect.succeed(
+            HttpClientResponse.fromWeb(request, Response.json({ config: { ingress } })),
+          )
+        : Effect.succeed(HttpClientResponse.fromWeb(request, new Response(null, { status: 404 }))),
+    ),
+  );
+
 const withService = <A, E>(
   effect: Effect.Effect<A, E, ColleagueShares.ColleagueSharesFork>,
-  env: Record<string, string> = {},
+  tunnel?: Ingress,
 ) =>
   Effect.andThen(
     ensureForkSchema(),
-    Effect.provide(
-      effect,
-      ColleagueShares.layer.pipe(
-        Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
-      ),
-    ),
+    Effect.provide(effect, ColleagueShares.layer.pipe(Layer.provide(tunnelClient(tunnel)))),
   );
 
 const snapshot = () =>
@@ -317,28 +327,50 @@ database("ColleagueSharesFork", (it) => {
     ),
   );
 
-  it.effect("bases the link on the sharing client's public origin", () =>
+  it.effect("bases the link on the local tunnel, then the sharing client's public origin", () =>
     Effect.gen(function* () {
-      const linkBase = (linkBaseUrl: string, env?: Record<string, string>) =>
+      const link = (linkBaseUrl: string, tunnel?: Ingress) =>
         withService(
           Effect.gen(function* () {
             const service = yield* ColleagueShares.ColleagueSharesFork;
-            const { pairingUrl } = yield* service.share({
+            const { pairingUrl, localOnly } = yield* service.share({
               threadId: shared,
               colleagueName: "Sam",
               linkBaseUrl,
             });
-            return new URL(pairingUrl).origin;
+            return { origin: new URL(pairingUrl).origin, localOnly };
           }),
-          env,
+          tunnel,
         );
-      assert.strictEqual(yield* linkBase("https://t3.example.com/app"), "https://t3.example.com");
-      assert.notStrictEqual(yield* linkBase("http://localhost:9999"), "http://localhost:9999");
-      assert.strictEqual(
-        yield* linkBase("https://t3.example.com", {
-          T3CODE_COLLEAGUE_PUBLIC_URL: "https://override.example.com",
-        }),
-        "https://override.example.com",
+      assert.deepStrictEqual(
+        yield* link("http://127.0.0.1:3773", [
+          { hostname: "api.example.com", path: "^/api", service: "http://localhost:3773" },
+          { hostname: "other.example.com", service: "http://localhost:4000" },
+          { hostname: "other.example.com", service: "http://localhost:3773" },
+          { hostname: "pair.example.com", path: "^/pair", service: "http://localhost:4000" },
+          { hostname: "pair.example.com", service: "http://localhost:3773" },
+          { hostname: "t3.example.com", service: "http://localhost:3773" },
+          { service: "http_status:503" },
+        ]),
+        { origin: "https://t3.example.com", localOnly: false },
+      );
+      assert.deepStrictEqual(yield* link("https://app.example.com/x"), {
+        origin: "https://app.example.com",
+        localOnly: false,
+      });
+      for (const local of ["http://localhost:9999", "http://[fd00::1]:3773", "http://box.local"]) {
+        assert.isTrue((yield* link(local)).localOnly, local);
+      }
+      assert.isTrue(
+        (yield* link("http://localhost:9999", [
+          { hostname: "*.example.com", service: "http://localhost:3773" },
+        ])).localOnly,
+      );
+      assert.isTrue(
+        (yield* link("http://localhost:9999", [
+          { hostname: "*", path: "^/pair", service: "http://localhost:4000" },
+          { hostname: "t3.example.com", service: "http://localhost:3773" },
+        ])).localOnly,
       );
     }),
   );
