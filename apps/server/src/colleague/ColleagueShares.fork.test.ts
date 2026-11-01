@@ -94,8 +94,10 @@ const database = it.layer(
     config,
   ),
 );
+type Ingress = ReadonlyArray<{ hostname?: string; path?: string; service: string }>;
+
 // A local cloudflared answering on its first metrics port with these ingress rules, or none.
-const tunnelClient = (ingress?: ReadonlyArray<{ hostname?: string; service: string }>) =>
+const tunnelClient = (ingress?: Ingress) =>
   Layer.succeed(
     HttpClient.HttpClient,
     HttpClient.make((request) =>
@@ -109,7 +111,7 @@ const tunnelClient = (ingress?: ReadonlyArray<{ hostname?: string; service: stri
 
 const withService = <A, E>(
   effect: Effect.Effect<A, E, ColleagueShares.ColleagueSharesFork>,
-  tunnel?: ReadonlyArray<{ hostname?: string; service: string }>,
+  tunnel?: Ingress,
 ) =>
   Effect.andThen(
     ensureForkSchema(),
@@ -327,10 +329,7 @@ database("ColleagueSharesFork", (it) => {
 
   it.effect("bases the link on the local tunnel, then the sharing client's public origin", () =>
     Effect.gen(function* () {
-      const link = (
-        linkBaseUrl: string,
-        tunnel?: ReadonlyArray<{ hostname?: string; service: string }>,
-      ) =>
+      const link = (linkBaseUrl: string, tunnel?: Ingress) =>
         withService(
           Effect.gen(function* () {
             const service = yield* ColleagueShares.ColleagueSharesFork;
@@ -345,7 +344,9 @@ database("ColleagueSharesFork", (it) => {
         );
       assert.deepStrictEqual(
         yield* link("http://127.0.0.1:3773", [
+          { hostname: "api.example.com", path: "^/api", service: "http://localhost:3773" },
           { hostname: "other.example.com", service: "http://localhost:4000" },
+          { hostname: "other.example.com", service: "http://localhost:3773" },
           { hostname: "t3.example.com", service: "http://localhost:3773" },
           { service: "http_status:503" },
         ]),
@@ -355,7 +356,9 @@ database("ColleagueSharesFork", (it) => {
         origin: "https://app.example.com",
         localOnly: false,
       });
-      assert.isTrue((yield* link("http://localhost:9999")).localOnly);
+      for (const local of ["http://localhost:9999", "http://[fd00::1]:3773", "http://box.local"]) {
+        assert.isTrue((yield* link(local)).localOnly, local);
+      }
       assert.isTrue(
         (yield* link("http://localhost:9999", [
           { hostname: "*.example.com", service: "http://localhost:3773" },

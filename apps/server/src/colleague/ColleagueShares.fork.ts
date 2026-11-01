@@ -26,6 +26,7 @@ import {
   RpcScopeAuthorization,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { isPrivateNetworkHost } from "@t3tools/shared/hostClassification";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -46,7 +47,6 @@ import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.t
 import {
   buildPairingUrl,
   isLoopbackHost,
-  isPrivateNetworkAddress,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
@@ -330,7 +330,7 @@ const make = Effect.gen(function* () {
         privateNetworkOnly: config.privateNetworkOnly,
       });
     const { hostname } = new URL(base);
-    return { base, localOnly: isLoopbackHost(hostname) || isPrivateNetworkAddress(hostname) };
+    return { base, localOnly: isPrivateNetworkHost(hostname) };
   });
 
   const readShares = sql<ShareRow>`

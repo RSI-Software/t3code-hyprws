@@ -18,6 +18,7 @@ const TunnelConfigBody = Schema.Struct({
         Schema.Array(
           Schema.Struct({
             hostname: Schema.optional(Schema.String),
+            path: Schema.optional(Schema.String),
             service: Schema.optional(Schema.String),
           }),
         ),
@@ -34,16 +35,25 @@ const servesPort = (service: string | undefined, port: number) => {
   return isLoopbackHost(url.hostname) && servicePort === port;
 };
 
-/** The https origin of the first exact ingress hostname that routes to this server's port. */
+/**
+ * The https origin of an exact hostname whose whole-host route reaches this server's port.
+ * cloudflared takes the first matching rule, so a hostname counts only by its first pathless rule.
+ */
 const tunnelOriginForPort = (config: TunnelConfig, port: number): string | undefined => {
-  const rule = config.config.ingress?.find(
-    (entry) =>
-      entry.hostname !== undefined &&
-      entry.hostname !== "" &&
-      !entry.hostname.includes("*") &&
-      servesPort(entry.service, port),
-  );
-  return rule?.hostname === undefined ? undefined : `https://${rule.hostname}`;
+  const seen = new Set<string>();
+  const wildcardSuffixes: string[] = [];
+  for (const { hostname, path, service } of config.config.ingress ?? []) {
+    if (hostname === undefined || hostname === "") continue;
+    if (path !== undefined && path !== "") continue;
+    if (hostname.startsWith("*.")) wildcardSuffixes.push(hostname.slice(1));
+    if (hostname.includes("*")) continue;
+    if (seen.has(hostname) || wildcardSuffixes.some((suffix) => hostname.endsWith(suffix))) {
+      continue;
+    }
+    seen.add(hostname);
+    if (servesPort(service, port)) return `https://${hostname}`;
+  }
+  return undefined;
 };
 
 /** Asks each local cloudflared which public hostname routes to `port`. */
