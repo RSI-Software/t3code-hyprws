@@ -35,7 +35,7 @@ import {
   resolveRange,
   withFixupOwnerTrailers,
 } from "./fork-git-reader.ts";
-import { SystemGit, type GitReader } from "./lib/fork-git-reader.ts";
+import { readUpstreamBackports, SystemGit, type GitReader } from "./lib/fork-git-reader.ts";
 
 export const LEDGER_PATH = "docs/fork/internals/fork-delta.md";
 
@@ -522,6 +522,7 @@ export const readScan = (
   const filesBySha: ReadonlyMap<string, ReadonlyArray<string>> = shas.length === 0
     ? new Map()
     : parseCommitFiles(git.run(commitFilesArguments(shas)));
+  const backports = readUpstreamBackports(git, LIVE_SCAN_TARGET, range.head, options.since);
   return buildScanResult({
     ...range,
     commits,
@@ -529,11 +530,11 @@ export const readScan = (
     scans: parseRebaseScans(ledger),
     forkChanged: new Set(readChangedPaths(git, range.base, range.head)),
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
-    guard: buildGuardInput(git, options, range, commits, filesBySha),
-    // Base + since, never live upstream: files and migrations read against
-    // the pinned base, tests diff head against the since tree so only new
-    // loss fires, with upstream-target filtering so removing a fork-added
-    // line is free.
+    guard: buildGuardInput(git, options, range, commits, filesBySha, backports),
+    // Files and migrations read against the pinned base; tests diff head
+    // against the since tree so only new loss fires, with upstream-target
+    // filtering so removing a fork-added line is free. Live upstream only
+    // names exact backports, whose removals are upstream's own.
     additive:
       additiveRunner === undefined
         ? []
@@ -541,7 +542,7 @@ export const readScan = (
             additiveRunner,
             additiveRunner.worktree,
             { base: range.base, since: options.since },
-            { head: range.head },
+            { head: range.head, backports },
           ),
     ...readSupersedesAssessment(git, range),
   });
