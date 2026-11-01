@@ -525,7 +525,7 @@ it("only treats a replaced export as upstream when its source line exists in the
   );
 });
 
-it("does not count removing a duplicate fork-appended test line as upstream loss", () => {
+it("does not count a fork duplicate or an exact upstream backport as upstream loss", () => {
   const raw = [
     "abc1234",
     "--- a/apps/web/src/thing.test.ts",
@@ -554,6 +554,14 @@ it("does not count removing a duplicate fork-appended test line as upstream loss
     baseInput({ ...common, headTestTexts: new Map([["apps/web/src/thing.test.ts", ""]]) }),
   );
   assert.isTrue(scanFailures(genuineLoss).some((failure) => failure.startsWith("upstream-test:")));
+  const backport = buildScanResult(
+    baseInput({
+      ...common,
+      headTestTexts: new Map([["apps/web/src/thing.test.ts", ""]]),
+      backports: new Set(["abc1234"]),
+    }),
+  );
+  assert.isFalse(scanFailures(backport).some((failure) => failure.startsWith("upstream-test:")));
 });
 
 it("flags an unmarked insertion through the hook guard", () => {
