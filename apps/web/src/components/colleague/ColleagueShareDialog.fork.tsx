@@ -51,7 +51,7 @@ const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRunt
   idleTtlMs: 0,
 });
 
-// The server keeps a public origin the host reached it on as the link base; it ignores loopback.
+// The server prefers its tunnel's public hostname, then a public origin the host reached it on.
 const linkBase = (threadRef: ScopedThreadRef) => {
   const linkBaseUrl = readPreparedConnection(threadRef.environmentId)?.httpBaseUrl;
   return linkBaseUrl === undefined ? {} : { linkBaseUrl };
@@ -75,7 +75,8 @@ type ShareState =
   | {
       readonly status: "created";
       readonly name: string;
-      readonly appLink: string;
+      readonly pairingUrl: string;
+      readonly localOnly: boolean;
       readonly knownColleague: boolean;
     }
   | { readonly status: "failed"; readonly message: string };
@@ -186,18 +187,23 @@ function ColleagueShareDialog({
                   <Input
                     readOnly
                     aria-label="Colleague link"
-                    value={state.appLink}
+                    value={state.pairingUrl}
                     onFocus={(event) => event.currentTarget.select()}
                   />
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => copyToClipboard(state.appLink)}
+                    onClick={() => copyToClipboard(state.pairingUrl)}
                   >
                     {isCopied ? <CheckIcon /> : <CopyIcon />}
                     {isCopied ? "Copied" : "Copy"}
                   </Button>
                 </div>
+                {state.localOnly ? (
+                  <p role="status" className="text-warning text-xs">
+                    No public address found, so this link works only on your network.
+                  </p>
+                ) : null}
               </>
             ) : (
               <>

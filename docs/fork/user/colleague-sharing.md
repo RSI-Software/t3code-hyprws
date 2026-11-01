@@ -10,8 +10,10 @@ Their messages run on your machine, with your agents, marked with their name.
 3. Type their name, then **Share**
 4. Send them the link
 
-The link opens their desktop app, asks them to open your shared thread, and adds it to their sidebar.
-It expires after 24 hours.
+The link is a normal `https` page, so any chat makes it clickable.
+It offers **Open in desktop app** or **Continue in this browser**.
+Either opens your shared thread; the app also adds it to their sidebar.
+The link expires after 24 hours.
 
 ## Share more threads
 
@@ -36,6 +38,11 @@ To cut access completely, revoke their session in **Settings → Connections**.
 
 ## Reachability
 
-Your colleague's app must reach your server, for example over Tailscale or your own domain.
-The link uses the address you opened T3 Code from, when it is not `localhost`.
-Set `T3CODE_COLLEAGUE_PUBLIC_URL` to override it, such as `https://t3.example.com`.
+Your colleague must reach your server from their network.
+The link address comes from, in order:
+
+1. Your local Cloudflare Tunnel hostname
+2. Your T3 Code address, when not local
+3. A local network address
+
+A local network address works only on your network; the dialog warns when the link uses one.
