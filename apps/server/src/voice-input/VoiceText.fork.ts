@@ -4,7 +4,7 @@ import {
   type VoiceTextConfigureFork,
   type VoiceTextTransformFork,
   type VoiceTextContextFork,
-  VOICE_TEXT_STARTER_PROMPTS_FORK,
+  voiceTextPromptFork,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -19,7 +19,11 @@ import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { expandVoiceTextTemplateFork, voiceRecentMessagesFork } from "./voiceTextPrompts.fork.ts";
+import {
+  expandVoiceTextTemplateFork,
+  normalizeVoiceTextConfigFork,
+  voiceRecentMessagesFork,
+} from "./voiceTextPrompts.fork.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { voiceTextGeneratorFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork";
 
@@ -76,11 +80,20 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const writes = yield* Semaphore.make(1);
+  const normalize = (settings: VoiceTextSettingsFork): VoiceTextSettingsFork => ({
+    defaults: normalizeVoiceTextConfigFork(settings.defaults),
+    projects: Object.fromEntries(
+      Object.entries(settings.projects).map(([id, config]) => [
+        id,
+        normalizeVoiceTextConfigFork(config),
+      ]),
+    ),
+  });
   const save = (settings: VoiceTextSettingsFork) =>
-    encode(settings).pipe(
+    encode(normalize(settings)).pipe(
       Effect.flatMap((json) => secrets.set(SECRET_NAME, new TextEncoder().encode(json))),
       Effect.mapError((cause) => new VoiceTextError({ reason: "settings", cause })),
-      Effect.as(settings),
+      Effect.as(normalize(settings)),
     );
   const read = Effect.gen(function* () {
     const stored = yield* secrets
@@ -88,6 +101,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError((cause) => new VoiceTextError({ reason: "settings", cause })));
     if (Option.isSome(stored))
       return yield* decode(new TextDecoder().decode(stored.value)).pipe(
+        Effect.map(normalize),
         Effect.mapError((cause) => new VoiceTextError({ reason: "settings", cause })),
       );
     const settings = yield* serverSettings.getSettings.pipe(
@@ -102,7 +116,6 @@ const make = Effect.gen(function* () {
         recentMessageCount: 0,
         projectContext: "",
         terms: "",
-        ...VOICE_TEXT_STARTER_PROMPTS_FORK,
       },
       projects: {},
     });
@@ -210,7 +223,10 @@ const make = Effect.gen(function* () {
         config,
         cwd,
         expandVoiceTextTemplateFork(
-          input.operation === "cleanup" ? config.cleanupPrompt : config.formattingPrompt,
+          voiceTextPromptFork(
+            config,
+            input.operation === "cleanup" ? "cleanupPrompt" : "formattingPrompt",
+          ),
           {
             text: input.text,
             project_context: config.projectContext,
@@ -238,7 +254,7 @@ const make = Effect.gen(function* () {
       return yield* generate(
         config,
         root,
-        expandVoiceTextTemplateFork(config.contextPrompt, {
+        expandVoiceTextTemplateFork(voiceTextPromptFork(config, "contextPrompt"), {
           project_sources: [`Project: ${project.title}`, ...sources].filter(Boolean).join("\n\n"),
         }),
       );
