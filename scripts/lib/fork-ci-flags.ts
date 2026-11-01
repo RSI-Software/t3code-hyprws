@@ -78,6 +78,8 @@ export const forkScanArguments = (flags: ForkCiFlags): ReadonlyArray<string> => 
   flags.since,
   ...(flags.replayOf === null ? [] : ["--replay-of", flags.replayOf]),
   "--no-typecheck",
+  // Only a sync candidate moves the upstream base, so only it owes the workflow copies a review.
+  ...(flags.rebased ? ["--mirror-pins"] : []),
 ];
 
 /** The GitHub Actions `base=`, `since=`, and `rebased=` lines the stale-delete and fixup fold steps read, for `>> "$GITHUB_OUTPUT"`. */
