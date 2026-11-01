@@ -35,10 +35,11 @@ const servesPort = (service: string | undefined, port: number) => {
   return isLoopbackHost(url.hostname) && servicePort === port;
 };
 
-// A rule hostname is exact or `*.suffix`; an empty one is the catch-all.
+// A rule hostname is exact or `*.suffix`; an empty one or a bare `*` matches every host.
 const ruleMatches = (ruleHostname: string | undefined, hostname: string) =>
   ruleHostname === undefined ||
   ruleHostname === "" ||
+  ruleHostname === "*" ||
   ruleHostname === hostname ||
   (ruleHostname.startsWith("*.") && hostname.endsWith(ruleHostname.slice(1)));
 

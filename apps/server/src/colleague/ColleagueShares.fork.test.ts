@@ -366,6 +366,12 @@ database("ColleagueSharesFork", (it) => {
           { hostname: "*.example.com", service: "http://localhost:3773" },
         ])).localOnly,
       );
+      assert.isTrue(
+        (yield* link("http://localhost:9999", [
+          { hostname: "*", path: "^/pair", service: "http://localhost:4000" },
+          { hostname: "t3.example.com", service: "http://localhost:3773" },
+        ])).localOnly,
+      );
     }),
   );
 });
