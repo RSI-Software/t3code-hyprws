@@ -5,7 +5,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { assert, it } from "@effect/vitest";
+import { assert, it, vi } from "@effect/vitest";
 
 import { run, type ForkCiStep } from "./fork-ci.ts";
 
@@ -120,19 +120,28 @@ it("runs delta, stale-delete, fixup fold, merge-tree, scan, knip, check, typeche
   }
 });
 
-it("fails a misformatted file through vp check, reformatting nothing", () => {
-  // A failing read-only check fails the battery but stops nothing: every
-  // other step still runs. The exact check argv below is what proves the
-  // Scope close condition: no --fix and no extra argument, so no file is
-  // reformatted.
-  const { root } = untaggedFixture();
+it("names every red step and the --only rerun, reformatting nothing", () => {
+  // Red steps stop nothing: every other step still runs. The exact check argv
+  // proves the Scope close condition: no --fix, so no file is reformatted.
+  const { root, head } = untaggedFixture();
   try {
     const calls: Array<ReadonlyArray<string>> = [];
     const step: ForkCiStep = (command, args) => {
       calls.push([command, ...args]);
-      return command === "vp" && args.length === 1 && args[0] === "check" ? 1 : 0;
+      return args[0] === "check" || args[1] === "typecheck" ? 1 : 0;
     };
+    const stderr: Array<string> = [];
+    using _stderr = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
     assert.strictEqual(run([], root, step), 1);
+    const summary = stderr.join("");
+    assert.include(
+      summary,
+      `fork:ci: red on ${head.slice(0, 7)}: check, typecheck; green: delta, stale-delete, fixup-fold, merge-tree, scan, knip, scripts\n`,
+    );
+    assert.include(summary, "vp run fork:ci --only check,typecheck\n");
     const [delta, staleDelete, fixupFold, mergeTree, scan, knip, check, typecheck, suite] = calls;
     assert.strictEqual(calls.length, 9);
     assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
