@@ -9,6 +9,7 @@ import { assert, it } from "@effect/vitest";
 
 import { checkAdditive } from "./fork-additive-gate.ts";
 import { SystemCommandRunner } from "./fork-command.ts";
+import { readUpstreamBackports, SystemGit } from "./fork-git-reader.ts";
 
 const fixture = (): {
   root: string;
@@ -115,6 +116,37 @@ it("flags a removed upstream test line even when declarations hold", () => {
   const findings = checkAdditive(runner, root, { base, since: base });
   assert.isTrue(
     findings.some((finding) => finding.check === "tests" && /gone/.test(finding.detail)),
+  );
+});
+
+it("excuses the removals of an exact upstream backport, and only those", () => {
+  const { root, run, write, commit } = fixture();
+  const sha = () =>
+    NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root }).toString().trim();
+  const path = "apps/web/src/thing.test.ts";
+  write(path, 'it("first", () => {\n  expect(keep).toBe(1);\n});\n');
+  commit("upstream: base");
+  const base = sha();
+  write(path, 'it("first", () => {\n  expect(keep).toBe(2);\n});\n');
+  commit("upstream: fix assertion");
+  const fix = sha();
+  run("branch", "tip");
+  run("reset", "--hard", base);
+  write("apps/web/src/fork.ts", "export const fork = 1;\n");
+  commit("fork: own work");
+  run("cherry-pick", fix);
+  const git = new SystemGit(root);
+  const backports = readUpstreamBackports(git, "tip", "HEAD", base);
+  assert.equal(backports.size, 1);
+  assert.deepStrictEqual(checkAdditive(runner, root, { base, since: base }, { backports }), []);
+  const since = sha();
+  write(path, 'it("renamed", () => {\n  expect(keep).toBe(2);\n});\n');
+  commit("fork: rename upstream case");
+  assert.equal(readUpstreamBackports(git, "tip", "HEAD", since).size, 0);
+  assert.isTrue(
+    checkAdditive(runner, root, { base, since }, { backports: [] }).some(
+      (finding) => finding.check === "tests" && /gone/.test(finding.detail),
+    ),
   );
 });
 
