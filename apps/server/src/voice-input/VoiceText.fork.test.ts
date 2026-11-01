@@ -5,7 +5,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
   TextGenerationError,
-  VOICE_TEXT_STARTER_PROMPTS_FORK,
+  VOICE_TEXT_DEFAULT_PROMPTS_FORK,
   type VoiceTextConfigFork,
   type ModelSelection,
 } from "@t3tools/contracts";
@@ -24,7 +24,11 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork";
 import * as VoiceText from "./VoiceText.fork.ts";
-import { expandVoiceTextTemplateFork, voiceRecentMessagesFork } from "./voiceTextPrompts.fork.ts";
+import {
+  expandVoiceTextTemplateFork,
+  RETIRED_VOICE_TEXT_PROMPTS_FORK,
+  voiceRecentMessagesFork,
+} from "./voiceTextPrompts.fork.ts";
 
 const projectId = ProjectId.make("dictation-project");
 const modelSelection = {
@@ -39,7 +43,7 @@ const config: VoiceTextConfigFork = {
   recentMessageCount: 0,
   projectContext: "React, Zustand, Hyprland",
   terms: "",
-  ...VOICE_TEXT_STARTER_PROMPTS_FORK,
+  ...VOICE_TEXT_DEFAULT_PROMPTS_FORK,
 };
 
 function harness() {
@@ -146,6 +150,10 @@ function harness() {
     run,
     calls,
     reads,
+    storedJson: () => new TextDecoder().decode(stored.get("fork-voice-text")),
+    seed: (settings: unknown) => {
+      stored.set("fork-voice-text", new TextEncoder().encode(JSON.stringify(settings)));
+    },
     setServerModel: (model: ModelSelection) => {
       serverModel = model;
     },
@@ -167,6 +175,35 @@ describe("dictation text generation", () => {
       const later = yield* h.run((s) => s.settings);
       expect(later.defaults.modelSelection).toEqual(initial.defaults.modelSelection);
       expect(later.defaults.recentMessageCount).toBe(0);
+    }),
+  );
+  it.effect("stores only custom prompts, migrating saved copies of built-in ones", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      h.seed({
+        defaults: {
+          ...config,
+          cleanupPrompt: RETIRED_VOICE_TEXT_PROMPTS_FORK.cleanupPrompt,
+          formattingPrompt: "Format {{text}}",
+        },
+        projects: {},
+      });
+      const saved = yield* h.run((s) => s.settings);
+      expect(saved.defaults).not.toHaveProperty("cleanupPrompt");
+      expect(saved.defaults).not.toHaveProperty("contextPrompt");
+      expect(saved.defaults.formattingPrompt).toBe("Format {{text}}");
+      yield* h.run((s) => s.transform({ projectId, operation: "cleanup", text: "draft" }));
+      expect(h.calls[0]?.prompt).toContain("<dictation>\ndraft\n</dictation>");
+      yield* h.run((s) =>
+        s.configure({
+          config: {
+            ...saved.defaults,
+            cleanupPrompt: VOICE_TEXT_DEFAULT_PROMPTS_FORK.cleanupPrompt,
+          },
+        }),
+      );
+      expect(h.storedJson()).not.toContain("cleanupPrompt");
+      expect(h.storedJson()).toContain("Format {{text}}");
     }),
   );
   it.effect("uses the project's edited prompt, context, and independently selected model", () =>

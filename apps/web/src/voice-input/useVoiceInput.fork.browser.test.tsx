@@ -6,7 +6,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  VOICE_TEXT_STARTER_PROMPTS_FORK,
+  VOICE_TEXT_DEFAULT_PROMPTS_FORK,
 } from "@t3tools/contracts";
 import { act, render, type Screen } from "../../test/render";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -39,7 +39,7 @@ vi.mock(import("./useVoiceSettings.fork"), async (original) => ({
         formattingMinWords: 2,
         recentMessageCount: 0,
         projectContext: "",
-        ...VOICE_TEXT_STARTER_PROMPTS_FORK,
+        ...VOICE_TEXT_DEFAULT_PROMPTS_FORK,
       },
     },
   })) as never,
