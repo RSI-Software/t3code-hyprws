@@ -101,6 +101,9 @@ export interface AuthoringGuardInput {
   // survives when the fork only removes its own appended copy.
   readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
   readonly siblingTexts: ReadonlyMap<string, string>;
+  // Commit shas live upstream already carries patch-for-patch: an exact backport removes only what
+  // upstream removed, so its test-line removals are not fork loss.
+  readonly backports?: ReadonlySet<string> | undefined;
 }
 
 const PATCH_RECORD_SEPARATOR = "\x1e";
@@ -381,7 +384,9 @@ export const collectAuthoringWarnings = (
     // removal plus addition the block count misses, so refuse on the removed side. Lines of each case
     // the sibling declares superseded are stripped first, but the declaration alone buys nothing: the
     // sibling must carry a replacement case.
-    for (const [path, lines] of [...patch.removedTestLines].toSorted(([left], [right]) =>
+    const removedTestLines =
+      input.backports?.has(commit.sha) === true ? [] : patch.removedTestLines;
+    for (const [path, lines] of [...removedTestLines].toSorted(([left], [right]) =>
       left.localeCompare(right),
     )) {
       if (!input.upstreamTestFiles.has(path)) continue;
