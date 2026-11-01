@@ -1,7 +1,3 @@
-// Fork seam: reads may cross symlinks whose targets leave the workspace root only when the
-// `followExternalWorkspaceSymlinks` server setting is on. The settings service is looked up
-// optionally so `WorkspaceFileSystem.layer` gains no requirement; `server.ts` provides it through
-// one marked hook. Without it, or on a settings error, the containment guard stays closed.
 import { type ProjectWriteFileInput, projectFileRevision } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -11,39 +7,9 @@ import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
-import * as ServerSettings from "../serverSettings.ts";
 // Cycle-safe: only read when a write runs, after both modules load.
 import * as WorkspaceFileSystem from "./WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
-
-const blocked = Effect.succeed(false);
-
-export interface ExternalSymlinksFork {
-  /**
-   * Whether the read may proceed through a symlink whose resolved target sits
-   * outside the workspace root. `resolvesOutsideWorkspace` is upstream's own
-   * escape computation over the realpath.
-   */
-  readonly follows: (resolvesOutsideWorkspace: boolean) => Effect.Effect<boolean>;
-}
-
-/** @public Fork seam construction, part of the canonical fork module API. */
-export const makeExternalSymlinksFork = (): ExternalSymlinksFork => ({
-  follows: (resolvesOutsideWorkspace) =>
-    resolvesOutsideWorkspace
-      ? Effect.serviceOption(ServerSettings.ServerSettingsService).pipe(
-          Effect.flatMap((maybeSettings) => {
-            if (maybeSettings._tag !== "Some") return blocked;
-            return maybeSettings.value.getSettings.pipe(
-              Effect.map((settings) => settings.followExternalWorkspaceSymlinks),
-              Effect.catchTags({
-                ServerSettingsError: (error) => Effect.logWarning(error).pipe(Effect.as(false)),
-              }),
-            );
-          }),
-        )
-      : blocked,
-});
 
 // Stale-write guard (RSI-Software/t3code-hyprws#1761): a save that names the
 // disk version its draft started from is refused once the disk moved on, so an
