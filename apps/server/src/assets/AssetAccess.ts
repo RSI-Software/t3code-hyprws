@@ -57,6 +57,7 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import { externalSymlinksAllowed } from "../workspace/ExternalSymlinks.fork.ts"; // fork-hook: upstream-fixes/asset-external-symlinks-follow
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import { extractIcnsPng } from "./icns.ts";
@@ -303,7 +304,9 @@ const resolveCanonicalWorkspaceFile = Effect.fn("AssetAccess.resolveCanonicalWor
 
     const path = yield* Path.Path;
     const relative = path.relative(canonicalRoot.value, canonicalFile.value);
-    if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return null;
+    if (relative === "") return null; // fork-hook: upstream-fixes/asset-external-symlinks-follow
+    const escapes = relative.startsWith("..") || path.isAbsolute(relative); // fork-hook: upstream-fixes/asset-external-symlinks-follow
+    if (escapes && !(yield* externalSymlinksAllowed)) return null; // fork-hook: upstream-fixes/asset-external-symlinks-follow
 
     const info = yield* ProjectFaviconResolver.optionOnNotFound(
       fileSystem.stat(canonicalFile.value),
