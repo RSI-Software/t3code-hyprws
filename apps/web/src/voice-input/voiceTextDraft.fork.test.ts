@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderInstanceId,
-  VOICE_TEXT_STARTER_PROMPTS_FORK,
+  VOICE_TEXT_DEFAULT_PROMPTS_FORK,
   type VoiceTextConfigFork,
 } from "@t3tools/contracts";
 import {
@@ -24,7 +24,7 @@ const config: VoiceTextConfigFork = {
   recentMessageCount: 0,
   projectContext: "",
   terms: "",
-  ...VOICE_TEXT_STARTER_PROMPTS_FORK,
+  ...VOICE_TEXT_DEFAULT_PROMPTS_FORK,
 };
 describe("dictation draft transformations", () => {
   it("cleans a selection without changing the surrounding draft", () => {
