@@ -4,6 +4,8 @@ name: hyprws Agent Context Budget
 # the fork's upstream mirror. This one compares against the PR's base branch, so
 # a stack layer is judged against the layer below it. Fails when a PR raises a
 # value in agentContextBudget.json; the agent-context-increase label accepts it.
+# The pin names the upstream commit this copy last matched; fork:scan flags a sync past it.
+# fork-mirror: .github/workflows/agent-context-budget.yml@ae521d1d796c4e21abb49e44d27c23332d1898b9
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -53,5 +55,5 @@ jobs:
             echo "Accepted by the agent-context-increase label."
             exit 0
           fi
-          echo "::error file=$BUDGET::Agent context grew compared to $BASE_REF. Cut the added text, or ask a maintainer to add the agent-context-increase label."
+          echo "::error file=$BUDGET::Agent context grew compared to $BASE_REF. Cut the added text and rerun the evals that cover it (evals/README.md), or ask a maintainer to add the agent-context-increase label."
           exit 1
