@@ -3,8 +3,9 @@ name: hyprws CI
 # Fork-only CI for RSI-Software/t3code-hyprws. Upstream's ci.yml targets
 # Blacksmith runners the fork does not have, so it stays disabled on the fork
 # (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
-# free for a public repository. Mirror upstream ci.yml step changes here on
-# every rebase (docs/fork/internals/fork-delta.md, distribution).
+# free for a public repository. The pin names the upstream ci.yml commit these steps
+# last matched; fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
+# fork-mirror: .github/workflows/ci.yml@5d14c0e9686d8bedf47dd93dd3811fd639255c7e
 
 on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
