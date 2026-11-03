@@ -58,6 +58,8 @@ export interface ScanOptions {
   // regardless of either.
   readonly since: string | null;
   readonly replayOf: string | null;
+  // Set for a sync tip only: a stale pin is the sync's to adapt, never an unrelated PR's.
+  readonly mirrorPins?: boolean;
 }
 
 export interface ScanRange {
@@ -107,6 +109,7 @@ export interface ScanResult {
   // reads as superseded rather than contradictory; the additive gate consumes that reading.
   readonly supersedes: ReadonlyArray<string>;
   readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
+  readonly mirrors: ReadonlyArray<string>;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
@@ -123,6 +126,7 @@ Options:
   --replay-of <ref>
                   Guard only commits whose added lines differ from the same-subject commit on this ref.
   --no-typecheck  Skip the rehearsed-head typechecks
+  --mirror-pins   Fail a workflow copy whose upstream file changed between its pin and the target
   -h, --help      Show help
 
 Output is read-only; exit 0 passes, 1 fails, 2 is usage.
@@ -142,6 +146,7 @@ const defaultOptions = (): ScanOptions => ({
   typecheck: true,
   since: null,
   replayOf: null,
+  mirrorPins: false,
 });
 
 export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
@@ -152,10 +157,11 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
-    if (argument === "--no-typecheck") {
+    if (argument === "--no-typecheck" || argument === "--mirror-pins") {
       if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
       seen.add(argument);
-      options.typecheck = false;
+      if (argument === "--mirror-pins") options.mirrorPins = true;
+      else options.typecheck = false;
       continue;
     }
     if (!valueFlags.has(argument)) throw new UsageError(`unknown option: ${argument}`);
@@ -263,6 +269,7 @@ export interface ScanInput extends ScanRange {
   // declaration refusals plus undeclared-contradiction findings.
   readonly supersedes?: ReadonlyArray<string>;
   readonly retireCandidates?: ReadonlyArray<SituatedDeclaration>;
+  readonly mirrors?: ReadonlyArray<string>;
 }
 
 export const buildScanResult = (input: ScanInput): ScanResult => {
@@ -318,6 +325,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     additive: input.additive ?? [],
     supersedes: input.supersedes ?? [],
     retireCandidates: input.retireCandidates ?? [],
+    mirrors: input.mirrors ?? [],
     hookDetails:
       input.guard === undefined
         ? []
@@ -351,6 +359,7 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
     (finding) => `additive:${finding.check}: ${finding.path}: ${finding.detail}`,
   ),
   ...result.supersedes.map((refusal) => `supersedes: ${refusal}`),
+  ...result.mirrors.map((finding) => `mirror: ${finding}`),
   ...result.warnings.map(
     (warning) => `${warning.rule}: ${warning.commit} ${warning.domain}: ${warning.detail}`,
   ),
@@ -416,6 +425,10 @@ export const renderScanReport = (result: ScanResult): string => {
   if (result.supersedes.length > 0) {
     lines.push("", `Supersedes, ${result.supersedes.length} finding(s):`);
     for (const refusal of result.supersedes) lines.push(`  SUPERSEDES  ${refusal}`);
+  }
+  if (result.mirrors.length > 0) {
+    lines.push("", `Workflow mirrors, ${result.mirrors.length} finding(s):`);
+    for (const finding of result.mirrors) lines.push(`  MIRROR  ${finding}`);
   }
   if (result.retireCandidates.length > 0) {
     lines.push("", `Retire candidates, ${result.retireCandidates.length}:`);
@@ -508,6 +521,41 @@ export const findForkOwnedTypecheckGaps = (
   return [...gaps.values()].toSorted((left, right) => left.path.localeCompare(right.path));
 };
 
+// Fork copies of disabled upstream workflows. Each header pins the upstream file and the commit it
+// last matched, so a sync sees every upstream change since.
+export const MIRROR_COPIES = [
+  ".github/workflows/hyprws-ci.yml",
+  ".github/workflows/hyprws-release.yml",
+  ".github/workflows/hyprws-agent-context-budget.yml",
+] as const;
+
+const MIRROR_PIN = /^# fork-mirror: (?<path>\S+)@(?<sha>[0-9a-f]{40})$/m;
+
+export const readMirrorDrift = (
+  git: Pick<GitReader, "run">,
+  head: string,
+  target: string,
+): ReadonlyArray<string> => {
+  const targetSha = git.run(["rev-parse", `${target}^{commit}`]).trim();
+  return MIRROR_COPIES.flatMap((copy) => {
+    const pin = MIRROR_PIN.exec(git.run(["show", `${head}:${copy}`]))?.groups;
+    if (pin?.path === undefined || pin.sha === undefined) {
+      return [`${copy}: no \`# fork-mirror: <upstream path>@<full sha>\` header pin`];
+    }
+    const commits = git
+      .run(["log", "--format=%h %s", `${pin.sha}..${targetSha}`, "--", pin.path])
+      .split("\n")
+      .filter((line) => line.length > 0);
+    if (commits.length === 0) return [];
+    return [
+      [
+        `${copy}: upstream ${pin.path} changed in ${commits.length} commit(s) since pin ${pin.sha.slice(0, 12)}; adapt the copy or record no change, then pin ${targetSha}`,
+        ...commits.map((line) => `  ${line}`),
+      ].join("\n"),
+    ];
+  });
+};
+
 export const readScan = (
   git: GitReader,
   options: ScanOptions,
@@ -545,6 +593,7 @@ export const readScan = (
             { head: range.head, backports },
           ),
     ...readSupersedesAssessment(git, range),
+    mirrors: options.mirrorPins ? readMirrorDrift(git, range.head, range.target) : [],
   });
 };
 
