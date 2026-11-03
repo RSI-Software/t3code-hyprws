@@ -192,6 +192,7 @@ it("skips stale-delete on a sync candidate and scans from its base", () => {
         "--replay-of",
         "origin/hyprws",
         "--no-typecheck",
+        "--mirror-pins",
       ],
     ]);
   } finally {
