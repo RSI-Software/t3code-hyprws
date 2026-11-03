@@ -126,6 +126,9 @@ Adaptation the candidate needs (build or test fixes, ports) commits at the tip o
   - One commit may carry many trailers
 - **Merge-tree:** path conflicts with upstream
   - Move the hook lines off its changed lines
+- **Mirror:** upstream changed a workflow copy's file
+  - Adapt it, or note why not: [copies][copies]
+  - That commit moves its pin to the target
 - **Local checks:** each rerun runs `fork:ci`
   - It names every red step
   - Recheck: `vp run fork:ci --only <steps>`
@@ -136,6 +139,7 @@ Run `vp test run` inside the package.
 Fix every red step, recheck them, then rerun once so the marker covers the tip work.
 
 [reshape]: ../../../docs/fork/operations/fork-sync.md#reshape
+[copies]: ../../../docs/fork/operations/fork-sync.md#workflow-copies
 
 ## Replay fresh
 
