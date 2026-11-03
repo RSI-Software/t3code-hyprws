@@ -6,6 +6,8 @@ import {
   findForkOwnedTypecheckGaps,
   LEDGER_PATH,
   matchesScanPattern,
+  MIRROR_COPIES,
+  readMirrorDrift,
   parseArgs,
   parseRebaseScans,
   renderScanReport,
@@ -286,6 +288,7 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
     typecheck: true,
     since: null,
     replayOf: null,
+    mirrorPins: false,
   });
   assert.deepStrictEqual(
     parseArgs([
@@ -298,6 +301,7 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       "--replay-of",
       "origin/hyprws",
       "--no-typecheck",
+      "--mirror-pins",
     ]),
     {
       base: null,
@@ -306,6 +310,7 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       typecheck: false,
       since: "origin/hyprws",
       replayOf: "origin/hyprws",
+      mirrorPins: true,
     },
   );
   assert.throws(() => parseArgs(["--nope"]), UsageError);
@@ -313,4 +318,35 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
   assert.throws(() => parseArgs(["--target"]), UsageError);
   assert.throws(() => parseArgs(["--no-typecheck", "--no-typecheck"]), UsageError);
   assert.throws(() => parseArgs(["--since"]), UsageError);
+});
+
+it("fails a workflow copy whose upstream file moved past its pin, or that has no pin", () => {
+  const [ci, release, budget] = MIRROR_COPIES;
+  const pinned = (path: string, sha: string) => `name: copy\n# fork-mirror: ${path}@${sha}\n`;
+  const current = "c".repeat(40);
+  const stale = "5".repeat(40);
+  const target = "7".repeat(40);
+  const copies = new Map<string, string>([
+    [ci, pinned(".github/workflows/ci.yml", current)],
+    [release, pinned(".github/workflows/release.yml", stale)],
+    [budget, "name: copy\n# Mirror upstream agent-context-budget.yml on every rebase.\n"],
+  ]);
+  const git = {
+    run: (args: ReadonlyArray<string>) => {
+      if (args[0] === "rev-parse") return `${target}\n`;
+      if (args[0] === "show") return copies.get(String(args[1]).replace("HEAD:", "")) ?? "";
+      if (args[0] === "log" && args[2] === `${stale}..${target}`)
+        return "e6ca170 fix(release): publish prereleases after assets\n0a1b2c3 ci: bump action\n";
+      if (args[0] === "log") return "";
+      throw new Error(`unexpected git call: ${args.join(" ")}`);
+    },
+  };
+  const mirrors = readMirrorDrift(git, "HEAD", "v0.1.7");
+  assert.deepStrictEqual(
+    scanFailures(buildScanResult(scanInput({ upstreamChanged: new Set(), mirrors }))),
+    [
+      `mirror: ${release}: upstream .github/workflows/release.yml changed in 2 commit(s) since pin ${stale.slice(0, 12)}; adapt the copy or record no change, then pin ${target}\n  e6ca170 fix(release): publish prereleases after assets\n  0a1b2c3 ci: bump action`,
+      `mirror: ${budget}: no \`# fork-mirror: <upstream path>@<full sha>\` header pin`,
+    ],
+  );
 });

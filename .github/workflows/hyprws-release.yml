@@ -7,9 +7,11 @@ name: hyprws Release
 # finds a completed run instead of racing it). Scheduled fallbacks and
 # nightly manual dispatches publish v<next>-hyprws-nightly.<date>.<run> from
 # hyprws.
-# Upstream release.yml stays disabled on the fork; mirror its build shape, setup,
-# and action versions here on every rebase (docs/fork/internals/fork-delta.md).
+# Upstream release.yml stays disabled on the fork; this copy keeps its build shape,
+# setup, and action versions. The pin names the upstream commit it last matched;
+# fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
 # Its release test jobs stay out: the gate requires a green hyprws CI instead.
+# fork-mirror: .github/workflows/release.yml@ae521d1d796c4e21abb49e44d27c23332d1898b9
 
 on:
   workflow_run:
@@ -451,6 +453,7 @@ jobs:
           generate_release_notes: true
           previous_tag: ${{ needs.preflight.outputs.previous_tag }}
           prerelease: ${{ needs.preflight.outputs.is_prerelease }}
+          draft: ${{ needs.preflight.outputs.is_prerelease }}
           make_latest: ${{ needs.preflight.outputs.make_latest }}
           files: |
             release-assets/*.AppImage
@@ -459,6 +462,17 @@ jobs:
             release-assets/SHA256SUMS
           fail_on_unmatched_files: true
           token: ${{ github.token }}
+
+      # The action keeps a stable release a draft until its assets finish uploading, but publishes a
+      # prerelease first. Desktop clients update connected servers from the CLI archives as soon as
+      # they see the release, so a prerelease also goes public only once every asset is attached.
+      - name: Publish prerelease
+        if: needs.preflight.outputs.is_prerelease == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false
 
       - name: Prune old nightlies
         if: needs.preflight.outputs.release_channel == 'nightly'

@@ -88,6 +88,11 @@ it("passes the whole CI shape to fork:scan, replay-of included only when it reso
     `${HEAD}^`,
     "--no-typecheck",
   ]);
+  assert.include(
+    forkScanArguments(deriveForkCiFlags(fakeGit({ trunkBelowBase: true }), HEAD)),
+    "--mirror-pins",
+  );
+  assert.notInclude(forkScanArguments(flags), "--mirror-pins");
 });
 
 it("renders the base and since outputs the workflow consumes", () => {
