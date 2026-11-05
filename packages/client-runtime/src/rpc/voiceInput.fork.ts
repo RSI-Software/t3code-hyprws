@@ -92,7 +92,8 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
   if (response.status < 200 || response.status >= 300) {
     const error = yield* decodeVoiceTextError(response.json).pipe(
       Effect.orElseSucceed(
-        () => new RemoteEnvironmentAuthUndeclaredStatusError(requestUrl, response.status),
+        () =>
+          new RemoteEnvironmentAuthUndeclaredStatusError({ requestUrl, status: response.status }),
       ),
     );
     return yield* Effect.fail(error);

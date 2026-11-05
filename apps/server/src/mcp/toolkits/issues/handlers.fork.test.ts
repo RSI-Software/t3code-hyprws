@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -24,7 +24,7 @@ import * as GitHubIssueService from "../../../githubIssue/GitHubIssueService.ts"
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
-import { toolkitRegistration } from "../../McpHttpServer.ts";
+import { layerInProcessMcpServer, toolkitRegistration } from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as McpToolAccessTestkit from "../../McpToolAccess.testkit.ts";
@@ -35,10 +35,7 @@ const PROJECT_ID = ProjectId.make("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
 const OTHER_THREAD_ID = ThreadId.make("thread-2");
 
-const testCrypto = Crypto.make({
-  randomBytes: (size) => new Uint8Array(size).fill(7),
-  digest: (_algorithm, data) => Effect.succeed(data),
-});
+const testCrypto = SecureRandom.make((size) => new Uint8Array(size).fill(7));
 
 const invocation: McpInvocationContext.McpInvocationScope = {
   environmentId: EnvironmentId.make("environment-1"),
@@ -178,7 +175,7 @@ function harnessDependencies(
     Layer.mock(GitHubIssueService.GitHubIssueService)({
       isPullRequest: options.isPullRequest ?? (() => Effect.succeed(false)),
     }),
-    Layer.succeed(Crypto.Crypto, testCrypto),
+    Layer.succeed(SecureRandom.SecureRandom, testCrypto),
     McpToolAccessTestkit.liveThreadsLayer,
   );
 }
@@ -233,7 +230,7 @@ describe("issue toolkit handlers", () => {
     }).pipe(
       Effect.provide(
         toolkitRegistration(IssuesToolkitFork, IssuesToolkitHandlersLiveFork).pipe(
-          Layer.provideMerge(McpServer.McpServer.layer),
+          Layer.provideMerge(layerInProcessMcpServer),
           Layer.provide(
             Layer.mergeAll(
               harnessDependencies({}, () => Effect.die("unused")),

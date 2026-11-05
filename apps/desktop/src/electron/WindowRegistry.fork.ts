@@ -1,5 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -58,8 +58,8 @@ function captureWindow(entry: RegisteredWindow): CapturedWindow {
  * Mints one `WindowId`. A main process that cannot random is broken beyond
  * window creation, so a crypto failure dies.
  */
-const makeWindowId: Effect.Effect<WindowId> = Crypto.Crypto.pipe(
-  Effect.flatMap((crypto) => crypto.randomUUIDv4()),
+const makeWindowId: Effect.Effect<WindowId> = SecureRandom.SecureRandom.pipe(
+  Effect.flatMap((crypto) => crypto.uuidV4()),
   Effect.map((uuid) => uuid as WindowId),
   Effect.provide(NodeCrypto.layer),
   Effect.orDie,

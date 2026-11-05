@@ -6,7 +6,8 @@ import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -311,7 +312,8 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
   const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   const ledger = yield* makeExternalMcpRequestLedger;
 
@@ -509,7 +511,7 @@ const make = Effect.gen(function* () {
 
   const requests = makeExternalMcpRequests({
     threadManagement,
-    newCommandId: crypto.randomUUIDv4().pipe(
+    newCommandId: crypto.uuidV4().pipe(
       Effect.map((uuid) => CommandId.make(`mcp:${uuid}`)),
       Effect.orDie,
     ),
@@ -544,7 +546,7 @@ const make = Effect.gen(function* () {
           sessionId: principal.sessionId,
           operation: "settle",
           clientRequestId: input.clientRequestId,
-          fingerprint: yield* requestFingerprint(crypto, [
+          fingerprint: yield* requestFingerprint(digest, [
             ["threadId", input.threadId],
             ["settled", input.settled],
           ]),
@@ -743,7 +745,7 @@ const make = Effect.gen(function* () {
 
     createThread: Effect.fn("ExternalMcpService.createThread")(function* (principal, input) {
       yield* requireCoordinate(principal);
-      const fingerprint = yield* requestFingerprint(crypto, [
+      const fingerprint = yield* requestFingerprint(digest, [
         ["projectId", input.projectId],
         ["title", input.title],
         ["prompt", input.prompt],
@@ -853,7 +855,7 @@ const make = Effect.gen(function* () {
     sendToThread: Effect.fn("ExternalMcpService.sendToThread")(function* (principal, input) {
       yield* requireCoordinate(principal);
       const mode = input.mode ?? "auto";
-      const fingerprint = yield* requestFingerprint(crypto, [
+      const fingerprint = yield* requestFingerprint(digest, [
         ["threadId", input.threadId],
         ["message", input.message],
         ["mode", mode],
@@ -952,7 +954,7 @@ const make = Effect.gen(function* () {
 
     interruptThread: Effect.fn("ExternalMcpService.interruptThread")(function* (principal, input) {
       yield* requireCoordinate(principal);
-      const fingerprint = yield* requestFingerprint(crypto, [
+      const fingerprint = yield* requestFingerprint(digest, [
         ["threadId", input.threadId],
         ["runId", input.runId],
         ["reason", input.reason],

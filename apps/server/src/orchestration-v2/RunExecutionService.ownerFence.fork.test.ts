@@ -23,6 +23,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2RunAttempt,
 } from "@t3tools/contracts";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -57,7 +58,13 @@ const stores = Layer.mergeAll(EventStore.layer, ProjectionStore.layer).pipe(
 );
 const persistence = Layer.mergeAll(
   stores,
-  EventSink.layer.pipe(Layer.provide(stores)),
+  // These gates interleave subscribers at individual writes, not the shared batch worker.
+  EventSink.layer.pipe(
+    Layer.provide(stores),
+    Layer.provide(
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ T3CODE_PROVIDER_COMMIT_BATCHING: false })),
+    ),
+  ),
   IdAllocator.layer,
 );
 const driver = ProviderDriverKind.make("codex");
@@ -352,8 +359,7 @@ function fixture(gate: "snapshot" | "cascade" | "nested" | "model") {
           IdAllocator.layer,
           ThreadCommandExecutor.layer,
           Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-            // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
-            getInstance: () => Effect.succeed(undefined),
+            getInstance: () => Effect.undefined,
           }),
           Layer.mock(GitVcsDriver.GitVcsDriver)({
             resolveBranchName: () => Effect.succeed(null),

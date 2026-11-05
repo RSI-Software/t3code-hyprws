@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { HttpClient, HttpClientResponse } from "effect/http";
@@ -14,6 +15,7 @@ import { repointLaunchersFork } from "./launcherRepoint.fork.ts";
 import * as ServerSelfUpdate from "./selfUpdate.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 // A home with an installed old runtime, and an install.sh-style `bin/t3`
 // symlink pointing at it.
@@ -114,69 +116,74 @@ const makeSelfUpdate = Effect.fn("test.make_launcher_self_update")(function* (
   );
 });
 
-it.layer(NodeServices.layer)("launcher repoint on a client update", (it) => {
-  it.effect("repoints the owned launcher once the service launcher accepts the update", () =>
-    Effect.gen(function* () {
-      const home = yield* makeHome();
-      yield* home.fs.symlink(home.target("1.0.0"), home.launcher);
-      const selfUpdate = yield* makeSelfUpdate(home, "ready");
-      yield* selfUpdate
-        .update({ targetVersion: "1.1.0" })
-        .pipe(Effect.provideService(HostProcess.Environment, { PATH: home.binDir }));
-      expect(yield* home.fs.readLink(home.launcher)).toBe(home.target("1.1.0"));
-    }),
-  );
+it.layer(Layer.mergeAll(NodeServices.layer, ManagedPolicy.layerTest()))(
+  "launcher repoint on a client update",
+  (it) => {
+    it.effect("repoints the owned launcher once the service launcher accepts the update", () =>
+      Effect.gen(function* () {
+        const home = yield* makeHome();
+        yield* home.fs.symlink(home.target("1.0.0"), home.launcher);
+        const selfUpdate = yield* makeSelfUpdate(home, "ready");
+        yield* selfUpdate
+          .update({ targetVersion: "1.1.0" })
+          .pipe(Effect.provideService(HostProcess.Environment, { PATH: home.binDir }));
+        expect(yield* home.fs.readLink(home.launcher)).toBe(home.target("1.1.0"));
+      }),
+    );
 
-  it.effect("leaves the launcher when the staged preflight refuses the update", () =>
-    Effect.gen(function* () {
-      const home = yield* makeHome();
-      yield* home.fs.symlink(home.target("1.0.0"), home.launcher);
-      const selfUpdate = yield* makeSelfUpdate(home, "blocked");
-      yield* selfUpdate
-        .update({ targetVersion: "1.1.0" })
-        .pipe(Effect.provideService(HostProcess.Environment, { PATH: home.binDir }), Effect.flip);
-      expect(yield* home.fs.readLink(home.launcher)).toBe(home.target("1.0.0"));
-    }),
-  );
+    it.effect("leaves the launcher when the staged preflight refuses the update", () =>
+      Effect.gen(function* () {
+        const home = yield* makeHome();
+        yield* home.fs.symlink(home.target("1.0.0"), home.launcher);
+        const selfUpdate = yield* makeSelfUpdate(home, "blocked");
+        yield* selfUpdate
+          .update({ targetVersion: "1.1.0" })
+          .pipe(Effect.provideService(HostProcess.Environment, { PATH: home.binDir }), Effect.flip);
+        expect(yield* home.fs.readLink(home.launcher)).toBe(home.target("1.0.0"));
+      }),
+    );
 
-  it.effect("finds the install default bin dir when the service PATH omits it", () =>
-    Effect.gen(function* () {
-      const home = yield* makeHome();
-      const defaultBin = home.path.join(home.root, ".local", "bin");
-      yield* home.fs.makeDirectory(defaultBin, { recursive: true });
-      yield* home.fs.symlink(home.target("1.0.0"), home.path.join(defaultBin, "t3"));
-      expect(yield* repoint(home, { HOME: home.root, PATH: "/nonexistent" })).toEqual([
-        home.path.join(defaultBin, "t3"),
-      ]);
-      expect(yield* home.fs.readLink(home.path.join(defaultBin, "t3"))).toBe(home.target("1.1.0"));
-    }),
-  );
+    it.effect("finds the install default bin dir when the service PATH omits it", () =>
+      Effect.gen(function* () {
+        const home = yield* makeHome();
+        const defaultBin = home.path.join(home.root, ".local", "bin");
+        yield* home.fs.makeDirectory(defaultBin, { recursive: true });
+        yield* home.fs.symlink(home.target("1.0.0"), home.path.join(defaultBin, "t3"));
+        expect(yield* repoint(home, { HOME: home.root, PATH: "/nonexistent" })).toEqual([
+          home.path.join(defaultBin, "t3"),
+        ]);
+        expect(yield* home.fs.readLink(home.path.join(defaultBin, "t3"))).toBe(
+          home.target("1.1.0"),
+        );
+      }),
+    );
 
-  it.effect("leaves a launcher for another home and a plain copy alone", () =>
-    Effect.gen(function* () {
-      const home = yield* makeHome();
-      const foreignTarget = home.path.join(
-        home.root,
-        "other",
-        "runtime",
-        "versions",
-        "1.0.0",
-        "t3",
-      );
-      yield* home.fs.symlink(foreignTarget, home.launcher);
-      const copyDir = home.path.join(home.root, "copy");
-      yield* home.fs.makeDirectory(copyDir);
-      yield* home.fs.writeFileString(home.path.join(copyDir, "t3"), "#!/bin/sh\n");
-      expect(yield* repoint(home, { PATH: `${home.binDir}:${copyDir}` })).toEqual([]);
-      expect(yield* home.fs.readLink(home.launcher)).toBe(foreignTarget);
-      expect(yield* home.fs.readFileString(home.path.join(copyDir, "t3"))).toBe("#!/bin/sh\n");
-    }),
-  );
+    it.effect("leaves a launcher for another home and a plain copy alone", () =>
+      Effect.gen(function* () {
+        const home = yield* makeHome();
+        const foreignTarget = home.path.join(
+          home.root,
+          "other",
+          "runtime",
+          "versions",
+          "1.0.0",
+          "t3",
+        );
+        yield* home.fs.symlink(foreignTarget, home.launcher);
+        const copyDir = home.path.join(home.root, "copy");
+        yield* home.fs.makeDirectory(copyDir);
+        yield* home.fs.writeFileString(home.path.join(copyDir, "t3"), "#!/bin/sh\n");
+        expect(yield* repoint(home, { PATH: `${home.binDir}:${copyDir}` })).toEqual([]);
+        expect(yield* home.fs.readLink(home.launcher)).toBe(foreignTarget);
+        expect(yield* home.fs.readFileString(home.path.join(copyDir, "t3"))).toBe("#!/bin/sh\n");
+      }),
+    );
 
-  it.effect("does nothing when no launcher is installed", () =>
-    Effect.gen(function* () {
-      const home = yield* makeHome();
-      expect(yield* repoint(home, { PATH: home.binDir })).toEqual([]);
-    }),
-  );
-});
+    it.effect("does nothing when no launcher is installed", () =>
+      Effect.gen(function* () {
+        const home = yield* makeHome();
+        expect(yield* repoint(home, { PATH: home.binDir })).toEqual([]);
+      }),
+    );
+  },
+);

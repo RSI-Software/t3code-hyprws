@@ -4,6 +4,7 @@
 import * as NodeCrypto from "node:crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCryptoLayer from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import {
   computeDpopAccessTokenHash,
@@ -31,6 +32,7 @@ import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
+import * as ManagedPolicy from "../../policy/ManagedPolicy.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
@@ -65,6 +67,7 @@ const makeKey = (issuedAtSeconds: number) => {
 
 const dependencies = Layer.mergeAll(
   EnvironmentAuth.layer.pipe(
+    Layer.provideMerge(ManagedPolicy.layerTest()),
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provideMerge(ServerSecretStore.layer),
     Layer.provideMerge(ServerEnvironment.layerIdentity),
@@ -79,7 +82,10 @@ const dependencies = Layer.mergeAll(
   ServerSettings.layerTest(),
 ).pipe(
   Layer.provideMerge(
-    HttpPlatform.layer.pipe(Layer.provideMerge(NodeServices.layer), Layer.provide(Etag.layerWeak)),
+    HttpPlatform.layer.pipe(
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer)),
+      Layer.provide(Etag.layerWeak),
+    ),
   ),
 );
 
@@ -187,5 +193,5 @@ it.live("admits a live granted session only with a fresh proof from its own key"
     expect(yield* initialize(auth(client.token, client.key.proof(client.token)))).toEqual(refused);
     // Revoking one session leaves another untouched.
     expect((yield* initialize(auth(other.token, other.key.proof(other.token)))).status).toBe(200);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer))),
 );
