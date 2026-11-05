@@ -1,7 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { describe, expect, it } from "@effect/vitest";
-import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "./instanceEnvironment.fork.ts";
+import {
+  mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment,
+  stripForkHostEnvironment,
+} from "./instanceEnvironment.fork.ts";
 describe("mergeProviderInstanceEnvironment", () => {
   it.effect("expands configured homes using upstream's injected host home", () =>
     Effect.gen(function* () {
@@ -148,4 +151,14 @@ describe("mergeProviderInstanceEnvironment", () => {
       ).toEqual({ CLAUDE_CONFIG_DIR: "/operator/.claude", PATH: "/bin" });
     }),
   );
+  it("strips another harness identity and tmux in place, keeping the own harness", () => {
+    const environment: NodeJS.ProcessEnv = {
+      CLAUDE_CONFIG_DIR: "/claude",
+      CODEX_THREAD_ID: "thread",
+      TMUX: "/tmp/tmux-1000/default,123,0",
+      PATH: "/bin",
+    };
+    stripForkHostEnvironment(environment, "claudeAgent");
+    expect(environment).toEqual({ CLAUDE_CONFIG_DIR: "/claude", PATH: "/bin" });
+  });
 });

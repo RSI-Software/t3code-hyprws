@@ -15,3 +15,12 @@ export function mergeForkProviderInstanceEnvironment(
     stripForeignHarnessIdentityEnv(stripInheritedTmuxEnv(baseEnv), ownDriverKind),
   );
 }
+
+/** Strips inherited tmux and foreign harness identity variables in place, for a base env still being built. */
+export function stripForkHostEnvironment(
+  environment: NodeJS.ProcessEnv,
+  ownDriverKind?: string,
+): void {
+  const kept = stripForeignHarnessIdentityEnv(stripInheritedTmuxEnv(environment), ownDriverKind);
+  for (const name of Object.keys(environment)) if (!(name in kept)) delete environment[name];
+}
