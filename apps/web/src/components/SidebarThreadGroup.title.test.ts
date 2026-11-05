@@ -18,10 +18,10 @@ import {
 const timeout = (): TitleResult =>
   AsyncResult.failure(
     Cause.fail(
-      new RemoteEnvironmentAuthTimeoutError(
-        "https://environment.example.test/api/orchestration/thread-group-title",
-        THREAD_GROUP_TITLE_CLIENT_TIMEOUT_MS_FORK,
-      ),
+      new RemoteEnvironmentAuthTimeoutError({
+        requestUrl: "https://environment.example.test/api/orchestration/thread-group-title",
+        timeoutMs: THREAD_GROUP_TITLE_CLIENT_TIMEOUT_MS_FORK,
+      }),
     ),
   );
 

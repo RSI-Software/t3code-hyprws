@@ -1,4 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EnvironmentId,
@@ -143,8 +144,9 @@ describe("fork preview IPC ownership", () => {
       const managerLayer = previewManagerFixtureLayer(
         BrowserSession.layer.pipe(
           Layer.provide(
-            Layer.merge(
+            Layer.mergeAll(
               NodeServices.layer,
+              NodeCrypto.layer,
               Layer.succeed(ElectronDialog.ElectronDialog, {
                 pickFolder: () => Effect.die("unused"),
                 pickFiles: () => Effect.die("unused"),

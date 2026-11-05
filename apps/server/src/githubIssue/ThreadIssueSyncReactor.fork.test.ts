@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -35,10 +35,7 @@ type SyncCommand = Extract<
   { readonly type: "thread.issue-link.sync" }
 >;
 
-const testCrypto = Crypto.make({
-  randomBytes: (size) => new Uint8Array(size).fill(1),
-  digest: (_algorithm, data) => Effect.succeed(data),
-});
+const testCrypto = SecureRandom.make((size) => new Uint8Array(size).fill(1));
 
 function makeLink(number: number, syncedAt: string | null = null): ThreadIssueLink {
   return {
@@ -93,7 +90,7 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
       streamDomainEvents: Stream.fromQueue(events),
     }),
     Layer.succeed(ServerActivation, Deferred.await(activation)),
-    Layer.succeed(Crypto.Crypto, testCrypto),
+    Layer.succeed(SecureRandom.SecureRandom, testCrypto),
   );
 
   const context = yield* Layer.build(

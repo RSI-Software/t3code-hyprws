@@ -30,6 +30,8 @@ const group: SidebarProjectSnapshot = {
   allRemoteMembersAreDesktopLocal: false,
   allRemoteMembersAreWsl: false,
   remoteEnvironmentLabels: ["Server"],
+  pinned: false,
+  archived: false,
 };
 // A stale `...Fork` sibling must not survive a new exact mode.
 const withStaleFork = {

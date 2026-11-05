@@ -2,6 +2,7 @@
 // opened in the recovered checkout. The decider, effect worker, and turn-start gate run for real;
 // the provider fixes its cwd at session open, as Claude, ACP and Pi do.
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -200,7 +201,7 @@ const checkoutServices = (projectRoot: string) =>
     } as unknown as ProjectStore.ProjectStoreV2["Service"]),
     // No branch is recorded, so recovery never recreates the worktree.
     Layer.mock(GitWorkflow.GitWorkflowService)({}),
-  ).pipe(Layer.provideMerge(NodeServices.layer));
+  ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 const threadManagementFromOrchestrator = Layer.unwrap(
   Effect.gen(function* () {
@@ -593,7 +594,7 @@ it.live.each(recoveries)(
             ),
           ),
         );
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
 );
 
@@ -686,6 +687,6 @@ it.live("commits a recovery retried after the project root went idle", () =>
           }),
         ),
       );
-    }).pipe(Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   ),
 );
