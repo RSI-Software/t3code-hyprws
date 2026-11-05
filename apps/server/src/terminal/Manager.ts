@@ -372,6 +372,7 @@ interface ZmuxLaunchResolution {
 
 interface PreparedManagedRetarget {
   readonly process: PtyAdapter.PtyProcess;
+  readonly shell: string; // fork-hook: zmux-estate/retarget-shell
   readonly shellLabel: string;
   readonly candidate: ShellCandidate;
   readonly target: string;
@@ -2891,7 +2892,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     cols = session.cols,
     rows = session.rows,
   ): Effect.fn.Return<
-    { process: PtyAdapter.PtyProcess; shellLabel: string; candidate: ShellCandidate },
+    { process: PtyAdapter.PtyProcess; shell: string; shellLabel: string },
     PtyAdapter.PtySpawnError
   > {
     if (index >= shellCandidates.length) {
@@ -2936,7 +2937,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         process: attempt.success,
         shell: candidate.shell,
         shellLabel: formatShellCandidate(candidate),
-        candidate,
       };
     }
 
@@ -3428,18 +3428,18 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               preparedRetarget ?? (yield* trySpawn(shellCandidates, spawnEnv, session));
             ptyProcess = spawnResult.process;
             startedShell = spawnResult.shellLabel;
-            if (managedTarget && spawnResult.candidate === zmuxCandidate) {
+            if (managedTarget && zmuxCandidate && spawnResult.shell === zmuxCandidate.shell) {
               session.managedSessionTarget = managedTarget;
               session.managedSessionIdentity = {
                 target: managedTarget,
-                candidate: spawnResult.candidate,
+                candidate: zmuxCandidate,
               };
             } else if (managedTarget) {
               yield* appendSessionNotice(
                 session,
                 `zmux: attach failed for ${managedTarget} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
               );
-            }
+            } // fork-hook: zmux-estate/managed-spawn-identity
 
             const processPid = ptyProcess.pid;
             let eventsActivated = false;
