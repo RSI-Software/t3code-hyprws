@@ -10,26 +10,25 @@ import {
   getComposerProviderState,
   renderProviderAgentMenuContent,
   renderProviderAgentPicker,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { DraftId } from "../../composerDraftStore";
-import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+import { agentBlockHiddenFork } from "./composerProviderState.fork";
+import { getTraitsSectionVisibility } from "./TraitsPicker";
 
-it.each([false, true])(
-  "keeps the agent reachable when all composer blocks overflow (traits: %s)",
-  (hasTraits) => {
-    const ownership = resolveComposerControlsOwnership({
-      matchesDefault: true,
-      hasTraits,
-      planModeUiEnabled: false,
-      collapsed: true,
-      measuredHiddenBlockCount: 3,
-      leadingBlocksFork: ["agent"],
-    });
-    expect(ownership.hiddenBlockIds).toContain("agent");
-    expect(ownership.hiddenBlockCount).toBe(ownership.hiddenBlockIds.length);
-    expect(ownership.overflowShowsPermissions).toBe(true);
+it.each([
+  { measured: 1, upstream: 1, upstreamHidden: 1, hidden: false },
+  { measured: 2, upstream: 1, upstreamHidden: 1, hidden: true },
+  { measured: 2, upstream: 0, upstreamHidden: 0, hidden: false },
+])(
+  "overflows the agent only after every upstream block (%o)",
+  ({ measured, upstream, upstreamHidden, hidden }) => {
+    expect(
+      agentBlockHiddenFork({
+        measuredHiddenBlockCount: measured,
+        upstreamBlockCount: upstream,
+        upstreamHiddenBlockCount: upstreamHidden,
+      }),
+    ).toBe(hidden);
   },
 );
 import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
@@ -141,8 +140,7 @@ describe("provider traits render guards", () => {
     };
     expect(renderProviderAgentPicker(args)).not.toBeNull();
     expect(renderProviderAgentMenuContent(args)).not.toBeNull();
-    expect(renderProviderTraitsPicker(args)).toBeNull();
-    expect(renderProviderTraitsMenuContent(args)).toBeNull();
+    expect(getTraitsSectionVisibility(args).hasAnyControls).toBe(false);
   });
 
   // A dropped selection shows every agent as Default and rebuilds the other
