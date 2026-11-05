@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import {
   AuthSessionId,
@@ -82,20 +83,32 @@ const PingToolkit = Toolkit.make(
 );
 
 /** The upstream `/mcp` server beside it, so a leaked registration would show there. */
-const providerMcp = toolkitRegistration(
-  PingToolkit,
-  McpToolAccess.toLayer(PingToolkit, {
-    ping: McpToolAccess.reads(() => Effect.succeed("pong")),
-    write_ping: McpToolAccess.writesWithCapability(() => Effect.succeed("pong")),
-  }),
-).pipe(
-  Layer.provideMerge(
-    McpServer.layerHttp({
-      name: "provider",
-      version: "0",
-      path: "/mcp",
-      protocols: [McpProtocol.v2025_06_18],
+const providerScope: McpInvocationContext.McpInvocationScope = {
+  environmentId: EnvironmentId.make("external-mcp-server"),
+  capabilities: new Set(),
+  issuedAt: 0,
+  requestNamespace: "provider",
+  thread: undefined,
+  client: undefined,
+};
+
+const providerMcp = McpServer.layerHttp({
+  name: "provider",
+  version: "0",
+  path: "/mcp",
+  protocols: [McpProtocol.v2025_06_18],
+  registrations: toolkitRegistration(
+    PingToolkit,
+    McpToolAccess.toLayer(PingToolkit, {
+      ping: McpToolAccess.reads(() => Effect.succeed("pong")),
+      write_ping: McpToolAccess.writesWithCapability(() => Effect.succeed("pong")),
     }),
+  ),
+}).pipe(
+  Layer.provide(
+    HttpRouter.middleware<{ provides: McpInvocationContext.McpInvocationContext }>()((httpEffect) =>
+      Effect.provideService(httpEffect, McpInvocationContext.McpInvocationContext, providerScope),
+    ).layer,
   ),
 );
 
@@ -114,7 +127,10 @@ const dependencies = Layer.mergeAll(
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
   ServerSettings.layerTest(),
-  HttpPlatform.layer.pipe(Layer.provideMerge(NodeServices.layer), Layer.provide(Etag.layerWeak)),
+  HttpPlatform.layer.pipe(
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    Layer.provide(Etag.layerWeak),
+  ),
   SqlitePersistence.layerMemory,
   Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
     getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-server")),
