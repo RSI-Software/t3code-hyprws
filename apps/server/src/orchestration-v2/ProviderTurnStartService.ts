@@ -1645,10 +1645,7 @@ export const layer: Layer.Layer<
             ...(noteContinuation ? promptedInput : turnInput),
             message: {
               ...turnInput.message,
-              text:
-                forkAwareContextFork === "" || goalCommand
-                  ? userText
-                  : `${forkAwareContextFork}\n\nUser message:\n${userText}`, // fork-hook: upstream-fixes/conversation-fork-context-text
+              text: goalCommand ? userText : withInlineContext(forkAwareContextFork, userText), // fork-hook: upstream-fixes/conversation-fork-context-text
             },
           }).pipe(
             // Clear pending handoff markers for refused prompts so the next turn retains the native session.
