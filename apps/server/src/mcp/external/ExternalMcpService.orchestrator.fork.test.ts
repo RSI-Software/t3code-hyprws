@@ -2,6 +2,7 @@
 // thread the owner has since changed, and never reports a later run as its own,
 // even when the attempt it retries committed and then lost its result.
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
@@ -372,7 +373,7 @@ const harness = <A, E>(
             }),
           ),
         ),
-      ).pipe(Layer.provide(NodeServices.layer));
+      ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
       return yield* Effect.gen(function* () {
         const service = yield* ExternalMcpService.ExternalMcpServiceFork;
         const orchestrator = yield* Orchestrator.OrchestratorV2;

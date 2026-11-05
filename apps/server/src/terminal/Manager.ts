@@ -47,7 +47,7 @@ import { mergePathEntries } from "@t3tools/shared/shell";
 import { acpRegistryManagedBinaryDirectories } from "@t3tools/provider-acp-registry/server";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as NodeCryptoLayerFork from "@effect/platform-node/NodeCrypto"; // fork-hook: zmux-estate/retarget-ready-token
-import * as Crypto from "effect/Crypto"; // fork-hook: zmux-estate/retarget-ready-token
+import * as SecureRandom from "effect/crypto/SecureRandom"; // fork-hook: zmux-estate/retarget-ready-token
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Context from "effect/Context";
@@ -510,6 +510,7 @@ interface RetainedManagedSessionIdentity {
   readonly updatedAt: string;
   readonly eventSequence: number;
   readonly sessionModeFork: TerminalSessionMode | null; // fork-hook: zmux-estate/session-mode-retained
+  readonly stopOnSettle: boolean; // fork-hook: zmux-estate/retained-stop-on-settle
 }
 
 interface TerminalManagerState {
@@ -2072,7 +2073,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       encodedHistoryThreadPart(threadId),
       `${Base64Url.encode(terminalId)}.${Base64Url.encode(attachmentId)}`,
     );
-    if (encodedName.length <= MAX_FILE_NAME_BYTES) return path.join(logsDir, encodedName);
+    if (encodedName.length <= MAX_HISTORY_FILENAME_BYTES) return path.join(logsDir, encodedName);
     const hashedTerminalPart = `${hashId(terminalId)}.${hashId(attachmentId)}`;
     return path.join(
       logsDir,
@@ -2667,6 +2668,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               updatedAt: session.updatedAt,
               eventSequence,
               sessionModeFork: session.sessionModeFork, // fork-hook: zmux-estate/session-mode-retained
+              stopOnSettle: session.stopOnSettle, // fork-hook: zmux-estate/retained-stop-on-settle
             });
           }
           events.push({
@@ -3010,7 +3012,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       });
     }
 
-    const nonce = yield* Crypto.Crypto.pipe(
+    const nonce = yield* SecureRandom.SecureRandom.pipe(
       Effect.flatMap((crypto) => crypto.randomBytes(24)),
       Effect.map(Base64Url.encode),
       Effect.provide(NodeCryptoLayerFork.layer),
@@ -4183,6 +4185,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           status: "suspended",
           restarting: false, // fork-hook: zmux-estate/terminal-restarting-init
           pid: null,
+          shell: null,
           history,
           pendingHistoryControlSequence: "",
           pendingProcessEvents: [],
@@ -4211,6 +4214,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           managedSuspendFiber: null,
           runtimeEnv: current.runtimeEnv,
           sessionModeFork: current.sessionModeFork, // fork-hook: zmux-estate/session-mode-retained
+          stopOnSettle: current.stopOnSettle, // fork-hook: zmux-estate/retained-stop-on-settle
         };
         const sessions = new Map(state.sessions);
         sessions.set(key, session);
@@ -5067,7 +5071,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         const sessions = yield* sessionsForThread(input.threadId);
         yield* Effect.forEach(
           sessions.filter((session) => session.stopOnSettle),
-          (session) => closeSession(input.threadId, session.terminalId, false),
+          (session) =>
+            closeSession(input.threadId, session.terminalId, session.attachmentId, false), // fork-hook: zmux-estate/close-on-settle-attachment
           { discard: true },
         );
       }),

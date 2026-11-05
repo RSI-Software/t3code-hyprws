@@ -140,7 +140,9 @@ export const make = Effect.fn("HyprlandPlacement.make")(function* (options: {
         );
 
   const request = (payload: string) =>
-    Effect.tryPromise(() => send(options.environment, payload)).pipe(Effect.option);
+    Effect.promise(() =>
+      send(options.environment, payload).then(Option.some, () => Option.none<string>()),
+    );
 
   const readClients = request("j/clients").pipe(
     Effect.map((payload) => (Option.isSome(payload) ? parseHyprlandClients(payload.value) : [])),
