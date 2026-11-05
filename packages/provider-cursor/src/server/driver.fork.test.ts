@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { ProviderInstanceId } from "@t3tools/contracts";
@@ -15,7 +16,7 @@ import * as CursorKeychain from "./CursorKeychain.ts";
 import { CursorDriver } from "./driver.ts";
 
 const layer = TestProviderHost.layer({ runBackgroundWork: false }).pipe(
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   Layer.provideMerge(IdAllocator.layer),
   Layer.provideMerge(McpProviderSessions.layer),
   Layer.provideMerge(CursorSdk.layer),
@@ -43,19 +44,21 @@ const layer = TestProviderHost.layer({ runBackgroundWork: false }).pipe(
   ),
 );
 
+// The driver must ignore the real process environment, so the test clears the real key.
+const clearProcessCursorKey = () => {
+  const previous = process.env.CURSOR_API_KEY;
+  delete process.env.CURSOR_API_KEY;
+  return () => {
+    if (previous === undefined) delete process.env.CURSOR_API_KEY;
+    else process.env.CURSOR_API_KEY = previous;
+  };
+};
+
 it.layer(layer)("Cursor host environment", (it) => {
   it.effect("uses the injected host environment and lets an instance clear its inherited key", () =>
     Effect.gen(function* () {
-      const previous = process.env.CURSOR_API_KEY;
-      yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          delete process.env.CURSOR_API_KEY;
-        }),
-        () =>
-          Effect.sync(() => {
-            if (previous === undefined) delete process.env.CURSOR_API_KEY;
-            else process.env.CURSOR_API_KEY = previous;
-          }),
+      yield* Effect.acquireRelease(Effect.sync(clearProcessCursorKey), (restore) =>
+        Effect.sync(restore),
       );
       for (const clearKey of [false, true]) {
         const instance = yield* CursorDriver.create({

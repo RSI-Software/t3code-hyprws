@@ -17,7 +17,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
-import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import * as NodeWS from "@effect/platform-node/NodeWS";
 import * as Socket from "effect/socket/Socket";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
@@ -151,7 +151,7 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
           }),
           // `ws` stays on HTTP/1.1. Node 26's undici negotiates WebSocket over HTTP/2 with Meta, then
           // fails the valid RFC 8441 response for lacking Sec-WebSocket-Accept.
-        ).pipe(Effect.provide(NodeSocket.layerWebSocketConstructorWS), Effect.ignoreCause);
+        ).pipe(Effect.provide(NodeWS.layerWebSocketConstructor), Effect.ignoreCause);
         return HttpServerResponse.empty();
       }),
     ),
