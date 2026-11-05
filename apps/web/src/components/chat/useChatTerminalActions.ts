@@ -381,7 +381,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     storeCloseTerminal(target, terminalId);
     store.closeTerminal(target, surface.id, terminalId);
     focusActivePanelTerminal(target);
-
   };
   const closePanelTerminalStable = useStableCallback(closePanelTerminal);
   const requestCloseTerminal = (terminalId: string) => {
