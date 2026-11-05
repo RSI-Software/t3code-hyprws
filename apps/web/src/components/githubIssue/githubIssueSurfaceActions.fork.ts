@@ -34,3 +34,10 @@ export const githubIssueSurfaceActionsFork = (props: GitHubIssueSurfaceLauncherP
       onClick: props.onAddIssueLinks ?? (() => undefined),
     },
   ] as const;
+
+/** The same entries for the empty panel, whose disabled rows show the short hint. */
+export const githubIssueEmptyStateActionsFork = (props: GitHubIssueSurfaceLauncherPropsFork) =>
+  githubIssueSurfaceActionsFork(props).map((action) => ({
+    ...action,
+    disabledReason: action.unavailableHint,
+  }));
