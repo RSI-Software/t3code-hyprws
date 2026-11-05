@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { it } from "@effect/vitest";
 import {
   DEFAULT_TERMINAL_ID,
@@ -57,7 +58,10 @@ const managedReadyEvent = (
   };
 };
 it.layer(
-  Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
+  Layer.merge(
+    Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+    ProcessRunner.layer.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  ),
   { excludeTestServices: true },
 )("TerminalManager", (it) => {
   it.effect("delivers process exits only to the owning viewer and allows reattachment", () =>
