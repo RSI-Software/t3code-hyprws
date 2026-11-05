@@ -2444,6 +2444,18 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     attachmentId: string | null,
   ) {
     const nextPath = historyPath(threadId, terminalId, attachmentId);
+    if (attachmentId !== null) {
+      const readError = (cause: unknown) =>
+        new TerminalHistoryError({ operation: "read", threadId, terminalId, cause });
+      if (!(yield* historyExists(nextPath).pipe(Effect.mapError(readError)))) {
+        return new BoundedTerminalHistory(historyLineLimit, "", historyByteLimit);
+      }
+      const { history: raw } = yield* readHistoryTail(nextPath).pipe(
+        Effect.scoped,
+        Effect.mapError(readError),
+      );
+      return new BoundedTerminalHistory(historyLineLimit, raw, historyByteLimit);
+    } // fork-hook: zmux-estate/attachment-history-own-file
     for (const sourcePath of historyPaths(threadId, terminalId)) {
       const migrating = sourcePath !== nextPath;
       const operation = migrating ? "migrate" : "read";
@@ -2507,6 +2519,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     terminalId: string,
     attachmentId: string | null,
   ) {
+    if (attachmentId !== null) {
+      return yield* fileSystem
+        .remove(historyPath(threadId, terminalId, attachmentId), { force: true })
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to delete terminal history", { threadId, terminalId, error }),
+          ),
+        );
+    } // fork-hook: zmux-estate/legacy-history-default-attachment
     yield* Effect.forEach(
       historyPaths(threadId, terminalId),
       (filePath) =>
