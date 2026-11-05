@@ -477,6 +477,12 @@ it("ignores a marker for another tag, another tree, or a lease the trunk dropped
     session(f);
     const marker = readReport(f.root, "v1.0.0").marker!;
     handOff(f);
+    // a finished marker over a day old stops pinning its tag; the newest wins
+    const later = new Date("2100-01-01T00:00:00.000Z");
+    const stale = capture(() => run([], { runner: exec().runner, root: f.root, now: () => later }));
+    assert.strictEqual(stale.value, 0);
+    assert.include(stale.output, `marker ${marker.commit.slice(0, 7)} is over 24h old`);
+    assert.match(stale.output, /Run: .* v1\.0\.1-nightly\.20260901\.1@/);
     const offer = (commit: string): void => {
       f.git(
         ["push", "--quiet", "--force", "origin", `${commit}:refs/heads/sync/resolution`],
@@ -1764,6 +1770,12 @@ it("rewrites the one standing issue for a new target and supersedes older open o
   const body = edits[0]!.body;
   assert.include(body, "Open since 2026-09-21 across 2 targets;");
   assert.include(body, "- 2026-09-22 · `v1.1.0` · check\n- 2026-09-21 · `v1.0.0` · check");
+  // the same target and step on a later day still records the recurrence
+  const again = { ...next, startedAt: "2026-09-23T10:00:00.000Z" };
+  assert.include(
+    attentionIssueBody(again, body),
+    "- 2026-09-23 · `v1.1.0` · check\n- 2026-09-22 · `v1.1.0` · check",
+  );
   // the older open issue of the same kind closes as superseded; nothing new files
   const close = recording.calls.find(({ args }) => args[0] === "issue" && args[1] === "close");
   assert.strictEqual(close?.args[2], "7");
@@ -1776,7 +1788,11 @@ it("rewrites the one standing issue for a new target and supersedes older open o
 
 it("relabels an unchanged body once, only after the job budget has passed", () => {
   const report = blockedReport("5".repeat(40));
-  const publish = (stamp: string, labels: ReadonlyArray<string>) => {
+  const publish = (
+    stamp: string,
+    labels: ReadonlyArray<string>,
+    previous = attentionIssueBody(report),
+  ) => {
     const writes: Array<{ readonly args: ReadonlyArray<string>; readonly body: string }> = [];
     const recording = exec({
       gh: (args) => {
@@ -1792,7 +1808,7 @@ it("relabels an unchanged body once, only after the job budget has passed", () =
             {
               number: 11,
               title: report.blocked!.title,
-              body: `${attentionIssueBody(report)}\n${stamp}`,
+              body: `${previous}\n${stamp}`,
               labels: labels.map((name) => ({ name })),
             },
           ]),
@@ -1816,6 +1832,20 @@ it("relabels an unchanged body once, only after the job budget has passed", () =
     publish("<!-- agent-labelled:2026-09-21T07:00:00.000Z retried -->", ["ci"]),
     [],
   );
+  // a body that moved under the same key (a new candidate sha) rewrites without a label
+  const moved = attentionIssueBody(report).replace("A sync run", "An earlier sync run");
+  const retried = "<!-- agent-labelled:2026-09-21T07:00:00.000Z retried -->";
+  const [rewrite, ...more] = publish(retried, ["ci"], moved);
+  assert.deepStrictEqual(more, []);
+  assert.notInclude(rewrite!.args, "--add-label");
+  assert.include(rewrite!.body, retried);
+  // a halted agent gets no label; the body says a human must act, and drops it once unhalted
+  const [halted] = publish("", ["ci", "rsi:agent-halted"]);
+  assert.notInclude(halted!.args, "--add-label");
+  assert.include(halted!.body, "rsi-pr-agent is halted (`rsi:agent-halted`)");
+  const haltedBody = `${attentionIssueBody(report)}\n\nrsi-pr-agent is halted (\`rsi:agent-halted\`) and takes no \`rsi:fork-sync\`; a human must fix the sync or remove the label.`;
+  const [unhalted] = publish(retried, ["ci"], haltedBody);
+  assert.notInclude(unhalted!.body, "rsi:agent-halted");
 });
 
 it("makes no write when a stray gh-bot attest footer and machine title suffix decorate the render", () => {

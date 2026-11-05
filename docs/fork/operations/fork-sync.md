@@ -17,7 +17,7 @@ A session writes no trunk, candidate, or issue.
 `--land` refuses to run unless `GITHUB_ACTIONS=true`.
 
 It never merges upstream in, nor drops a commit; only a `fixup!` moves, beneath its owner.
-Without a named tag it targets a valid [marker](#resolution-marker)'s tag the trunk lacks, else the newest stable or nightly tag; `-preview.` tags are skipped on purpose.
+Without a named tag it targets a valid [marker](#resolution-marker)'s tag the trunk lacks while the marker is under 24 hours old, else the newest stable or nightly tag; `-preview.` tags are skipped on purpose.
 It folds each `fixup! <subject>` landing into the one fork commit it names, a squash landing's trailing ` (#N)` included, and refuses a fixup naming none or several.
 It rewords only an owner that absorbs a squash-landed fixup: the fixup's PR link joins its `Squashes:` list, rendered the way fork:fold renders one.
 The rebase refuses a rebased tip that dropped any PR link, except from a commit the target carries: patch-for-patch, or superseded with every path it touched identical to the target.
@@ -171,8 +171,9 @@ Its title names the step and target, so reruns never rename it; its body carries
 
 The newest open `ci` issue matching `hyprws sync blocked` or `hyprws sync failed` is adopted, including legacy issues.
 Older matches close with a one-line pointer to the kept issue; only no match files a new one.
-A blocked run, or one failed at `carry`, `hooks`, or `ci`, also adds `rsi:fork-sync` on create or rewrite, which starts rsi-pr-agent's `fork-sync` workflow; any other failure never does.
-An unchanged body relabels once, 75 minutes after its last label (the 45-minute job plus its push), so a job that failed or made no progress gets one retry; a second miss waits for a human.
+A blocked run, or one failed at `carry`, `hooks`, or `ci`, also adds `rsi:fork-sync` on create or on a new key line (`sync-failure` step and target, or `blocking-sha`), which starts rsi-pr-agent's `fork-sync` workflow; any other failure never does.
+A rerun on the same key, even with a new candidate sha, relabels once, 75 minutes after its last label (the 45-minute job plus its push), so a job that failed or made no progress gets one retry; a second miss waits for a human.
+While the issue carries `rsi:agent-halted`, the driver adds no label and the body says a human must act.
 A clean run (applied or already-applied) closes open matches with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`.
 A refused publication or close lands in the report and fails the run.
 A land run also keeps one driver comment, marked `<!-- hyprws:sync-driver -->`, on the open issue: it shows the run's state (rebasing or adopting, ci, landing, then landed, blocked, or failed) and is edited in place at each step.
