@@ -318,9 +318,10 @@ export const make = Effect.gen(function* () {
         },
       })
       .pipe(Effect.mapError(fromApiError("list", input.project.host)));
-    const parsed = yield* Effect.try(() => decodeSearchEnvelope(body)).pipe(
-      Effect.mapError((cause) => decodeError("list", cause)),
-    );
+    const parsed = yield* Effect.try({
+      try: () => decodeSearchEnvelope(body),
+      catch: (cause) => decodeError("list", cause),
+    });
     const rows = parsed.data.search.nodes;
     const issues = yield* decodeParsedGitHubIssueList(rows.map(toRawIssue)).pipe(
       Effect.mapError((cause) => decodeError("list", cause)),
@@ -421,9 +422,10 @@ export const make = Effect.gen(function* () {
       .pipe(
         Effect.mapError(fromApiError(input.operation, input.project.host)),
         Effect.flatMap((body) =>
-          Effect.try(() => decodeEnvelope(body)).pipe(
-            Effect.mapError((cause) => decodeError(input.operation, cause)),
-          ),
+          Effect.try({
+            try: () => decodeEnvelope(body),
+            catch: (cause) => decodeError(input.operation, cause),
+          }),
         ),
         Effect.flatMap((parsed) => {
           const issue = parsed.data.repository?.issue;
@@ -506,9 +508,10 @@ export const make = Effect.gen(function* () {
         },
       })
       .pipe(Effect.mapError(fromApiError(operation, project.host)));
-    const parsed = yield* Effect.try(() => decodeIssueIdEnvelope(idBody)).pipe(
-      Effect.mapError((cause) => decodeError(operation, cause)),
-    );
+    const parsed = yield* Effect.try({
+      try: () => decodeIssueIdEnvelope(idBody),
+      catch: (cause) => decodeError(operation, cause),
+    });
     const issueId = parsed.data.repository?.issue?.id;
     if (issueId === null || issueId === undefined) {
       return yield* new GitHubIssueOperationErrorClass({
@@ -531,9 +534,10 @@ export const make = Effect.gen(function* () {
             : { issueId },
       })
       .pipe(Effect.mapError(fromApiError(operation, project.host)));
-    const mutation = yield* Effect.try(() => decodeMutationEnvelope(mutationBody)).pipe(
-      Effect.mapError((cause) => decodeError(operation, cause)),
-    );
+    const mutation = yield* Effect.try({
+      try: () => decodeMutationEnvelope(mutationBody),
+      catch: (cause) => decodeError(operation, cause),
+    });
     const confirmed =
       input.state === "closed" ? mutation.data.closeIssue : mutation.data.reopenIssue;
     if (confirmed == null) {
@@ -558,7 +562,10 @@ export const make = Effect.gen(function* () {
           number: input.number,
         },
       });
-      const parsed = yield* Effect.try(() => decodeIssueOrPullRequestEnvelope(body));
+      const parsed = yield* Effect.try({
+        try: () => decodeIssueOrPullRequestEnvelope(body),
+        catch: (cause) => decodeError("isPullRequest", cause),
+      });
       return parsed.data.repository?.issueOrPullRequest?.__typename === "PullRequest";
     },
     Effect.orElseSucceed(() => false),

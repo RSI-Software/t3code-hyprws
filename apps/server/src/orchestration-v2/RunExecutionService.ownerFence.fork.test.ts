@@ -352,8 +352,7 @@ function fixture(gate: "snapshot" | "cascade" | "nested" | "model") {
           IdAllocator.layer,
           ThreadCommandExecutor.layer,
           Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-            // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
-            getInstance: () => Effect.succeed(undefined),
+            getInstance: () => Effect.undefined,
           }),
           Layer.mock(GitVcsDriver.GitVcsDriver)({
             resolveBranchName: () => Effect.succeed(null),

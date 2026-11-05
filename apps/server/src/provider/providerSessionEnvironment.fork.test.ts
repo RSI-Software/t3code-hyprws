@@ -1,8 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { it } from "@effect/vitest";
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/process";
 import { describe, expect } from "vite-plus/test";
@@ -202,21 +204,22 @@ describe("withThreadProjects", () => {
 describe("AcpSessionRuntime spawn environment", () => {
   // The server itself was launched from a tmux pane inside another T3-hosted agent.
   const ambient = { TMUX: "/tmp/tmux-1000/default,1,0", T3CODE_THREAD_ID: "ambient-thread" };
+  // The runtime spreads the real process environment, so the test must set it.
+  const applyAmbientEnvironment = () => {
+    const previous = Object.fromEntries(
+      Object.keys(ambient).map((name) => [name, process.env[name]]),
+    );
+    Object.assign(process.env, ambient);
+    return () => {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    };
+  };
   const withAmbientEnvironment = Effect.acquireRelease(
-    Effect.sync(() => {
-      const previous = Object.fromEntries(
-        Object.keys(ambient).map((name) => [name, process.env[name]]),
-      );
-      Object.assign(process.env, ambient);
-      return previous;
-    }),
-    (previous) =>
-      Effect.sync(() => {
-        for (const [name, value] of Object.entries(previous)) {
-          if (value === undefined) delete process.env[name];
-          else process.env[name] = value;
-        }
-      }),
+    Effect.sync(applyAmbientEnvironment),
+    (restore) => Effect.sync(restore),
   );
 
   const captureSpawnEnv = (options: Partial<AcpSessionRuntime.AcpSessionRuntimeOptions>) =>
@@ -250,7 +253,7 @@ describe("AcpSessionRuntime spawn environment", () => {
         Effect.ignore,
       );
       return captured;
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
   it.effect("gives a session agent its own identity over a leaked one", () =>
     Effect.gen(function* () {
