@@ -1,5 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
 import { memo, useRef } from "react";
+import type { ReactNode } from "react"; // fork-hook: custom-agents/compact-menu-agent-prop-type
 import { EllipsisIcon } from "lucide-react";
 import {
   Menu,
