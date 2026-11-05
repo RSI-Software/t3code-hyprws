@@ -87,6 +87,13 @@ export const threadArtifactsSurfaceActionsFork = (props: ThreadArtifactsLauncher
     },
   ] as const;
 
+/** The same entry for the empty panel, whose disabled row shows the short hint. */
+export const threadArtifactsEmptyStateActionsFork = (props: ThreadArtifactsLauncherPropsFork) =>
+  threadArtifactsSurfaceActionsFork(props).map((action) => ({
+    ...action,
+    disabledReason: action.unavailableHint,
+  }));
+
 const ARTIFACTS_SURFACE = { id: "thread-artifacts", kind: "thread-artifacts" } as const;
 
 /** Launcher props, plus opening the Artifacts tab when the thread gains a link, like Linked issues. */

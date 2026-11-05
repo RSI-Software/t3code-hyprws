@@ -113,6 +113,7 @@ import { threadArtifactsSurfaceActionsFork } from "./threadArtifacts/threadArtif
 import { ThreadArtifactsTabIconFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/panel-tab-icon-import
 import { githubIssueSurfaceActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
 import { githubIssueEmptyStateActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/empty-state-unavailable-hint
+import { threadArtifactsEmptyStateActionsFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/empty-state-launcher
 
 export interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -349,6 +350,7 @@ function RightPanelEmptyState(props: {
   sideChatAvailable: boolean;
   sideChatDisabledReason: string | null;
   issueLaunchersFork?: Parameters<typeof githubIssueEmptyStateActionsFork>[0]; // fork-hook: github-issues/empty-state-unavailable-hint
+  artifactLaunchersFork?: Parameters<typeof threadArtifactsEmptyStateActionsFork>[0]; // fork-hook: thread-artifacts/empty-state-launcher
 }) {
   const [highlight, setHighlight] = useState(-1);
 
@@ -402,6 +404,7 @@ function RightPanelEmptyState(props: {
       onClick: props.onAddPullRequests,
     },
     ...githubIssueEmptyStateActionsFork(props.issueLaunchersFork ?? {}), // fork-hook: github-issues/empty-state-unavailable-hint
+    ...threadArtifactsEmptyStateActionsFork(props.artifactLaunchersFork ?? {}), // fork-hook: thread-artifacts/empty-state-launcher
     {
       label: "Device",
       description: "Watch an iOS Simulator or Android Emulator.",
@@ -1601,6 +1604,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             sideChatAvailable={props.sideChatAvailable === true}
             sideChatDisabledReason={props.sideChatDisabledReason ?? null}
             issueLaunchersFork={props} // fork-hook: github-issues/empty-state-unavailable-hint
+            artifactLaunchersFork={props} // fork-hook: thread-artifacts/empty-state-launcher
           />
         ) : (
           props.children
