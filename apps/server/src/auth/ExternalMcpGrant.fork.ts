@@ -1,6 +1,5 @@
 import { AuthSessionId, ProjectId, ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -38,9 +37,10 @@ export interface ExternalMcpGrant {
   readonly clientLabel: string | null;
 }
 
-export class ExternalMcpGrantStoreError extends Data.TaggedError("ExternalMcpGrantStoreError")<{
-  readonly cause: unknown;
-}> {}
+export class ExternalMcpGrantStoreError extends Schema.TaggedError<ExternalMcpGrantStoreError>()(
+  "ExternalMcpGrantStoreError",
+  { cause: Schema.Defect() },
+) {}
 
 export class ExternalMcpGrantStore extends Context.Service<
   ExternalMcpGrantStore,
@@ -81,17 +81,19 @@ const make = Effect.gen(function* () {
         FROM auth_external_mcp_grants
         WHERE session_id = ${sessionId}
       `.pipe(
+        Effect.mapError((cause) => new ExternalMcpGrantStoreError({ cause })),
         Effect.flatMap(([row]) =>
           row === undefined
             ? Effect.succeed(Option.none<ExternalMcpGrant>())
-            : Effect.try(() =>
-                Option.some({
-                  policy: decodeExternalMcpPolicy(row.policyJson),
-                  clientLabel: row.clientLabel,
-                }),
-              ),
+            : Effect.try({
+                try: () =>
+                  Option.some({
+                    policy: decodeExternalMcpPolicy(row.policyJson),
+                    clientLabel: row.clientLabel,
+                  }),
+                catch: (cause) => new ExternalMcpGrantStoreError({ cause }),
+              }),
         ),
-        Effect.mapError((cause) => new ExternalMcpGrantStoreError({ cause })),
       );
     }),
   });

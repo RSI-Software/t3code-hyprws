@@ -255,6 +255,7 @@ export function selectClientForWindow(input: {
   return fresh.length === 1 ? (fresh[0] ?? null) : null;
 }
 
+// @effect-diagnostics-next-line extendsNativeError:off - this socket helper loads no Effect runtime; the error rejects a plain Promise.
 class HyprlandRequestError extends Error {
   readonly reason: string;
 

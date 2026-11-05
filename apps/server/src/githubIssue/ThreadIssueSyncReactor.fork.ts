@@ -14,7 +14,7 @@ import {
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -64,7 +64,7 @@ export class ThreadIssueSyncReactor extends Context.Service<
 export const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const githubIssues = yield* GitHubIssueService.GitHubIssueService;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
 
   // One read per issue: requests for the same issue share a queued or in-flight read.
   const pending = new Map<string, IssueRead>();
@@ -106,7 +106,7 @@ export const make = Effect.gen(function* () {
     yield* Effect.forEach(
       read.threads,
       (threadId) =>
-        crypto.randomUUIDv4().pipe(
+        crypto.uuidV4().pipe(
           Effect.flatMap((uuid) =>
             engine.dispatch({
               type: "thread.issue-link.sync",

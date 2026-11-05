@@ -1,4 +1,6 @@
+import * as Config from "effect/Config";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
@@ -159,7 +161,7 @@ const setup = (policy: Partial<ExternalMcpService.ExternalMcpPrincipal["policy"]
             ),
           ),
         ),
-      ).pipe(Layer.provide(NodeServices.layer)),
+      ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
     const service = Context.get(services, ExternalMcpService.ExternalMcpServiceFork);
     const orchestrator = Context.get(services, Orchestrator.OrchestratorV2);
@@ -520,7 +522,7 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
                       : Effect.fail(new EnvironmentAuth.ServerAuthInvalidCredentialError({})),
                 }),
                 HttpPlatform.layer.pipe(
-                  Layer.provideMerge(NodeServices.layer),
+                  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
                   Layer.provide(Etag.layerWeak),
                 ),
               ),
@@ -583,7 +585,7 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
         );
         assert.isDefined(body);
         // T3_REQUEST_EVIDENCE=1 prints the JSON-RPC transcript for PR evidence.
-        if (process.env.T3_REQUEST_EVIDENCE === "1") {
+        if ((yield* Config.String("T3_REQUEST_EVIDENCE").pipe(Config.withDefault(""))) === "1") {
           const line = yield* encodeJson({
             request: { jsonrpc: "2.0", id, method, params },
             response: body,

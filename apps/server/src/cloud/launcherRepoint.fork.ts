@@ -4,7 +4,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
-import { pinnedRuntimePaths, pinnedRuntimeVersionsDir } from "./pinnedRuntime.ts";
+import { pinnedRuntimePaths } from "./pinnedRuntime.ts";
 
 /**
  * Directories an install script may have put the `t3` launcher in: its
@@ -36,7 +36,6 @@ const repointLaunchers = Effect.fn("cloud.server_self_update.repoint_launchers")
   const platform = yield* HostProcess.Platform;
   // The boot service, and with it client updates, exists only on Linux and macOS.
   if (platform === "win32") return [];
-  const versionsDir = pinnedRuntimeVersionsDir(path, baseDir);
   const { entryPath } = pinnedRuntimePaths(path, baseDir, targetVersion, platform);
   // Loaded lazily: `cli/update.ts` reaches back to this module's importer
   // through `serverRuntimeState.ts` and `ServerEnvironment.ts`.
@@ -45,7 +44,7 @@ const repointLaunchers = Effect.fn("cloud.server_self_update.repoint_launchers")
   for (const candidate of yield* launcherCandidates) {
     const result = yield* repointLauncher({
       launchedAs: candidate,
-      versionsDir,
+      baseDir,
       targetEntryPath: entryPath,
     }).pipe(
       Effect.catch((error) =>

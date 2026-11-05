@@ -1,4 +1,6 @@
+import * as Config from "effect/Config";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
@@ -156,7 +158,7 @@ const setup = Effect.gen(function* () {
           ),
         ),
       ),
-    ).pipe(Layer.provide(NodeServices.layer)),
+    ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
   const service = Context.get(services, ExternalMcpService.ExternalMcpServiceFork);
   const orchestrator = Context.get(services, Orchestrator.OrchestratorV2);
@@ -235,7 +237,7 @@ describe("external MCP settlement on the real orchestrator", () => {
           yield* Layer.build(
             Layer.fresh(ExternalMcpService.layer).pipe(
               Layer.provide(Layer.succeedContext(h.services)),
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
           ExternalMcpService.ExternalMcpServiceFork,
@@ -724,7 +726,7 @@ it.live("exposes reversible settlement through the external HTTP MCP catalog wit
                       : Effect.fail(new EnvironmentAuth.ServerAuthInvalidCredentialError({})),
                 }),
                 HttpPlatform.layer.pipe(
-                  Layer.provideMerge(NodeServices.layer),
+                  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
                   Layer.provide(Etag.layerWeak),
                 ),
               ),
@@ -764,7 +766,7 @@ it.live("exposes reversible settlement through the external HTTP MCP catalog wit
         session ??= response.headers.get("mcp-session-id");
         assert.equal(response.status, 200);
         const body: unknown = yield* Effect.promise(() => response.json());
-        if (process.env.T3_SETTLEMENT_EVIDENCE === "1")
+        if ((yield* Config.String("T3_SETTLEMENT_EVIDENCE").pipe(Config.withDefault(""))) === "1")
           yield* Effect.log(
             yield* encodeJson({
               request: { jsonrpc: "2.0", id, method, params },

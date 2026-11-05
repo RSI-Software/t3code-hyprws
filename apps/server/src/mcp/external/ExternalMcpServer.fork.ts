@@ -155,9 +155,9 @@ const registered = registration as Layer.Layer<
 >;
 
 export const routeLayer = Layer.fresh(
-  registered.pipe(
-    Layer.provide(ExternalMcpService.layer),
-    Layer.provideMerge(layerMcpTransportAtFork("T3 Code external", EXTERNAL_MCP_PATH)),
-    Layer.provide(AuthMiddlewareLive),
-  ),
+  layerMcpTransportAtFork(
+    "T3 Code external",
+    EXTERNAL_MCP_PATH,
+    registered.pipe(Layer.provide(ExternalMcpService.layer)),
+  ).pipe(Layer.provide(AuthMiddlewareLive)),
 );
