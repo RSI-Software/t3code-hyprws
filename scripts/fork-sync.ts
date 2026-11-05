@@ -89,6 +89,14 @@ const AGENT_STEPS: ReadonlySet<string> = new Set(["carry", "hooks", "ci"]);
  */
 const AGENT_STAMP_PATTERN = /^<!-- agent-labelled:(\S+)( retried)? -->$/m;
 const AGENT_RETRY_AFTER_MS = 75 * 60 * 1000;
+/** rsi-pr-agent's own stop after repeated failed jobs; it refuses every `rsi:` label while set. */
+const AGENT_HALTED_LABEL = "rsi:agent-halted";
+const AGENT_HALTED_LINE =
+  "rsi-pr-agent is halted (`rsi:agent-halted`) and takes no `rsi:fork-sync`; a human must fix the sync or remove the label.";
+/** A finished marker older than this stops pinning the target; the newest tag wins. */
+const MARKER_PIN_MAX_MS = 24 * 60 * 60 * 1000;
+/** The trailing line naming what an attention issue is about; a run on the same one is a repeat. */
+const ISSUE_KEY_PATTERN = /^<!-- (?:sync-failure|blocking-sha):\S+ -->$/gm;
 const agentStamp = (at: string, retried: boolean): string =>
   `<!-- agent-labelled:${at}${retried ? " retried" : ""} -->`;
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
@@ -1444,7 +1452,7 @@ const standingSection = (previous: string | undefined, run: StandingRun): Readon
   const earlier = previous === undefined ? [] : standingRunsOf(previous);
   const marker = previous === undefined ? null : STANDING_PATTERN.exec(previous);
   const sameTarget = earlier[0]?.subject === run.subject;
-  const repeat = sameTarget && earlier[0]?.detail === run.detail;
+  const repeat = sameTarget && earlier[0]?.detail === run.detail && earlier[0]?.date === run.date;
   const runs = repeat ? earlier : [run, ...earlier].slice(0, RECENT_RUNS);
   const targets = (marker === null ? earlier.length : Number(marker[2])) + (sameTarget ? 0 : 1);
   const since = marker?.[1] ?? earlier.at(-1)?.date ?? run.date;
@@ -1578,7 +1586,7 @@ export interface GitHub {
   readonly list: (titlePhrase: string) => ReadonlyArray<OpenBlockIssue>;
   readonly create: (title: string, bodyPath: string) => number | null;
   /** Rewrite an existing issue's title and body in place; the rerun projection. */
-  readonly edit: (issue: number, title: string, bodyPath: string) => void;
+  readonly edit: (issue: number, title: string, bodyPath: string, relabel: boolean) => void;
   /** Close with the small close-evidence comment inline; never the report body. */
   readonly close: (issue: number, comment: string) => void;
 }
@@ -1655,7 +1663,7 @@ export const githubClient = (
       }
       return url === undefined ? null : Number(url);
     },
-    edit: (issue, title, bodyPath) => {
+    edit: (issue, title, bodyPath, relabel) => {
       runRequire(
         runner,
         "gh",
@@ -1668,7 +1676,7 @@ export const githubClient = (
           title,
           "--body-file",
           bodyPath,
-          ...labels.flatMap((label) => ["--add-label", label]),
+          ...(relabel ? labels.flatMap((label) => ["--add-label", label]) : []),
         ],
         { cwd: root },
       );
@@ -1742,19 +1750,27 @@ const upsertStandingIssue = (
       issue: github.create(title, bodyPath),
       publishedVia: "gh",
     }));
-  const body = render(standing.body);
+  const standingLabels = (standing.labels ?? []).map(({ name }) => name);
+  const halted = standingLabels.includes(AGENT_HALTED_LABEL);
+  const rendered = render(standing.body);
+  const body = halted ? `${rendered}\n\n${AGENT_HALTED_LINE}` : rendered;
   const stamp = AGENT_STAMP_PATTERN.exec(standing.body);
+  // the candidate sha in the error moves with every carried trunk commit, so
+  // only the issue's key line makes a run new and earns a fresh label
+  const keyOf = (text: string): string | undefined => text.match(ISSUE_KEY_PATTERN)?.at(-1);
+  const newKey = keyOf(standing.body) !== keyOf(body);
   const retryDue =
-    labels.length > 0 &&
-    !(standing.labels ?? []).some(({ name }) => name === AGENT_LABEL) &&
+    !standingLabels.includes(AGENT_LABEL) &&
     stamp?.[2] === undefined &&
     (stamp === null || Date.parse(now) - Date.parse(stamp[1]!) >= AGENT_RETRY_AFTER_MS);
+  const relabel = labels.length > 0 && !halted && (newKey || retryDue);
   // the machine title suffix never matches the render, so the decision is on
   // the normalised body alone
   const drifted = normalisedBody(standing.body) !== normalisedBody(body);
-  if (drifted || retryDue)
-    withBodyFile(stamped(body, !drifted), (bodyPath) =>
-      github.edit(standing.number, title, bodyPath),
+  if (drifted || relabel)
+    withBodyFile(
+      relabel ? stamped(body, !newKey) : stamp === null ? body : `${body}\n${stamp[0]}`,
+      (bodyPath) => github.edit(standing.number, title, bodyPath, relabel),
     );
   for (const issue of superseded) github.close(issue.number, `Superseded by #${standing.number}.`);
   return { issue: standing.number, publishedVia: "gh" };
@@ -2028,8 +2044,17 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         !isAncestor(runner, root, candidate.sha, expectedOld) &&
         keptWorktreeState(runner, root, candidate, expectedOld) !== null,
     );
+    const markerAge =
+      fetched === null
+        ? 0
+        : now().getTime() -
+          Date.parse(git(runner, root, ["log", "-1", "--format=%cI", fetched.commit]));
+    if (explicit === null && fetched !== null && markerAge >= MARKER_PIN_MAX_MS)
+      process.stdout.write(
+        `sync: marker ${fetched.commit.slice(0, 7)} is over 24h old; it no longer pins ${fetched.tag}\n`,
+      );
     const markerTarget =
-      explicit === null && fetched !== null
+      explicit === null && fetched !== null && markerAge < MARKER_PIN_MAX_MS
         ? candidates.find(
             ({ tag, sha }) => tag === fetched.tag && !isAncestor(runner, root, sha, expectedOld),
           )
