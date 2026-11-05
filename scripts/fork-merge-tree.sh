@@ -9,6 +9,8 @@
 #
 # Usage: bash scripts/fork-merge-tree.sh <head>
 set -euo pipefail
+# uutils sort honours the locale's collation while its comm checks byte order; one order for both.
+export LC_ALL=C
 
 head_sha="${1:?usage: fork-merge-tree.sh <head>}"
 work="$(mktemp -d)"
