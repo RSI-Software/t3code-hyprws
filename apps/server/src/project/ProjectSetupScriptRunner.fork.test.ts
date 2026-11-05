@@ -159,6 +159,7 @@ const testLayer = (
     Layer.provideMerge(
       Layer.mock(TerminalManager.TerminalManager)({
         ...terminal,
+        getShell: () => Effect.succeed("/bin/zsh"),
         subscribe: () => Effect.succeed(() => {}),
       }),
     ),

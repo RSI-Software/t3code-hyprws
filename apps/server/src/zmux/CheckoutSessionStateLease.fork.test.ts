@@ -68,8 +68,7 @@ const testLayer = Layer.mergeAll(
     Layer.provide(dependencies),
     Layer.provide(
       Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-        // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
-        getInstance: () => Effect.succeed(undefined),
+        getInstance: () => Effect.undefined,
       }),
     ),
     Layer.provide(

@@ -243,9 +243,18 @@ function normalizeIssueDetail(decoded: RawGitHubIssue) {
   };
 }
 
+/** A row the schema accepted but normalization could not reshape. */
+class GitHubIssueNormalizeError extends Schema.TaggedError<GitHubIssueNormalizeError>()(
+  "GitHubIssueNormalizeError",
+  { cause: Schema.Defect() },
+) {}
+
 export const decodeGitHubIssueList = Effect.fn("decodeGitHubIssueList")(function* (raw: string) {
   const decoded = yield* decodeIssueList(raw);
-  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
+  const normalized = yield* Effect.try({
+    try: () => decoded.map(normalizeGitHubIssue),
+    catch: (cause) => new GitHubIssueNormalizeError({ cause }),
+  });
   return yield* decodeNormalizedIssueList(normalized);
 });
 
@@ -254,7 +263,10 @@ export const decodeParsedGitHubIssueList = Effect.fn("decodeParsedGitHubIssueLis
   rows: ReadonlyArray<unknown>,
 ) {
   const decoded = yield* decodeUnknownIssueList(rows);
-  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
+  const normalized = yield* Effect.try({
+    try: () => decoded.map(normalizeGitHubIssue),
+    catch: (cause) => new GitHubIssueNormalizeError({ cause }),
+  });
   return yield* decodeNormalizedIssueList(normalized);
 });
 
