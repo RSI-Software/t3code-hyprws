@@ -130,7 +130,7 @@ export const providerSessionProjectId = <E>(
 
 type ThreadProjectRuntime = Pick<
   ProviderAdapterV2SessionRuntime,
-  "ensureThread" | "resumeThread" | "forkThread" | "rollbackThread"
+  "providerSession" | "ensureThread" | "resumeThread" | "forkThread" | "rollbackThread"
 >;
 
 /**
@@ -153,6 +153,9 @@ export const withThreadProjects = <R extends ThreadProjectRuntime, E>(
   };
   return {
     ...runtime,
+    get providerSession() {
+      return runtime.providerSession;
+    },
     ensureThread: (input) =>
       projectOf(input.threadId).pipe(
         Effect.flatMap((project) => runtime.ensureThread(withProject(input, project))),

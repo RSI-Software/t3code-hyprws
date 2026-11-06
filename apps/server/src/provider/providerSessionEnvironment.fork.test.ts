@@ -141,7 +141,7 @@ describe("codexThreadIdentityConfig", () => {
 describe("withThreadProjects", () => {
   type Runtime = Pick<
     ProviderAdapterV2SessionRuntime,
-    "ensureThread" | "resumeThread" | "forkThread" | "rollbackThread"
+    "providerSession" | "ensureThread" | "resumeThread" | "forkThread" | "rollbackThread"
   >;
   const otherThreadId = "thread-2" as ThreadId;
   const providerThread = (appThreadId: ThreadId | null) => ({ appThreadId }) as never;
@@ -154,6 +154,7 @@ describe("withThreadProjects", () => {
       return Effect.succeed(null);
     };
     const runtime = {
+      providerSession: { extensionStatuses: [] },
       ensureThread: record("ensure"),
       resumeThread: record("resume"),
       forkThread: record("fork"),
