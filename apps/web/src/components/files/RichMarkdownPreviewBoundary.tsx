@@ -70,23 +70,21 @@ export function resolveRichMarkdownPreviewMode(input: {
   // Milkdown's Markdown parser cannot safely preserve JSX nodes. MDX stays on
   // the rendered preview surface rather than crossing the rich editor. Host
   // files are read-only, so their toggle must not advertise an editing mode.
+  // A truncated read renders read-only on upstream's surface: saving it would drop the tail.
   const isRichMarkdown =
-    !input.readOnly && input.relativePath !== null && /\.md$/i.test(input.relativePath);
+    !input.readOnly &&
+    input.fileState !== "truncated" &&
+    input.relativePath !== null &&
+    /\.md$/i.test(input.relativePath);
   const rendered =
-    isMarkdown && input.fileState === "ready" && input.renderPreferred && input.revealHandled;
+    isMarkdown && input.fileState !== "loading" && input.renderPreferred && input.revealHandled;
   const toggleLabel = rendered
     ? "Show markdown source"
     : isRichMarkdown
       ? "Edit as rich markdown"
       : "Show rendered markdown";
 
-  const toggleDisabled = isMarkdown && input.fileState !== "ready";
-  const tooltipLabel =
-    isMarkdown && input.fileState === "truncated"
-      ? isRichMarkdown
-        ? "Rich editing is unavailable for truncated files"
-        : "Rendered preview is unavailable for truncated files"
-      : toggleLabel;
+  const toggleDisabled = isMarkdown && input.fileState === "loading";
 
   return {
     isMarkdown,
@@ -95,9 +93,9 @@ export function resolveRichMarkdownPreviewMode(input: {
     richEditorEnabled: rendered && isRichMarkdown && !input.readOnly,
     toggleDisabled,
     toggleLabel,
-    tooltipLabel,
+    tooltipLabel: toggleLabel,
     toggleProps: isMarkdown
-      ? { label: tooltipLabel, disabled: toggleDisabled }
+      ? { label: toggleLabel, disabled: toggleDisabled }
       : { disabled: false },
     iconProps: isRichMarkdown && !rendered ? { icon: PenLine } : {},
   };

@@ -71,7 +71,7 @@ describe("rich Markdown preview boundary", () => {
     });
   });
 
-  it("forces source for line reveals and disables truncated rich editing", () => {
+  it("forces source for line reveals and renders truncated reads without rich editing", () => {
     const reveal = resolveRichMarkdownPreviewMode({
       relativePath: "README.md",
       fileState: "ready",
@@ -89,20 +89,11 @@ describe("rich Markdown preview boundary", () => {
 
     expect(reveal).toMatchObject({ rendered: false, richEditorEnabled: false });
     expect(truncated).toMatchObject({
-      rendered: false,
+      rendered: true,
       richEditorEnabled: false,
-      toggleDisabled: true,
-      tooltipLabel: "Rich editing is unavailable for truncated files",
+      toggleDisabled: false,
+      tooltipLabel: "Show markdown source",
     });
-    expect(
-      resolveRichMarkdownPreviewMode({
-        relativePath: "docs/guide.mdx",
-        fileState: "truncated",
-        renderPreferred: true,
-        revealHandled: true,
-        readOnly: false,
-      }).tooltipLabel,
-    ).toBe("Rendered preview is unavailable for truncated files");
   });
 
   it("overrides the upstream toggle label for Markdown only", () => {
@@ -125,7 +116,7 @@ describe("rich Markdown preview boundary", () => {
         revealHandled: true,
         readOnly: false,
       }).toggleProps,
-    ).toEqual({ label: "Rich editing is unavailable for truncated files", disabled: true });
+    ).toEqual({ label: "Show markdown source", disabled: false });
     expect(
       resolveRichMarkdownPreviewMode({
         relativePath: "src/index.ts",
