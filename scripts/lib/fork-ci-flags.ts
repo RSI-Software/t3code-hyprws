@@ -5,7 +5,7 @@
 // workflow's `Fork ledger` and `Fork rebase scan` steps call this file and `vp run fork:ci` imports
 // it, so neither restates the derivation and a local green run means what CI's green means.
 
-import { UsageError } from "./fork-cli.ts";
+import { isUsageError, UsageError } from "./fork-cli.ts";
 import { SystemGit } from "./fork-git-reader.ts";
 
 /** The workflow that consumes the flags. */
@@ -97,13 +97,14 @@ interface Invocation {
 
 const parseInvocation = (argv: ReadonlyArray<string>): Invocation => {
   const [mode = "", ...rest] = argv;
-  if (mode !== "ledger" && mode !== "scan") throw new UsageError("expected mode: ledger or scan");
+  if (mode !== "ledger" && mode !== "scan")
+    throw new UsageError({ message: "expected mode: ledger or scan" });
   let head = "HEAD";
   for (let index = 0; index < rest.length; index += 2) {
     const name = rest[index];
     const value = rest[index + 1];
     if (name !== "--head" || value === undefined)
-      throw new UsageError(`unexpected argument: ${name ?? ""}`);
+      throw new UsageError({ message: `unexpected argument: ${name ?? ""}` });
     head = value;
   }
   return { mode, head };
@@ -143,7 +144,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     );
     return 0;
   } catch (error) {
-    if (error instanceof UsageError) {
+    if (isUsageError(error)) {
       process.stderr.write(`usage: ${error.message}\nTry --help.\n`);
       return 2;
     }

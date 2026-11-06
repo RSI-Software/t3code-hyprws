@@ -6,14 +6,15 @@
 // rebase), and proves the new tip against the old. A fork:sync marker lands the fold, so the land
 // run stays the only trunk writer. The fold rules live in .agents/skills/fork-fold/SKILL.md.
 
+import * as Schema from "effect/Schema";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { commitNumstatArguments, parseCommitNumstat } from "./fork-delta.ts";
-import { parseArgs, UsageError } from "./lib/fork-cli.ts";
+import { parseArgs, isUsageError, UsageError } from "./lib/fork-cli.ts";
 import { type CommandResult, commandText, runCommand } from "./lib/fork-command.ts";
 import {
-  FoldRebaseError,
+  isFoldRebaseError,
   partitionConflicts,
   rebaseRemaining,
   resolveForkOwnedTree,
@@ -61,7 +62,11 @@ worktree to the proven tip, rerun fork:sync, and hand off the marker.
 Exit 0 passes, 1 fails, 2 is usage.
 `;
 
-class FoldError extends Error {}
+class FoldError extends Schema.TaggedError<FoldError>()("FoldError", {
+  message: Schema.String,
+}) {}
+
+const isFoldError = Schema.is(FoldError);
 
 export const systemFoldGit = (cwd: string): FoldGit => ({
   text: (args, input, env) => {
@@ -71,7 +76,9 @@ export const systemFoldGit = (cwd: string): FoldGit => ({
       ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
     });
     if (result.status !== 0 || result.error !== undefined) {
-      throw new FoldError(`${commandText("git", args)} failed: ${result.stderr.trim()}`);
+      throw new FoldError({
+        message: `${commandText("git", args)} failed: ${result.stderr.trim()}`,
+      });
     }
     return result.stdout.trim();
   },
@@ -145,7 +152,7 @@ const readPlan = (path: string): string => {
   try {
     return NodeFS.readFileSync(path, "utf8");
   } catch {
-    throw new FoldError(`cannot read plan ${path}`);
+    throw new FoldError({ message: `cannot read plan ${path}` });
   }
 };
 
@@ -166,9 +173,9 @@ export const parsePlan = (text: string): ReadonlyArray<PlanLine> =>
     const members = subject === undefined ? fields : fields.slice(0, -1);
     const bad = members.find((member) => !SHA.test(member));
     if (members.length === 0 || bad !== undefined) {
-      throw new FoldError(
-        `plan line ${index + 1}: expected tab-separated shas, got "${bad ?? raw}"`,
-      );
+      throw new FoldError({
+        message: `plan line ${index + 1}: expected tab-separated shas, got "${bad ?? raw}"`,
+      });
     }
     return [
       {
@@ -215,7 +222,7 @@ export const resolvePlan = (
     if (!used.has(commit.sha)) problems.push(`${commit.short} ${commit.subject}: missing`);
   }
   if (problems.length > 0)
-    throw new FoldError(`plan does not cover the stack:\n${problems.join("\n")}`);
+    throw new FoldError({ message: `plan does not cover the stack:\n${problems.join("\n")}` });
   return blocks;
 };
 
@@ -331,7 +338,7 @@ export const memberLine = (member: FoldCommit): string => {
  */
 export const foldMessage = (block: FoldBlock): string => {
   const [first] = block.members;
-  if (first === undefined) throw new FoldError("empty plan line");
+  if (first === undefined) throw new FoldError({ message: "empty plan line" });
   const [subjectLine = "", ...rest] = first.message.replace(/\r\n/g, "\n").split("\n");
   const subject = block.subject ?? subjectLine;
   const attached = block.links ?? [];
@@ -418,7 +425,7 @@ const amendMessages = (
 ): ReadonlyArray<string | undefined> =>
   blocks.map((block) => {
     const [lead] = block.members;
-    if (lead === undefined) throw new FoldError("empty plan line");
+    if (lead === undefined) throw new FoldError({ message: "empty plan line" });
     const raw = git.text(["log", "-1", "--format=%B", lead.sha]);
     const folded = foldMessage(block);
     return folded === raw.replace(/\r\n/g, "\n").trimEnd() ? undefined : `${folded}\n`;
@@ -445,7 +452,8 @@ export const replay = (
   planText: string,
 ): FoldReplay => {
   const first = stack.commits[0];
-  if (first === undefined) throw new FoldError(`no ahead commits in ${stack.base}..${stack.head}`);
+  if (first === undefined)
+    throw new FoldError({ message: `no ahead commits in ${stack.base}..${stack.head}` });
   const start = git.text(["rev-parse", `${first.sha}^`]);
   const fallback = (
     remaining: ReadonlyArray<FoldBlock>,
@@ -674,13 +682,13 @@ export const run = (
       const [oldRef = "", newRef = ""] = args.positionals;
       return prove(git, step, args.values.get("--base") ?? "upstream/main", oldRef, newRef);
     }
-    throw new UsageError(`unknown command: ${subcommand}`);
+    throw new UsageError({ message: `unknown command: ${subcommand}` });
   } catch (error) {
-    if (error instanceof UsageError) {
+    if (isUsageError(error)) {
       process.stderr.write(`fork:fold: ${error.message}\n${HELP}`);
       return 2;
     }
-    if (error instanceof FoldError || error instanceof FoldRebaseError) {
+    if (isFoldError(error) || isFoldRebaseError(error)) {
       process.stderr.write(`failed: ${error.message}\n`);
       return 1;
     }
