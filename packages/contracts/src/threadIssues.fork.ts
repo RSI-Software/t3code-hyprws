@@ -98,3 +98,20 @@ export const threadIssueClientCommandsFork = [
 
 /** Spread into the internal command union: only the server reads issue state. */
 export const threadIssueInternalCommandsFork = [ThreadIssueLinkSyncCommand] as const;
+
+/**
+ * An issue or pull request as a chat reference shows it. GitHub numbers both from one sequence,
+ * so a bare `repo#N` resolves to whichever it is.
+ */
+export const GitHubReferenceSummary = Schema.Struct({
+  kind: Schema.Literals(["issue", "pull-request"]),
+  title: Schema.String,
+  url: Schema.String,
+  state: Schema.Literals(["open", "closed", "not-planned", "draft", "merged"]),
+  author: Schema.NullOr(
+    Schema.Struct({ login: Schema.String, avatarUrl: Schema.NullOr(Schema.String) }),
+  ),
+  ownerAvatarUrl: Schema.NullOr(Schema.String),
+  updatedAt: Schema.String,
+});
+export type GitHubReferenceSummary = typeof GitHubReferenceSummary.Type;

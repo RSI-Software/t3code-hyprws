@@ -8,6 +8,7 @@ import type {
   GitHubIssueOperationError,
   GitHubIssueRef,
   GitHubIssueSetStateInput,
+  GitHubReferenceSummary,
   OrchestrationProjectShell,
   ThreadIssueKey,
 } from "@t3tools/contracts";
@@ -59,6 +60,7 @@ const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!,$type:SearchType!){
 const ISSUE_DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_DETAIL_SELECTION}}}}`;
 const ISSUE_SUMMARY_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_SUMMARY_SELECTION}}}}`;
 const ISSUE_OR_PULL_REQUEST_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issueOrPullRequest(number:$number){__typename}}}`;
+const REFERENCE_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){owner{avatarUrl} issueOrPullRequest(number:$number){__typename ... on Issue{title url state stateReason updatedAt author{login avatarUrl}} ... on PullRequest{title url state isDraft updatedAt author{login avatarUrl}}}}}`;
 const ISSUE_ID_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id}}}`;
 const CLOSE_ISSUE_MUTATION = `mutation($issueId:ID!,$stateReason:IssueCloseReason){closeIssue(input:{issueId:$issueId,stateReason:$stateReason}){issue{id}}}`;
 const REOPEN_ISSUE_MUTATION = `mutation($issueId:ID!){reopenIssue(input:{issueId:$issueId}){issue{id}}}`;
@@ -133,6 +135,30 @@ const IssueOrPullRequestEnvelope = Schema.Struct({
     ),
   }),
 });
+const ReferenceEnvelope = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({
+        owner: Schema.Struct({ avatarUrl: Schema.NullOr(Schema.String) }),
+        issueOrPullRequest: Schema.NullOr(
+          Schema.Struct({
+            __typename: Schema.String,
+            title: Schema.String,
+            url: Schema.String,
+            state: Schema.String,
+            stateReason: Schema.optional(Schema.NullOr(Schema.String)),
+            isDraft: Schema.optional(Schema.Boolean),
+            updatedAt: Schema.String,
+            author: Schema.NullOr(
+              Schema.Struct({ login: Schema.String, avatarUrl: Schema.NullOr(Schema.String) }),
+            ),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+const decodeReferenceEnvelope = Schema.decodeSync(Schema.fromJsonString(ReferenceEnvelope));
 const MutationEnvelope = Schema.Struct({
   data: Schema.Struct({
     closeIssue: Schema.optional(
@@ -183,6 +209,10 @@ export class GitHubIssueService extends Context.Service<
      * request; an unanswered read is false, so an offline or signed-out link still goes through.
      */
     readonly isPullRequest: (input: ThreadIssueKey) => Effect.Effect<boolean>;
+    /** The issue or pull request a chat reference names; null when GitHub has none. */
+    readonly reference: (
+      input: ThreadIssueKey,
+    ) => Effect.Effect<GitHubReferenceSummary | null, GitHubIssueError>;
   }
 >()("t3/githubIssue/GitHubIssueService") {}
 
@@ -571,7 +601,58 @@ export const make = Effect.gen(function* () {
     Effect.orElseSucceed(() => false),
   );
 
-  return GitHubIssueService.of({ list, detail, summary, setState, isPullRequest });
+  const reference: GitHubIssueService["Service"]["reference"] = Effect.fn(
+    "GitHubIssueService.reference",
+  )(function* (input) {
+    const [owner = "", name = ""] = input.repository.split("/");
+    const body = yield* api
+      .graphql({
+        host: input.host,
+        operation: "reference",
+        query: REFERENCE_QUERY,
+        variables: { owner, name, number: input.number },
+      })
+      .pipe(
+        Effect.asSome,
+        Effect.catchTags({
+          GitHubApiNotFoundError: () => Effect.succeed(Option.none<string>()),
+        }),
+        Effect.mapError(fromApiError("reference", input.host)),
+      );
+    if (Option.isNone(body)) return null;
+    const parsed = yield* Effect.try({
+      try: () => decodeReferenceEnvelope(body.value),
+      catch: (cause) => decodeError("reference", cause),
+    });
+    const repository = parsed.data.repository;
+    const node = repository?.issueOrPullRequest;
+    if (!node) return null;
+    const pullRequest = node.__typename === "PullRequest";
+    const state: GitHubReferenceSummary["state"] = pullRequest
+      ? node.state === "MERGED"
+        ? "merged"
+        : node.state === "CLOSED"
+          ? "closed"
+          : node.isDraft
+            ? "draft"
+            : "open"
+      : node.state === "OPEN"
+        ? "open"
+        : node.stateReason === "NOT_PLANNED"
+          ? "not-planned"
+          : "closed";
+    return {
+      kind: pullRequest ? "pull-request" : "issue",
+      title: node.title,
+      url: node.url,
+      state,
+      author: node.author ? { login: node.author.login, avatarUrl: node.author.avatarUrl } : null,
+      ownerAvatarUrl: repository?.owner.avatarUrl ?? null,
+      updatedAt: node.updatedAt,
+    } satisfies GitHubReferenceSummary;
+  });
+
+  return GitHubIssueService.of({ list, detail, summary, setState, isPullRequest, reference });
 });
 
 export const layer = Layer.effect(GitHubIssueService, make);
