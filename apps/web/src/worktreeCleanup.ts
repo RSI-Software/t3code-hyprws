@@ -40,17 +40,19 @@ export function getOrphanedWorktreePathsForThreads(
   const survivingPaths = new Set<string>();
   for (const thread of threads) {
     if (threadIds.has(thread.id)) continue;
-    const path = normalizeWorktreePath(thread.worktreePath);
-    if (path) survivingPaths.add(path);
+    const path = thread.worktreePath?.trim();
+    if (path) survivingPaths.add(normalizeProjectPathForComparison(path));
   }
 
   const orphaned: string[] = [];
   const seen = new Set<string>();
   for (const thread of threads) {
     if (!threadIds.has(thread.id)) continue;
-    const path = normalizeWorktreePath(thread.worktreePath);
-    if (!path || survivingPaths.has(path) || seen.has(path)) continue;
-    seen.add(path);
+    const path = thread.worktreePath?.trim();
+    if (!path) continue;
+    const key = normalizeProjectPathForComparison(path);
+    if (survivingPaths.has(key) || seen.has(key)) continue;
+    seen.add(key);
     orphaned.push(path);
   }
   return orphaned;
