@@ -3,8 +3,9 @@
 // The release gate: cut only the current origin/hyprws tip (what the lease push landed), and only
 // when that sha carries a green `hyprws CI` conclusion. A green non-tip or a tip without a green
 // run cuts nothing.
+// Preflight runs this before any install, so it imports only node builtins.
 
-import { parseArgs, UsageError } from "./lib/fork-cli.ts";
+import * as NodeUtil from "node:util";
 
 export interface ReleaseGateInput {
   readonly releaseSha: string;
@@ -62,22 +63,27 @@ const usage =
   "Usage: node scripts/fork-release-gate.ts --release-sha <sha> --trunk-tip <sha> [--ci-conclusion <conclusion>]";
 
 export const parseReleaseGateOptions = (argv: ReadonlyArray<string>): Options => {
-  const parsed = parseArgs(argv, {
-    values: ["--release-sha", "--trunk-tip", "--ci-conclusion"],
-    flags: ["--help", "-h"],
+  const { values } = NodeUtil.parseArgs({
+    args: [...argv],
+    options: {
+      "release-sha": { type: "string" },
+      "trunk-tip": { type: "string" },
+      "ci-conclusion": { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
   });
-  if (parsed.flags.has("--help") || parsed.flags.has("-h")) {
+  if (values.help) {
     process.stdout.write(`${usage}\n`);
     process.exit(0);
   }
-  const releaseSha = parsed.values.get("--release-sha") ?? "";
-  const trunkTip = parsed.values.get("--trunk-tip") ?? "";
-  if (releaseSha.length === 0) throw new UsageError({ message: "--release-sha requires a sha" });
-  if (trunkTip.length === 0) throw new UsageError({ message: "--trunk-tip requires a sha" });
+  const releaseSha = values["release-sha"] ?? "";
+  const trunkTip = values["trunk-tip"] ?? "";
+  if (releaseSha.length === 0) throw new Error("--release-sha requires a sha");
+  if (trunkTip.length === 0) throw new Error("--trunk-tip requires a sha");
   return {
     releaseSha,
     trunkTip,
-    ciConclusion: parsed.values.get("--ci-conclusion") ?? null,
+    ciConclusion: values["ci-conclusion"] ?? null,
   };
 };
 
