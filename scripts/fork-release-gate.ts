@@ -72,8 +72,8 @@ export const parseReleaseGateOptions = (argv: ReadonlyArray<string>): Options =>
   }
   const releaseSha = parsed.values.get("--release-sha") ?? "";
   const trunkTip = parsed.values.get("--trunk-tip") ?? "";
-  if (releaseSha.length === 0) throw new UsageError("--release-sha requires a sha");
-  if (trunkTip.length === 0) throw new UsageError("--trunk-tip requires a sha");
+  if (releaseSha.length === 0) throw new UsageError({ message: "--release-sha requires a sha" });
+  if (trunkTip.length === 0) throw new UsageError({ message: "--trunk-tip requires a sha" });
   return {
     releaseSha,
     trunkTip,
