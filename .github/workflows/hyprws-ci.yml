@@ -5,7 +5,7 @@ name: hyprws CI
 # (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
 # free for a public repository. The pin names the upstream ci.yml commit these steps
 # last matched; fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
-# fork-mirror: .github/workflows/ci.yml@8b570d282b5f50709185fbd26f8e36872ddafdeb
+# fork-mirror: .github/workflows/ci.yml@c55db3e9c72fdf584f4b54192fb39beb88667b59
 
 on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
@@ -94,7 +94,8 @@ jobs:
     name: Check
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
-    runs-on: ubuntu-latest
+    # Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -191,6 +192,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Build desktop pipeline
+        id: build
         if: needs.changes.outputs.build != 'false'
         run: vp run build:desktop
 
@@ -200,6 +202,37 @@ jobs:
           test -f apps/desktop/dist-electron/preload.cjs
           grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
           grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
+
+      - name: Resolve Playwright version
+        id: playwright_version
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium
+        id: chromium_cache
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
+
+      - name: Install Chromium for the built web client boot check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' && steps.chromium_cache.outputs.cache-hit != 'true' }}
+        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+
+      - name: Install missing Chromium system dependencies
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        run: |
+          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+          test -n "$browser"
+          if ldd "$browser" | grep '=> not found'; then
+            node apps/web/node_modules/playwright/cli.js install-deps chromium
+          fi
+
+      - name: Boot the built web client
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        timeout-minutes: 3
+        run: node apps/web/scripts/verify-built-boot.ts
 
   # Merge-tree conflict gate: head-only conflicts against live upstream/main
   # red the job; scripts/fork-merge-tree.sh, which fork:ci also runs, owns
@@ -384,13 +417,6 @@ jobs:
         env:
           T3CODE_DESKTOP_UPDATE_REPOSITORY: pingdotgg/t3code
         run: vp run --filter @t3tools/web test --testTimeout=60000 --shard ${{ matrix.shard }}/${{ strategy.job-total }}
-
-      # Source-level browser tests never run the production chunk graph, where boot breaks hide.
-      - name: Boot the built web client
-        if: matrix.shard == 1
-        run: |
-          vp run --filter @t3tools/web build
-          node apps/web/scripts/verify-built-boot.ts
 
   # The fork's scripts suite is large and does not shrink with the
   # product; a dedicated job keeps it from holding a pooled slot while
