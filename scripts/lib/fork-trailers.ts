@@ -1,3 +1,5 @@
+import * as Schema from "effect/Schema";
+
 export const FORK_DOMAINS = [
   "backend-attach",
   "browser-bookmarks",
@@ -64,7 +66,14 @@ export const forkLogArguments = (base: string, head: string) =>
  * is benign. Copies that disagree fail: the proof checks validate one copy, so a stale copy beside
  * a corrected one would otherwise pass in silence.
  */
-class DuplicateForkTrailerError extends Error {}
+class DuplicateForkTrailerError extends Schema.TaggedError<DuplicateForkTrailerError>()(
+  "DuplicateForkTrailerError",
+  {
+    message: Schema.String,
+  },
+) {}
+
+const isDuplicateForkTrailerError = Schema.is(DuplicateForkTrailerError);
 
 /**
  * The trailer block is the final paragraph left after dropping trailing paragraphs of tail material:
@@ -168,12 +177,13 @@ const readTrailer = (body: string, key: string): string | undefined => {
   if (values.length <= 1) return values[0];
   const distinct = [...new Set(values.map((value) => value ?? ""))];
   if (distinct.length > 1) {
-    throw new DuplicateForkTrailerError(
-      `duplicate ${key} trailer: ${values.length} copies disagree, distinct values in message ` +
+    throw new DuplicateForkTrailerError({
+      message:
+        `duplicate ${key} trailer: ${values.length} copies disagree, distinct values in message ` +
         `order: ${distinct
           .map((value) => (value === "" ? "(empty)" : JSON.stringify(value)))
           .join(", ")}`,
-    );
+    });
   }
   const only = distinct[0] ?? "";
   return only === "" ? undefined : only;
@@ -203,7 +213,7 @@ export const parseForkLog = (raw: string): ReadonlyArray<ParsedForkCommit> =>
       try {
         return { sha, short, authorDate, subject, ...parseForkTrailers(body) };
       } catch (error) {
-        if (error instanceof DuplicateForkTrailerError) {
+        if (isDuplicateForkTrailerError(error)) {
           // Name the offending commit, following the shape describeReplayMessageDiff established:
           // an unattended failure must not require reading the whole series to find the culprit.
           throw new Error(`${short} ${subject}: ${error.message}`, { cause: error });
