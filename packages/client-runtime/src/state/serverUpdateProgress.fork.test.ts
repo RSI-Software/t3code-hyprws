@@ -178,6 +178,14 @@ describe("server update progress", () => {
       yield* TestClock.adjust(Duration.seconds(5));
       yield* Fiber.join(lagging);
       expect(registry.get(atom)).toBe(done);
+
+      // A late completion never overwrites a newer attempt.
+      registry.set(atom, { status: "idle" });
+      const superseded = yield* publish(done);
+      registry.set(atom, restarting);
+      yield* TestClock.adjust(Duration.seconds(5));
+      yield* Fiber.join(superseded);
+      expect(registry.get(atom)).toBe(restarting);
     }).pipe(Effect.scoped),
   );
 

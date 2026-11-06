@@ -337,6 +337,7 @@ export function publishSettledServerUpdateState(
   configAtom: Atom.Atom<{ readonly environment: { readonly serverVersion: string } } | null>,
   state: TerminalServerUpdateState,
 ): Effect.Effect<void> {
+  const pending = atomRegistry.get(stateAtom);
   return AtomRegistry.toStream(atomRegistry, configAtom).pipe(
     Stream.filter((config) => {
       const version = config?.environment.serverVersion;
@@ -346,6 +347,9 @@ export function publishSettledServerUpdateState(
     Effect.timeoutOption(SERVER_UPDATE_CONFIG_SETTLE_TIMEOUT),
     Effect.andThen(
       Effect.sync(() => {
+        const current = atomRegistry.get(stateAtom);
+        // A newer attempt started while config settled.
+        if (current !== pending && current.status === "running") return;
         atomRegistry.set(stateAtom, state);
         retireServerUpdateStateWhenSuperseded(atomRegistry, stateAtom, configAtom, state);
       }),
@@ -960,7 +964,7 @@ export function createServerEnvironmentAtoms<R, E>(
           EnvironmentRegistry.EnvironmentNotRegisteredError
         >();
         yield* environmentRegistry.stateChanges(target.environmentId).pipe(
-          Stream.tap(() => Deferred.succeed(restartObserverArmed, undefined)),
+          Stream.onStart(Deferred.succeed(restartObserverArmed, undefined)),
           Stream.runForEach((connection) =>
             Effect.gen(function* () {
               const now = yield* Clock.currentTimeMillis;
@@ -1182,11 +1186,14 @@ export function createServerEnvironmentAtoms<R, E>(
             : yield* nextReady;
         yield* validateServerUpdateReadyEvent(result, resumed);
 
-        yield* publishSettledServerUpdateState(atomRegistry, stateAtom, configAtom, {
-          status: "completed",
-          fromVersion,
-          targetVersion: resumed.payload.environment.serverVersion,
-        });
+        atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE);
+        yield* Effect.forkDetach(
+          publishSettledServerUpdateState(atomRegistry, stateAtom, configAtom, {
+            status: "completed",
+            fromVersion,
+            targetVersion: resumed.payload.environment.serverVersion,
+          }),
+        ); // fork-hook: upstream-fixes/server-update-completed-publish
         return result;
       }).pipe(
         Effect.onExit((exit) =>
