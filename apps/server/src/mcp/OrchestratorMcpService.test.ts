@@ -3382,6 +3382,7 @@ describe("OrchestratorMcpService thread lookup", () => {
           runId: null,
           status: "idle",
           timedOut: false,
+          pendingRequestCount: 0,
         });
       }).pipe(
         Effect.provide(
