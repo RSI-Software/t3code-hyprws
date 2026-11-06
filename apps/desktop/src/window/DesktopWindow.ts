@@ -1012,7 +1012,7 @@ export const make = Effect.gen(function* () {
       Effect.map(Option.map((ensured) => ensured.window)),
       Effect.flatMap(requireWindow),
     ); // fork-hook: multi-window/window-id-reveal
-    yield* electronWindow.reveal(window);
+    yield* revealMain(window);
     return window;
   }); // fork-hook: multi-window/reveal-or-create-identity
 
