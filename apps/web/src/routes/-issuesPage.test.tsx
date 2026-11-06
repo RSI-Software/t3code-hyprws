@@ -62,6 +62,7 @@ vi.mock("../state/entities", () => ({
       },
     },
   ],
+  useQuietThreadShell: () => null,
 }));
 
 vi.mock("../state/githubIssues", () => ({
