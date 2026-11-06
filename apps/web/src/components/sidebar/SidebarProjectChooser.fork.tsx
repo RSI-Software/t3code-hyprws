@@ -104,7 +104,7 @@ export function ProjectChooserModeFork({
   const mode = projectChooserMode(filter);
   return (
     <Label
-      className="shrink-0"
+      className="ml-auto shrink-0"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
