@@ -662,7 +662,10 @@ export const layerWithOptions = (
           const projection = yield* projectionStore.getThreadRecords(
             threadId,
             ["runtimeRequests", "nodes", "turnItems", "providerThreads"], // fork-hook: upstream-fixes/released-tool-owners
-            { turnItemTypes: ["approval_request", "user_input_request", "dynamic_tool"] }, // fork-hook: upstream-fixes/released-tool-items
+            {
+              runtimeRequestStatuses: ["pending"],
+              turnItemTypes: ["approval_request", "user_input_request", "dynamic_tool"],
+            }, // fork-hook: upstream-fixes/released-tool-items
           );
           // fork-hook: upstream-fixes/released-native-tool-cleanup
           for (const event of releasedToolEventsFork(
