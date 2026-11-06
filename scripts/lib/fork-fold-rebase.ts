@@ -5,6 +5,7 @@
 // (not `.t3/`, which is dev-server state). A stop keeps the sequencer; rerunning apply adopts the
 // worktree, and only a finished fold removes it.
 
+import * as Schema from "effect/Schema";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -54,7 +55,11 @@ export interface FoldGit {
   ) => CommandResult;
 }
 
-export class FoldRebaseError extends Error {}
+export class FoldRebaseError extends Schema.TaggedError<FoldRebaseError>()("FoldRebaseError", {
+  message: Schema.String,
+}) {}
+
+export const isFoldRebaseError = Schema.is(FoldRebaseError);
 
 /**
  * A conflicted path the stack base lacks is fork-owned, so its intermediate states carry no replay
@@ -174,7 +179,9 @@ export const rebaseRemaining = (git: FoldGit, request: FoldRebaseRequest): FoldR
   const must = (args: ReadonlyArray<string>, cwd?: string): string => {
     const result = git.run(args, cwd === undefined ? {} : { cwd });
     if (result.status !== 0 || result.error !== undefined) {
-      throw new FoldRebaseError(`${commandText("git", args)} failed: ${result.stderr.trim()}`);
+      throw new FoldRebaseError({
+        message: `${commandText("git", args)} failed: ${result.stderr.trim()}`,
+      });
     }
     return result.stdout.trim();
   };
@@ -194,18 +201,18 @@ export const rebaseRemaining = (git: FoldGit, request: FoldRebaseRequest): FoldR
         NodeFS.readFileSync(NodePath.join(stateDir, "state.json"), "utf8"),
       ) as KeptState;
     } catch {
-      throw new FoldRebaseError(
-        `cannot read the kept fold state at ${NodePath.join(stateDir, "state.json")}; remove ${stateDir} to abandon the kept worktree`,
-      );
+      throw new FoldRebaseError({
+        message: `cannot read the kept fold state at ${NodePath.join(stateDir, "state.json")}; remove ${stateDir} to abandon the kept worktree`,
+      });
     }
     if (kept.base !== state.base || kept.head !== state.head || kept.plan !== state.plan)
-      throw new FoldRebaseError(
-        `the kept worktree at ${worktree} was built for base ${kept.base}, head ${kept.head}, plan ${kept.plan}; rerun that exact apply command, or remove ${stateDir} to abandon it`,
-      );
+      throw new FoldRebaseError({
+        message: `the kept worktree at ${worktree} was built for base ${kept.base}, head ${kept.head}, plan ${kept.plan}; rerun that exact apply command, or remove ${stateDir} to abandon it`,
+      });
     if (!rebaseInProgress())
-      throw new FoldRebaseError(
-        `the kept worktree at ${worktree} holds no rebase stop to resume; remove ${stateDir} to abandon it`,
-      );
+      throw new FoldRebaseError({
+        message: `the kept worktree at ${worktree} holds no rebase stop to resume; remove ${stateDir} to abandon it`,
+      });
   } else {
     fresh = true;
     git.run(["worktree", "prune"]);
@@ -229,7 +236,7 @@ export const rebaseRemaining = (git: FoldGit, request: FoldRebaseRequest): FoldR
   const earliest = Math.min(...positions);
   const earliestCommit = request.stack.commits[earliest];
   if (earliestCommit === undefined)
-    throw new FoldRebaseError("a remaining fold member is not on the stack");
+    throw new FoldRebaseError({ message: "a remaining fold member is not on the stack" });
   const upstream = must(["rev-parse", `${earliestCommit.sha}^`]);
 
   const resume = () =>
@@ -293,9 +300,9 @@ export const rebaseRemaining = (git: FoldGit, request: FoldRebaseRequest): FoldR
   }
   if (status.status !== 0) {
     if (!rebaseInProgress())
-      throw new FoldRebaseError(
-        `git rebase failed without a stop: ${status.stderr.trim() || status.stdout.trim() || "no output"}\nremove ${stateDir} to abandon the kept worktree`,
-      );
+      throw new FoldRebaseError({
+        message: `git rebase failed without a stop: ${status.stderr.trim() || status.stdout.trim() || "no output"}\nremove ${stateDir} to abandon the kept worktree`,
+      });
     return {
       status: "stopped",
       worktree,
@@ -320,7 +327,7 @@ const writeTodo = (stateDir: string, request: FoldRebaseRequest): void => {
   const lines: Array<string> = [];
   request.remaining.forEach((block, index) => {
     const [lead, ...rest] = block.members;
-    if (lead === undefined) throw new FoldRebaseError("empty plan line");
+    if (lead === undefined) throw new FoldRebaseError({ message: "empty plan line" });
     lines.push(`pick ${lead.sha}`);
     for (const member of rest) lines.push(`fixup ${member.sha}`);
     const amend = request.amends[index];
