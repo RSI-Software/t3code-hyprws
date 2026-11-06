@@ -8,27 +8,20 @@ import type {
 export function freshConversationForkMetadataFork() {
   return {
     checkoutMove: undefined,
-    historyOrigin: undefined,
     issues: [],
     unsettledAt: null,
     limitRecovery: null,
-    pinnedAt: null,
-    pinOrderKey: null,
-    activeOrderKey: null,
-    autoSettleDisabledAt: null,
-    titleRegeneration: null,
     rollbackRequestId: undefined,
     rollbackFailure: null,
   } satisfies Partial<OrchestrationV2AppThread>;
 }
 
 // A subagent thread also records `forkedFrom` (its parent node); only lineage marks a conversation fork.
+// Side chats are forks too, but carry their own side-chat context instead of the notice.
 // Turn-start harnesses pass partial threads without lineage, so read it defensively.
 function isConversationForkFork(thread: OrchestrationV2AppThread) {
-  return (
-    (thread.lineage as OrchestrationV2AppThread["lineage"] | undefined)?.relationshipToParent ===
-    "fork"
-  );
+  const lineage = thread.lineage as OrchestrationV2AppThread["lineage"] | undefined;
+  return lineage?.relationshipToParent === "fork" && lineage.sideChat !== true;
 }
 
 /**
@@ -118,7 +111,9 @@ export function withoutConversationForkNoticeFork(text: string) {
   if (start === -1 || end === -1) return undefined;
   const before = text.slice(0, start);
   const after = text.slice(end + closing.length);
-  return before === ""
-    ? after.replace(/^\n\nUser message:\n/, "")
+  // A notice that opens the inline context drops the "User message:" label with it, even
+  // inside a wrapper such as `<user_request>`; one appended to context drops its separator.
+  return before === "" || !before.endsWith("\n\n")
+    ? `${before}${after.replace(/^\n\nUser message:\n/, "")}`
     : `${before.replace(/\n\n$/, "")}${after}`;
 }

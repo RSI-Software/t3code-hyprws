@@ -10,7 +10,9 @@ export function withoutConversationForkNoticeFork(text: string) {
   if (start === -1 || end === -1) return undefined;
   const before = text.slice(0, start);
   const after = text.slice(end + closing.length);
-  return before === ""
-    ? after.replace(/^\n\nUser message:\n/, "")
+  // A notice that opens the inline context drops the "User message:" label with it, even
+  // inside a wrapper such as `<user_request>`; one appended to context drops its separator.
+  return before === "" || !before.endsWith("\n\n")
+    ? `${before}${after.replace(/^\n\nUser message:\n/, "")}`
     : `${before.replace(/\n\n$/, "")}${after}`;
 }
