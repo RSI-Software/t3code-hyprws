@@ -4,6 +4,7 @@
 // A hook is one construct that never changes an upstream line; a marker mid-comment marks nothing.
 
 // @effect-diagnostics nodeBuiltinImport:off
+import * as Schema from "effect/Schema";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -356,10 +357,15 @@ export const forkHookConstructViolation = (code: string, multiline: boolean): bo
 };
 
 /** A derivation refusal, always naming the marker it refused at as `path:line`. */
-export class ForkHookDeclarationError extends Error {}
+export class ForkHookDeclarationError extends Schema.TaggedError<ForkHookDeclarationError>()(
+  "ForkHookDeclarationError",
+  {
+    message: Schema.String,
+  },
+) {}
 
 const declarationRefusal = (path: string, line: number, reason: string): never => {
-  throw new ForkHookDeclarationError(`${path}:${line}: ${reason}`);
+  throw new ForkHookDeclarationError({ message: `${path}:${line}: ${reason}` });
 };
 
 /**
