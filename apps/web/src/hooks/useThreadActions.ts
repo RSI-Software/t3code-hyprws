@@ -904,7 +904,10 @@ export function useThreadActions() {
       input: { threadId: target.threadId, orderKey },
     });
   };
-  const reorderActiveThreadOrClear = reorderActiveThreadFork({ reorderActiveThreadMutation }); // fork-hook: thread-ordering/reset-order-action
+  const reorderActiveThreadOrClear = reorderActiveThreadFork({
+    reorderActiveThreadMutation,
+    unsupportedError: ThreadActiveReorderUnsupportedError,
+  }); // fork-hook: thread-ordering/reset-order-action
 
   const unsnoozeThread = async (target: ScopedThreadRef) => {
     if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
