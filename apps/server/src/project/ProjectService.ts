@@ -268,6 +268,7 @@ export const make = Effect.gen(function* () {
   });
 
   const hydrate = Effect.fn("ProjectService.hydrate")(function* (row: ProjectStore.ProjectRow) {
+    if (row.deletedAt !== null) return toProject(row, null); // fork-hook: upstream-fixes/deleted-project-stable-hydration
     if (row.deletedAt === null) {
       yield* syncFolders(row).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(scope));
     }
