@@ -46,9 +46,10 @@ import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
-import { useMobileProjectFilter } from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
-import { pickMobileProjectFilter } from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
-import { mobileProjectFilterPick } from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
+import {
+  useMobileProjectFilter,
+  mobileProjectFilterPick,
+} from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-selection-import
 import { useFabScroll } from "../home/FabScrollContext";
 import { WorkspaceListHeader } from "../layout/workspace/WorkspaceListHeader";
 import { WORKSPACE_LIST_SCROLL_INSETS } from "../layout/workspace/workspace-list-insets";
@@ -547,6 +548,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
           selectedProjectKey,
           onEnvironmentChange: setSelectedEnvironmentId,
           onProjectChange: setSelectedProjectKey,
+          ...mobileProjectFilterPick, // fork-hook: workspaces/mobile-filter-menu
         }),
       }}
       sidebar={{
