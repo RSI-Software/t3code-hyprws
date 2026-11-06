@@ -1176,7 +1176,7 @@ export const make = Effect.gen(function* () {
       if (yield* Ref.get(desktopState.quitting)) return;
       const forkTarget = yield* captureRevealWindow; // fork-hook: multi-window/window-targets-activate
       yield* endSnapShotReveal; // fork-hook: multi-window/window-targets-activate-end-reveal
-      if (Option.isSome(forkTarget)) return yield* electronWindow.reveal(forkTarget.value); // fork-hook: multi-window/window-targets-activate-return
+      if (Option.isSome(forkTarget)) return yield* revealMain(forkTarget.value); // fork-hook: multi-window/window-targets-activate-return
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
         yield* revealMain(existingWindow.value);
