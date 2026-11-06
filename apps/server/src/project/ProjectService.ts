@@ -212,6 +212,7 @@ export const make = Effect.gen(function* () {
   });
 
   const hydrate = Effect.fn("ProjectService.hydrate")(function* (row: ProjectStore.ProjectRow) {
+    if (row.deletedAt !== null) return toProject(row, null); // fork-hook: upstream-fixes/deleted-project-stable-hydration
     const enrichment =
       row.deletedAt === null
         ? yield* projectEnrichment.getAvailable(row.workspaceRoot)
