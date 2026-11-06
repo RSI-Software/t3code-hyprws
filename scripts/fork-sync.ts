@@ -27,7 +27,7 @@ import {
   type FoldCommit,
 } from "./fork-fold.ts";
 import { FORK_CI_WORKFLOW_PATH } from "./lib/fork-ci-flags.ts";
-import { parseArgs, UsageError } from "./lib/fork-cli.ts";
+import { parseArgs } from "./lib/fork-cli.ts";
 import { commandText, type CommandResult } from "./lib/fork-command.ts";
 import { deriveForkHooksIn } from "./lib/fork-hooks.ts";
 import { reapplyForkHooks } from "./lib/fork-hook-reapply.ts";
@@ -2377,8 +2377,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       }),
     );
   } catch (error) {
-    const message =
-      error instanceof UsageError || error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
     // The failure issue keys on the target tag when one resolved or was named,
     // else the trunk sha; the report still needs a tag, so a crash before any
