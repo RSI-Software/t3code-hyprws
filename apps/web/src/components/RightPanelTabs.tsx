@@ -932,7 +932,6 @@ function RightPanelTab(
     onStartRename,
     onFinishRename,
   } = props;
-  const { base: titleBase, suffix: titleSuffix } = splitTerminalLabelSuffix(title);
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: surface.id,
     disabled: props.dragDisabled,
@@ -943,6 +942,7 @@ function RightPanelTab(
       : null,
   );
   const title = sideChatShell?.title ?? props.title;
+  const { base: titleBase, suffix: titleSuffix } = splitTerminalLabelSuffix(title);
   const sideChatState = sideChatTabState(sideChatShell);
   const content = (
     <>
