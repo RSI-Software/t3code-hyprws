@@ -111,8 +111,8 @@ export const parseReleaseDeltaOptions = (argv: ReadonlyArray<string>): Options =
   }
   const base = parsed.values.get("--base") ?? "upstream/main";
   const head = parsed.values.get("--head") ?? "HEAD";
-  if (base.length === 0) throw new UsageError("--base requires a ref");
-  if (head.length === 0) throw new UsageError("--head requires a ref");
+  if (base.length === 0) throw new UsageError({ message: "--base requires a ref" });
+  if (head.length === 0) throw new UsageError({ message: "--head requires a ref" });
   return { base, head, githubOutput: parsed.flags.has("--github-output") };
 };
 
