@@ -16,7 +16,7 @@ import {
   renderAuthoringWarnings,
   type ScanAuthoringWarning,
 } from "./fork-scan-authoring.ts";
-import { UsageError } from "./lib/fork-cli.ts";
+import { isUsageError, UsageError } from "./lib/fork-cli.ts";
 import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
 import {
   checkAdditive,
@@ -158,18 +158,18 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
     if (argument === "--no-typecheck" || argument === "--mirror-pins") {
-      if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
+      if (seen.has(argument)) throw new UsageError({ message: `duplicate option: ${argument}` });
       seen.add(argument);
       if (argument === "--mirror-pins") options.mirrorPins = true;
       else options.typecheck = false;
       continue;
     }
-    if (!valueFlags.has(argument)) throw new UsageError(`unknown option: ${argument}`);
-    if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
+    if (!valueFlags.has(argument)) throw new UsageError({ message: `unknown option: ${argument}` });
+    if (seen.has(argument)) throw new UsageError({ message: `duplicate option: ${argument}` });
     seen.add(argument);
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("-")) {
-      throw new UsageError(`missing value for ${argument}`);
+      throw new UsageError({ message: `missing value for ${argument}` });
     }
     index += 1;
     if (argument === "--base") options.base = value;
@@ -180,16 +180,16 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   }
 
   if (options.base !== null && options.base.length === 0) {
-    throw new UsageError("--base cannot be empty");
+    throw new UsageError({ message: "--base cannot be empty" });
   }
   if (options.since !== null && options.since.length === 0) {
-    throw new UsageError("--since cannot be empty");
+    throw new UsageError({ message: "--since cannot be empty" });
   }
   if (options.replayOf !== null && options.replayOf.length === 0) {
-    throw new UsageError("--replay-of cannot be empty");
+    throw new UsageError({ message: "--replay-of cannot be empty" });
   }
-  if (options.head.length === 0) throw new UsageError("--head cannot be empty");
-  if (options.target.length === 0) throw new UsageError("--target cannot be empty");
+  if (options.head.length === 0) throw new UsageError({ message: "--head cannot be empty" });
+  if (options.target.length === 0) throw new UsageError({ message: "--target cannot be empty" });
   return options;
 };
 
@@ -652,7 +652,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     );
     return 0;
   } catch (error) {
-    if (error instanceof UsageError) {
+    if (isUsageError(error)) {
       process.stderr.write(`usage: ${error.message}\nTry --help.\n`);
       return 2;
     }
