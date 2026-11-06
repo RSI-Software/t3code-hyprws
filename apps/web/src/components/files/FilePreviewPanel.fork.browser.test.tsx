@@ -138,14 +138,9 @@ describe("rich Markdown task saves", () => {
   it("toggles and saves a task from the rich editor", async () => {
     using _settings = setup();
     await using screen = await render(markdownPreview(false));
-    // The rich editor lazy-loads; wait for its task checkbox before driving it.
-    const checkbox = await vi.waitFor(() => {
-      const found = screen.container.querySelector<HTMLInputElement>(
-        'li[data-item-type="task"] input[type="checkbox"]',
-      );
-      expect(found).not.toBeNull();
-      return found!;
-    });
+    const checkbox = screen.getByRole("checkbox");
+    await expect.element(checkbox).not.toBeChecked();
+    await expect.element(screen.getByRole("listitem")).toHaveAttribute("data-item-type", "task");
     using _timers = fakeTimers();
     await act(async () => checkbox.click());
     await vi.advanceTimersByTimeAsync(500);
