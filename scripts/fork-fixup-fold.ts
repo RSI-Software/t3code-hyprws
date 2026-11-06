@@ -12,7 +12,7 @@ import * as NodePath from "node:path";
 
 import { FIXUP_PREFIX } from "./fork-delta.ts";
 import { resolveFixups, type SubjectCommit } from "./fork-sync.ts";
-import { parseArgs, UsageError } from "./lib/fork-cli.ts";
+import { parseArgs, isUsageError } from "./lib/fork-cli.ts";
 import { runCommand } from "./lib/fork-command.ts";
 import { SystemGit } from "./lib/fork-git-reader.ts";
 import { FIXUP_OWNERS_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
@@ -249,7 +249,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     base = values.get("--base") ?? "upstream/main";
     head = values.get("--head") ?? "HEAD";
   } catch (error) {
-    if (!(error instanceof UsageError)) throw error;
+    if (!isUsageError(error)) throw error;
     process.stderr.write(`usage: ${error.message}\nTry --help.\n`);
     return 2;
   }

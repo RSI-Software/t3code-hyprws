@@ -5,20 +5,25 @@
 // `repositoryUrl`), upstream's order first, then the fork's additions. A key both sides changed, a
 // delete of an entry the other side changed, or an entry without a unique key refuses.
 
+import * as Schema from "effect/Schema";
 import * as NodeUtil from "node:util";
 
 export type LicenseMerge = { readonly text: string } | { readonly refuseReason: string };
 
 type Json = unknown;
 
-class Refusal extends Error {}
+class Refusal extends Schema.TaggedError<Refusal>()("Refusal", {
+  message: Schema.String,
+}) {}
+
+const isRefusal = Schema.is(Refusal);
 
 /** Three-way pick: the side that moved off the base wins; both moving apart refuses. */
 const pick = (base: Json, upstream: Json, fork: Json, what: string): Json => {
   if (NodeUtil.isDeepStrictEqual(upstream, fork)) return upstream;
   if (NodeUtil.isDeepStrictEqual(fork, base)) return upstream;
   if (NodeUtil.isDeepStrictEqual(upstream, base)) return fork;
-  throw new Refusal(`both sides changed ${what}`);
+  throw new Refusal({ message: `both sides changed ${what}` });
 };
 
 /** An entry's identity: its `name`, or its `repositoryUrl` when upstream omits the name. */
@@ -33,8 +38,8 @@ const byName = (entries: ReadonlyArray<Json>, key: string): Map<string, Json> =>
   for (const entry of entries) {
     const name = identity(entry);
     if (typeof name !== "string")
-      throw new Refusal(`a ${key} entry has no string name or repositoryUrl`);
-    if (named.has(name)) throw new Refusal(`${key} names "${name}" twice`);
+      throw new Refusal({ message: `a ${key} entry has no string name or repositoryUrl` });
+    if (named.has(name)) throw new Refusal({ message: `${key} names "${name}" twice` });
     named.set(name, entry);
   }
   return named;
@@ -63,7 +68,7 @@ const mergeEntries = (
     if (inBase) {
       const kept = inUpstream ? upstreamByName.get(name) : forkByName.get(name);
       if (!NodeUtil.isDeepStrictEqual(kept, baseByName.get(name)))
-        throw new Refusal(`one side deleted ${what} the other changed`);
+        throw new Refusal({ message: `one side deleted ${what} the other changed` });
       return;
     }
     merged.push(inUpstream ? upstreamByName.get(name) : forkByName.get(name));
@@ -74,10 +79,10 @@ const mergeEntries = (
 };
 
 const parse = (text: string | null, side: string): Record<string, Json> => {
-  if (text === null) throw new Refusal(`the ${side} side deleted the file`);
+  if (text === null) throw new Refusal({ message: `the ${side} side deleted the file` });
   const value: unknown = JSON.parse(text);
   if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw new Refusal(`the ${side} side is not a JSON object`);
+    throw new Refusal({ message: `the ${side} side is not a JSON object` });
   return value as Record<string, Json>;
 };
 
@@ -108,8 +113,7 @@ export const mergeLicenseLists = (stages: {
     }
     return { text: `${JSON.stringify(merged, null, 2)}\n` };
   } catch (error) {
-    if (error instanceof Refusal || error instanceof SyntaxError)
-      return { refuseReason: error.message };
+    if (isRefusal(error) || error instanceof SyntaxError) return { refuseReason: error.message };
     throw error;
   }
 };
