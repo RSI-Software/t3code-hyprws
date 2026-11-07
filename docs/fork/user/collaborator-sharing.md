@@ -18,7 +18,7 @@ The link expires after 24 hours.
 
 ## Access
 
-Each shared thread has its own access, set beside their name under **People with access**:
+Each shared thread has its own access, set beside their name under **People with access**, or with their switch under **Collaborators** in the thread details:
 
 - **Needs approval**, the default: messages **wait for you**
 - **Can send**, so messages **reach the agent** at once
