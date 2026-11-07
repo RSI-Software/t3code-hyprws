@@ -2,7 +2,9 @@ import {
   DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE,
   DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE,
   DEFAULT_GITHUB_LINK_OPEN_MODE,
+  DEFAULT_GITHUB_REFERENCE_STYLE,
   type GitHubChangeRequestOpenMode,
+  type GitHubReferenceStyle,
   type GitHubLinkOpenMode,
 } from "@t3tools/contracts/settings";
 
@@ -29,6 +31,11 @@ const GITHUB_LINK_DESTINATION_LABELS: Record<GitHubLinkOpenMode, string> = {
   external: "External browser",
 };
 
+const GITHUB_REFERENCE_STYLE_LABELS: Record<GitHubReferenceStyle, string> = {
+  chip: "Titled chip",
+  link: "Plain link",
+};
+
 export function GitHubIssueSettingsSection() {
   const template = useScopedSettings((settings) => settings.githubIssueHandoffPromptTemplate);
   const templateMixed = useScopedSettingsMixed(["githubIssueHandoffPromptTemplate"]);
@@ -37,6 +44,7 @@ export function GitHubIssueSettingsSection() {
   const githubChangeRequestOpenMode = useClientSettings(
     (settings) => settings.githubChangeRequestOpenMode,
   );
+  const githubReferenceStyle = useClientSettings((settings) => settings.githubReferenceStyle);
   const isDirty = templateMixed || template !== DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE;
 
   return (
@@ -75,6 +83,41 @@ export function GitHubIssueSettingsSection() {
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
               {Object.entries(GITHUB_CHANGE_REQUEST_DESTINATION_LABELS).map(([value, label]) => (
+                <SelectItem hideIndicator key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("github-reference-style")}
+        description="Show issue and pull request references in chat as a chip with the title, or as a plain link whose title shows on hover."
+        resetAction={
+          githubReferenceStyle !== DEFAULT_GITHUB_REFERENCE_STYLE ? (
+            <SettingResetButton
+              label="GitHub reference style"
+              onClick={() =>
+                updateClientSettings({ githubReferenceStyle: DEFAULT_GITHUB_REFERENCE_STYLE })
+              }
+            />
+          ) : null
+        }
+        control={
+          <Select
+            value={githubReferenceStyle}
+            onValueChange={(value) => {
+              if (value === "chip" || value === "link") {
+                updateClientSettings({ githubReferenceStyle: value });
+              }
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-40" aria-label="GitHub reference style">
+              <SelectValue>{GITHUB_REFERENCE_STYLE_LABELS[githubReferenceStyle]}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {Object.entries(GITHUB_REFERENCE_STYLE_LABELS).map(([value, label]) => (
                 <SelectItem hideIndicator key={value} value={value}>
                   {label}
                 </SelectItem>

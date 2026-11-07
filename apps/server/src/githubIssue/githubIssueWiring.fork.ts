@@ -37,6 +37,7 @@ export const gitHubIssueRpcHandlersFork = (
   "githubIssues.detail": (input: GitHubIssueRef) => githubIssues.detail(input),
   "githubIssues.linkedThreads": (input: ThreadIssueKey) =>
     listLinkedIssueThreadsFork(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+  "githubIssues.reference": (input: ThreadIssueKey) => githubIssues.reference(input),
   "githubIssues.setState": (input: GitHubIssueSetStateInput) => githubIssues.setState(input),
   // An active thread only: an unknown or deleted one answers not found.
   "githubIssues.syncThreadLinks": (input: ThreadIssueSyncInput) =>
