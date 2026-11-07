@@ -1,5 +1,5 @@
 import { sessionHasLegacyPermissions, type EnvironmentId } from "@t3tools/contracts";
-import { isColleagueGrantFork } from "@t3tools/contracts"; // fork-hook: colleague-collab/permission-notice-import
+import { isCollaboratorGrantFork as isCollaborator } from "@t3tools/contracts"; // fork-hook: colleague-collab/permission-notice-import
 import type { AnyRouter } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
@@ -19,7 +19,7 @@ interface LegacyPermissionEnvironment {
 const legacyPermissionEnvironmentsAtom = Atom.make((get) =>
   get(environmentSummaries.identitiesAtom).filter(({ environmentId }) => {
     const session = get(environmentSession.sessionStateAtom(environmentId));
-    if (session._tag === "Success" && isColleagueGrantFork(session.value.permissions)) return false; // fork-hook: colleague-collab/permission-notice
+    if (session._tag === "Success" && isCollaborator(session.value.permissions)) return false; // fork-hook: colleague-collab/permission-notice
     return (
       session._tag === "Success" && !session.waiting && sessionHasLegacyPermissions(session.value)
     );

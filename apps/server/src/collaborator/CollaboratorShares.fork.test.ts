@@ -17,6 +17,7 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientResponse } from "effect/http";
@@ -26,8 +27,10 @@ import * as Stream from "effect/Stream";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
-import * as ColleagueShares from "./ColleagueShares.fork.ts";
+import { collaboratorPrompt } from "./CollaboratorMessages.fork.ts";
+import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
 
 const shared = ThreadId.make("shared");
 const other = ThreadId.make("other");
@@ -78,6 +81,14 @@ const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
   createPairingLink: () => Effect.succeed({ credential: "token" } as never),
   listSessions: () => Effect.succeed([...pairedSubjects].map((subject) => ({ subject }) as never)),
 });
+const hostDispatches: Array<OrchestrationV2Command> = [];
+const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
+  dispatch: (command) =>
+    Effect.sync(() => {
+      hostDispatches.push(command as OrchestrationV2Command);
+      return {} as never;
+    }),
+});
 const config = Layer.succeed(ServerConfig.ServerConfig, {
   host: "127.0.0.1",
   port: 3773,
@@ -92,6 +103,7 @@ const database = it.layer(
     threads,
     auth,
     config,
+    orchestrator,
   ),
 );
 type Ingress = ReadonlyArray<{ hostname?: string; path?: string; service: string }>;
@@ -110,12 +122,12 @@ const tunnelClient = (ingress?: Ingress) =>
   );
 
 const withService = <A, E>(
-  effect: Effect.Effect<A, E, ColleagueShares.ColleagueSharesFork>,
+  effect: Effect.Effect<A, E, CollaboratorShares.CollaboratorSharesFork>,
   tunnel?: Ingress,
 ) =>
   Effect.andThen(
     ensureForkSchema(),
-    Effect.provide(effect, ColleagueShares.layer.pipe(Layer.provide(tunnelClient(tunnel)))),
+    Effect.provide(effect, CollaboratorShares.layer.pipe(Layer.provide(tunnelClient(tunnel)))),
   );
 
 const snapshot = () =>
@@ -158,21 +170,25 @@ const visibleThreads = (item: OrchestrationV2ShellStreamItem) =>
   item.kind === "snapshot" ? item.snapshot.threads.map((thread) => thread.id) : [];
 const frozenThreads = (item: OrchestrationV2ShellStreamItem) =>
   item.kind === "snapshot"
-    ? item.snapshot.threads.filter((thread) => thread.colleagueFrozenFork).map(({ id }) => id)
+    ? item.snapshot.threads
+        .filter((thread) => thread.collaboratorFork === "frozen")
+        .map(({ id }) => id)
     : [];
 
 const visibleProjects = (item: OrchestrationV2ShellStreamItem) =>
   item.kind === "snapshot" ? item.snapshot.projects.map(({ id }) => id) : [];
 
-const message = (threadId: ThreadId, type = "message.dispatch", text = "hi") =>
-  ({ type, threadId, text }) as never as OrchestrationV2Command;
+const message = (threadId: ThreadId, type = "message.dispatch", text = "hi", context?: object) =>
+  ({ type, threadId, text, context }) as never as OrchestrationV2Command;
 const sentText = (command: OrchestrationV2Command) => ("text" in command ? command.text : "");
+const sentAuthor = (command: OrchestrationV2Command) =>
+  "context" in command ? command.context?.collaboratorFork : undefined;
 
-database("ColleagueSharesFork", (it) => {
-  it.effect("narrows a colleague's shell live, from a fresh snapshot on every change", () =>
+database("CollaboratorSharesFork", (it) => {
+  it.effect("narrows a collaborator's shell live, from a fresh snapshot on every change", () =>
     withService(
       Effect.gen(function* () {
-        const service = yield* ColleagueShares.ColleagueSharesFork;
+        const service = yield* CollaboratorShares.CollaboratorSharesFork;
         const wrapped = service.wrapHandlers("colleague:sam", handlers);
         const items = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
         shellEvents.queue = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
@@ -185,7 +201,7 @@ database("ColleagueSharesFork", (it) => {
         );
 
         assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
-        yield* service.share({ threadId: shared, colleagueName: "Sam" });
+        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
         const afterShare = yield* Queue.take(items);
         assert.deepStrictEqual(visibleThreads(afterShare), [shared]);
         assert.deepStrictEqual(visibleProjects(afterShare), [sharedProject]);
@@ -209,36 +225,49 @@ database("ColleagueSharesFork", (it) => {
         const afterStop = yield* Queue.take(items);
         assert.deepStrictEqual(frozenThreads(afterStop), [shared]);
         assert.deepStrictEqual(visibleProjects(afterStop), [sharedProject]);
-        yield* service.share({ threadId: shared, colleagueName: "Sam" });
+        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
         const afterReshare = yield* Queue.take(items);
         assert.deepStrictEqual(visibleThreads(afterReshare), [shared]);
         assert.deepStrictEqual(frozenThreads(afterReshare), []);
         assert.deepStrictEqual(shellInputs.map(Object.keys), [[], [], [], [], []]);
         yield* Fiber.interrupt(fiber);
 
+        // The host's own sends cannot claim a collaborator wrote them.
         const owner = service.wrapHandlers("owner", handlers);
-        assert.strictEqual(owner, handlers);
+        const claimed = message(shared, "message.dispatch", "hi", {
+          version: 1,
+          records: [],
+          collaboratorFork: { name: "Sam", text: "hi" },
+        });
+        const ownerSent = yield* owner["orchestration.dispatchCommand"](
+          claimed,
+          undefined as never,
+        );
+        assert.isUndefined(sentAuthor(ownerSent));
       }),
     ),
   );
 
-  it.effect("limits a colleague to shared threads and names them in their messages", () =>
+  it.effect("limits a collaborator to shared threads and names them in their messages", () =>
     withService(
       Effect.gen(function* () {
-        const service = yield* ColleagueShares.ColleagueSharesFork;
-        const result = yield* service.share({ threadId: shared, colleagueName: "Sam" });
-        assert.isFalse(result.knownColleague);
+        const service = yield* CollaboratorShares.CollaboratorSharesFork;
+        const result = yield* service.share({
+          threadId: shared,
+          collaboratorName: "Sam",
+          access: "send",
+        });
+        assert.isFalse(result.knownCollaborator);
         assert.strictEqual(new URL(result.pairingUrl).searchParams.get("thread"), shared);
         // Like ws.ts, assign the wrapped handlers back onto the object they wrap.
         const wrapped = { ...handlers };
         Object.assign(wrapped, service.wrapHandlers("colleague:sam", wrapped));
         const dispatch = wrapped["orchestration.dispatchCommand"];
 
-        const attributed = "Message from colleague Sam:\n\nhi";
-        assert.strictEqual(
-          sentText(yield* dispatch(message(shared), undefined as never)),
-          attributed,
-        );
+        const attributed = collaboratorPrompt("Sam", "hi");
+        const sent = yield* dispatch(message(shared), undefined as never);
+        assert.strictEqual(sentText(sent), attributed);
+        assert.deepStrictEqual(sentAuthor(sent), { name: "Sam", text: "hi" });
         for (const text of ["hi", attributed]) {
           const edit = message(shared, "queued-run.edit", text);
           assert.strictEqual(sentText(yield* dispatch(edit, undefined as never)), attributed);
@@ -263,24 +292,105 @@ database("ColleagueSharesFork", (it) => {
         );
         const stopped = yield* service.threadShares(shared);
         assert.deepStrictEqual(stopped.sharedWith, []);
-        assert.deepStrictEqual(stopped.colleagues, [{ subject: "colleague:sam", name: "Sam" }]);
-        yield* service.share({ threadId: shared, colleagueName: "Sam" });
+        assert.deepStrictEqual(stopped.collaborators, [{ subject: "colleague:sam", name: "Sam" }]);
+        // A re-share keeps the access it had.
+        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+        assert.deepStrictEqual((yield* service.threadShares(shared)).sharedWith, [
+          { subject: "colleague:sam", name: "Sam", access: "send" },
+        ]);
         yield* Queue.take(live);
         assert.deepStrictEqual(threadInputs, [undefined, 4]);
         yield* Fiber.interrupt(open);
 
         pairedSubjects.add("colleague:sam");
-        const again = yield* service.share({ threadId: shared, colleagueName: "Sam" });
-        assert.isTrue(again.knownColleague);
+        const again = yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+        assert.isTrue(again.knownCollaborator);
       }),
     ),
   );
 
-  it.effect("refuses a colleague's RPCs outside its closed set and unshared threads", () =>
+  it.effect("holds an approve collaborator's messages until the host sends them", () =>
     withService(
       Effect.gen(function* () {
-        const service = yield* ColleagueShares.ColleagueSharesFork;
-        yield* service.share({ threadId: shared, colleagueName: "Sam" });
+        const service = yield* CollaboratorShares.CollaboratorSharesFork;
+        // The database is shared across tests, where Sam was given send access.
+        yield* service.share({ threadId: shared, collaboratorName: "Sam", access: "approve" });
+        yield* service.share({ threadId: shared, collaboratorName: "Ana" });
+        hostDispatches.length = 0;
+        const wrapped = { ...handlers };
+        Object.assign(wrapped, service.wrapHandlers("colleague:sam", wrapped));
+        const sam = service.messageHandlers("colleague:sam");
+        const host = service.messageHandlers(null);
+        const waiting = (handlers: typeof host) =>
+          handlers["collaborator.subscribeMessagesFork"]().pipe(
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          );
+
+        // The agent gets nothing until the host sends.
+        const direct = yield* Effect.exit(
+          wrapped["orchestration.dispatchCommand"](message(shared), undefined as never),
+        );
+        assert.isTrue(Exit.isFailure(direct));
+        yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "first" });
+        yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "second" });
+        assert.deepStrictEqual(
+          (yield* waiting(host)).map(({ name, text }) => ({ name, text })),
+          [
+            { name: "Sam", text: "first" },
+            { name: "Sam", text: "second" },
+          ],
+        );
+        assert.deepStrictEqual(yield* waiting(service.messageHandlers("colleague:ana")), []);
+        const [first, second] = yield* waiting(sam);
+
+        // Sam may withdraw but never send; the host sends with Sam's name attached.
+        assert.isTrue(
+          Exit.isFailure(
+            yield* Effect.exit(
+              sam["collaborator.resolveMessageFork"]({
+                threadId: shared,
+                messageId: first!.id,
+                decision: "send",
+              }),
+            ),
+          ),
+        );
+        yield* sam["collaborator.resolveMessageFork"]({
+          threadId: shared,
+          messageId: second!.id,
+          decision: "dismiss",
+        });
+        yield* host["collaborator.resolveMessageFork"]({
+          threadId: shared,
+          messageId: first!.id,
+          decision: "send",
+        });
+        assert.deepStrictEqual(yield* waiting(host), []);
+        assert.deepStrictEqual(
+          hostDispatches.map((command) => [sentText(command), sentAuthor(command)]),
+          [[collaboratorPrompt("Sam", "first"), { name: "Sam", text: "first" }]],
+        );
+
+        // Send access lets Sam's messages through directly, and refuses the approval path.
+        yield* service.setAccess({ subject: "colleague:sam", threadId: shared, access: "send" });
+        yield* wrapped["orchestration.dispatchCommand"](message(shared), undefined as never);
+        assert.isTrue(
+          Exit.isFailure(
+            yield* Effect.exit(
+              sam["collaborator.submitMessageFork"]({ threadId: shared, text: "queued" }),
+            ),
+          ),
+        );
+      }),
+    ),
+  );
+
+  it.effect("refuses a collaborator's RPCs outside its closed set and unshared threads", () =>
+    withService(
+      Effect.gen(function* () {
+        const service = yield* CollaboratorShares.CollaboratorSharesFork;
+        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
         const check = (subject: string, method: string, payload: unknown = {}) =>
           Effect.service(RpcScopeAuthorization).pipe(
             service.guardRpc(subject),
@@ -315,7 +425,7 @@ database("ColleagueSharesFork", (it) => {
         );
 
         const httpRead = (subject: string, threadId: ThreadId) =>
-          ColleagueShares.requireColleagueHttpThreadFork(threadId).pipe(
+          CollaboratorShares.requireCollaboratorHttpThreadFork(threadId).pipe(
             Effect.provideService(EnvironmentAuthenticatedPrincipal, { subject } as never),
             Effect.exit,
             Effect.map(Exit.isSuccess),
@@ -332,10 +442,10 @@ database("ColleagueSharesFork", (it) => {
       const link = (linkBaseUrl: string, tunnel?: Ingress) =>
         withService(
           Effect.gen(function* () {
-            const service = yield* ColleagueShares.ColleagueSharesFork;
+            const service = yield* CollaboratorShares.CollaboratorSharesFork;
             const { pairingUrl, localOnly } = yield* service.share({
               threadId: shared,
-              colleagueName: "Sam",
+              collaboratorName: "Sam",
               linkBaseUrl,
             });
             return { origin: new URL(pairingUrl).origin, localOnly };
