@@ -16,6 +16,7 @@ import {
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { imageMimeType } from "@t3tools/shared/image";
 import { videoMimeType } from "@t3tools/shared/video";
+import { collaboratorPresentationFork } from "./userMessage.fork.ts"; // fork-hook: colleague-collab/user-message-attribution-import
 
 /** The working row while T3 Code's own compaction runs. */
 export const IDLE_COMPACTING_LABELS = {
@@ -76,6 +77,8 @@ export function resolveUserMessagePresentation(message: {
   if (message.role !== "user") {
     return { text: message.text, attribution: null, scheduledTaskId: undefined };
   }
+  const collaboratorFork = collaboratorPresentationFork(message.context); // fork-hook: colleague-collab/user-message-attribution
+  if (collaboratorFork !== undefined) return collaboratorFork; // fork-hook: colleague-collab/user-message-attribution
   // The stored text names the guest for the agent; people see the guest's own words.
   const guest = message.context?.guest;
   if (guest !== undefined) {
