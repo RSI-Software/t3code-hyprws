@@ -95,6 +95,12 @@ export function createGitHubIssueEnvironmentAtoms<R, E>(
       label: "environment-data:github-issues:sync-thread-links",
       tag: WS_METHODS.githubIssuesSyncThreadLinks,
     }),
+    /** Title and state behind a chat reference; refreshed rarely, read by every chip on screen. */
+    reference: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:github-issues:reference",
+      tag: WS_METHODS.githubIssuesReference,
+      staleTimeMs: 300_000,
+    }),
     /** The threads that link one issue, by its host-level key. */
     linkedThreads: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:github-issues:linked-threads",

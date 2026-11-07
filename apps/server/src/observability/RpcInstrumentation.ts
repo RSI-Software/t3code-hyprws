@@ -148,6 +148,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.githubIssuesList]: "github-issues", // fork-hook: github-issues/rpc-aggregates
   [WS_METHODS.githubIssuesDetail]: "github-issues", // fork-hook: github-issues/rpc-aggregates
   [WS_METHODS.githubIssuesLinkedThreads]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.githubIssuesReference]: "github-issues", // fork-hook: github-issues/rpc-aggregates
   [WS_METHODS.githubIssuesSetState]: "github-issues", // fork-hook: github-issues/rpc-aggregates
   [WS_METHODS.githubIssuesSyncThreadLinks]: "github-issues", // fork-hook: github-issues/rpc-aggregates
   [WS_METHODS.threadCheckoutMoveRequest]: "orchestration", // fork-hook: zmux-estate/checkout-move-rpc-aggregate

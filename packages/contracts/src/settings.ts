@@ -29,6 +29,8 @@ import { ForkThreadEnvMode } from "./environment.fork.ts";
 import {
   DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE,
   DEFAULT_GITHUB_LINK_OPEN_MODE,
+  DEFAULT_GITHUB_REFERENCE_STYLE,
+  GitHubReferenceStyle,
   GitHubChangeRequestOpenMode,
   GitHubLinkOpenMode,
 } from "./settings.fork.ts"; // fork-hook: github-issues/settings-open-mode-import
@@ -303,6 +305,7 @@ const LegacyConfirmQuit = Schema.Boolean.pipe(
 const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);
 
 export { GitHubLinkOpenMode, DEFAULT_GITHUB_LINK_OPEN_MODE }; // fork-hook: github-issues/settings-link-open-mode-export
+export { GitHubReferenceStyle, DEFAULT_GITHUB_REFERENCE_STYLE }; // fork-hook: github-issues/settings-reference-style-export
 export { GitHubChangeRequestOpenMode, DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE }; // fork-hook: github-issues/settings-change-request-open-mode-export
 
 export const FontFamilyPreference = Schema.String.check(Schema.isMaxLength(200));
@@ -478,6 +481,9 @@ export const ClientSettingsSchema = Schema.Struct({
   githubChangeRequestOpenMode: GitHubChangeRequestOpenMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE)),
   ), // fork-hook: github-issues/settings-change-request-open-mode-field
+  githubReferenceStyle: GitHubReferenceStyle.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_REFERENCE_STYLE)),
+  ), // fork-hook: github-issues/settings-reference-style-field
 
   confirmQuit: QuitConfirmationModeSetting.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_QUIT_CONFIRMATION_MODE)),
@@ -2124,6 +2130,7 @@ export const ClientSettingsPatch = Schema.Struct({
   browserDefaultProfileId: Schema.optionalKey(BrowserProfileId),
   githubLinkOpenMode: Schema.optionalKey(GitHubLinkOpenMode), // fork-hook: github-issues/settings-link-open-mode-patch
   githubChangeRequestOpenMode: Schema.optionalKey(GitHubChangeRequestOpenMode), // fork-hook: github-issues/settings-change-request-open-mode-patch
+  githubReferenceStyle: Schema.optionalKey(GitHubReferenceStyle), // fork-hook: github-issues/settings-reference-style-patch
   confirmQuit: Schema.optionalKey(QuitConfirmationMode),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
