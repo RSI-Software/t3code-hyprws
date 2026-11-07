@@ -297,6 +297,7 @@ const handOff = (f: Fixture): void => {
   );
   f.git(["worktree", "remove", "--force", f.worktree], f.root);
   NodeFS.rmSync(NodePath.join(f.root, ".t3", "fork-sync", "worktree.json"));
+  NodeFS.rmSync(NodePath.join(f.root, ".t3", "fork-sync", "v1.0.0.decisions.md"), { force: true });
   f.git(["update-ref", "-d", "refs/fork-sync/resolution"], f.root);
 };
 
@@ -429,25 +430,51 @@ it("resumes a handed-off partial marker in a fresh checkout and finishes it", ()
   );
 });
 
-it("lands a handed-off finished marker's tip without rebasing again", () => {
-  withFixture(CLEAN, (f) => {
-    session(f);
-    const finished = readReport(f.root, "v1.0.0").marker!;
-    handOff(f);
-    const landing = exec();
-    assert.strictEqual(
-      capture(() => land(["v1.0.0"], { runner: landing.runner, root: f.root })).value,
-      0,
-    );
-    const report = readReport(f.root, "v1.0.0");
-    assert.strictEqual(report.outcome, "applied");
-    assert.strictEqual(report.trunk.after, finished.tip);
-    assert.strictEqual(report.marker?.commit, finished.commit);
-    assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), finished.tip);
-    assert.isFalse(
-      landing.calls.some(({ command, args }) => command === "git" && args.includes("rebase")),
-    );
-  });
+it("lands a handed-off finished marker's tip without rebasing again, then files its decisions", () => {
+  for (const refuse of [false, true])
+    withFixture(CLEAN, (f) => {
+      session(f);
+      const decisions = ["Panel: .md stays read-only; alternative: rich editor", "Retired X"];
+      NodeFS.writeFileSync(
+        NodePath.join(f.root, ".t3", "fork-sync", "v1.0.0.decisions.md"),
+        `- ${decisions[0]}\n\n* ${decisions[1]}\n- ${decisions[1]}\n`,
+      );
+      session(f);
+      const finished = readReport(f.root, "v1.0.0").marker!;
+      assert.deepEqual(finished.decisions, decisions);
+      handOff(f);
+      const filed: string[] = [];
+      const landing = exec({
+        gh: (args) => {
+          if (args[1] !== "create") return ok("[]");
+          filed.push(args[args.indexOf("--title") + 1]!);
+          filed.push(NodeFS.readFileSync(args[args.indexOf("--body-file") + 1]!, "utf8"));
+          return refuse
+            ? { status: 1, stdout: "", stderr: "HTTP 403" }
+            : ok("https://github.com/RSI-Software/t3code-hyprws/issues/9");
+        },
+      });
+      // A refused post keeps the landing but fails the run, so the summary shows it.
+      assert.strictEqual(
+        capture(() => land(["v1.0.0"], { runner: landing.runner, root: f.root })).value,
+        refuse ? 1 : 0,
+      );
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "applied");
+      assert.isTrue(report.push.pushed);
+      assert.strictEqual(
+        report.error?.startsWith("filing the decision issue failed") ?? false,
+        refuse,
+      );
+      assert.strictEqual(report.trunk.after, finished.tip);
+      assert.strictEqual(report.marker?.commit, finished.commit);
+      assert.strictEqual(filed[0], "hyprws sync landed v1.0.0: 2 decisions to review");
+      assert.include(filed[1], `- [ ] ${decisions[0]}\n- [ ] ${decisions[1]}`);
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), finished.tip);
+      assert.isFalse(
+        landing.calls.some(({ command, args }) => command === "git" && args.includes("rebase")),
+      );
+    });
 });
 
 it("blocks a land run on a partial marker and never pushes the trunk", () => {
@@ -876,6 +903,10 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
       // The clean local trunk follows, checkout included.
       assert.strictEqual(f.git(["rev-parse", "hyprws"], f.root), tip);
       assert.strictEqual(f.git(["status", "--porcelain", "--untracked-files=no"], f.root), "");
+      // A marker without decision items files nothing.
+      assert.isFalse(
+        recording.calls.some(({ command, args }) => command === "gh" && args[1] === "create"),
+      );
     },
   );
 });
