@@ -196,7 +196,7 @@ export interface EnvironmentThreadShell {
   readonly issues?: OrchestrationV2ThreadShell["issues"]; // fork-hook: github-issues/client-shell-issues-field
   readonly artifacts?: OrchestrationV2ThreadShell["artifacts"]; // fork-hook: thread-artifacts/client-shell-artifacts-field
   readonly checkoutMove?: import("@t3tools/contracts").ThreadCheckoutMove; // fork-hook: zmux-estate/shell-checkout-move-field
-  readonly colleagueFrozenFork?: boolean; // fork-hook: colleague-collab/client-shell-frozen-field
+  readonly collaboratorFork?: "send" | "approve" | "frozen"; // fork-hook: colleague-collab/client-shell-access-field
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -309,7 +309,7 @@ export function presentThreadShell(
     ...(thread.issues === undefined ? {} : { issues: thread.issues }), // fork-hook: github-issues/client-shell-issues
     ...(thread.artifacts === undefined ? {} : { artifacts: thread.artifacts }), // fork-hook: thread-artifacts/client-shell-artifacts
     ...checkoutMoveShellFieldsFork(thread), // fork-hook: zmux-estate/shell-checkout-move
-    ...(thread.colleagueFrozenFork ? { colleagueFrozenFork: true } : {}), // fork-hook: colleague-collab/client-shell-frozen
+    ...(thread.collaboratorFork ? { collaboratorFork: thread.collaboratorFork } : {}), // fork-hook: colleague-collab/client-shell-access
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
     linkOrigin: thread.linkOrigin ?? null,

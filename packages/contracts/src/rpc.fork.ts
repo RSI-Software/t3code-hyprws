@@ -215,41 +215,71 @@ export const threadGroupsRpcFork = {
   ] as const,
 };
 
-// Colleague collaboration (colleague-collab): share one thread through a pairing link.
+// Collaborators (colleague-collab): share one thread through a pairing link.
 import {
-  ColleagueShareErrorFork,
-  ColleagueShareThreadInputFork,
-  ColleagueShareThreadResultFork,
-  ColleagueThreadSharesInputFork,
-  ColleagueThreadMissingErrorFork,
-  ColleagueThreadSharesResultFork,
-  ColleagueUnshareErrorFork,
-  ColleagueUnshareThreadInputFork,
-} from "./colleague.fork.ts";
+  CollaboratorAccessErrorFork,
+  CollaboratorMessageErrorFork,
+  CollaboratorMessageFork,
+  CollaboratorResolveMessageInputFork,
+  CollaboratorSetAccessInputFork,
+  CollaboratorSubmitMessageInputFork,
+  CollaboratorShareErrorFork,
+  CollaboratorShareThreadInputFork,
+  CollaboratorShareThreadResultFork,
+  CollaboratorThreadSharesInputFork,
+  CollaboratorThreadMissingErrorFork,
+  CollaboratorThreadSharesResultFork,
+  CollaboratorUnshareErrorFork,
+  CollaboratorUnshareThreadInputFork,
+} from "./collaborator.fork.ts";
 
-export const colleagueRpcFork = {
+export const collaboratorRpcFork = {
   methodNames: {
-    colleagueShareThreadFork: "colleague.shareThreadFork",
-    colleagueThreadSharesFork: "colleague.threadSharesFork",
-    colleagueUnshareThreadFork: "colleague.unshareThreadFork",
+    collaboratorShareThreadFork: "collaborator.shareThreadFork",
+    collaboratorThreadSharesFork: "collaborator.threadSharesFork",
+    collaboratorUnshareThreadFork: "collaborator.unshareThreadFork",
+    collaboratorSetAccessFork: "collaborator.setAccessFork",
+    collaboratorSubscribeMessagesFork: "collaborator.subscribeMessagesFork",
+    collaboratorSubmitMessageFork: "collaborator.submitMessageFork",
+    collaboratorResolveMessageFork: "collaborator.resolveMessageFork",
   } as const,
   rpcs: [
-    Rpc.make("colleague.shareThreadFork", {
-      payload: ColleagueShareThreadInputFork,
-      success: ColleagueShareThreadResultFork,
+    Rpc.make("collaborator.shareThreadFork", {
+      payload: CollaboratorShareThreadInputFork,
+      success: CollaboratorShareThreadResultFork,
       error: Schema.Union([
-        ColleagueShareErrorFork,
-        ColleagueThreadMissingErrorFork,
+        CollaboratorShareErrorFork,
+        CollaboratorThreadMissingErrorFork,
         EnvironmentAuthorizationError,
       ]),
     }),
-    Rpc.make("colleague.threadSharesFork", {
-      payload: ColleagueThreadSharesInputFork,
-      success: ColleagueThreadSharesResultFork,
+    Rpc.make("collaborator.threadSharesFork", {
+      payload: CollaboratorThreadSharesInputFork,
+      success: CollaboratorThreadSharesResultFork,
     }),
-    Rpc.make("colleague.unshareThreadFork", {
-      payload: ColleagueUnshareThreadInputFork,
-      error: Schema.Union([ColleagueUnshareErrorFork, EnvironmentAuthorizationError]),
+    Rpc.make("collaborator.unshareThreadFork", {
+      payload: CollaboratorUnshareThreadInputFork,
+      error: Schema.Union([CollaboratorUnshareErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("collaborator.setAccessFork", {
+      payload: CollaboratorSetAccessInputFork,
+      error: Schema.Union([CollaboratorAccessErrorFork, EnvironmentAuthorizationError]),
+    }),
+    // Every waiting message this session may see: all of them for the host, its own for a
+    // collaborator.
+    Rpc.make("collaborator.subscribeMessagesFork", {
+      payload: Schema.Struct({}),
+      success: Schema.Array(CollaboratorMessageFork),
+      error: EnvironmentAuthorizationError,
+      stream: true,
+    }),
+    Rpc.make("collaborator.submitMessageFork", {
+      payload: CollaboratorSubmitMessageInputFork,
+      error: Schema.Union([CollaboratorMessageErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("collaborator.resolveMessageFork", {
+      payload: CollaboratorResolveMessageInputFork,
+      error: Schema.Union([CollaboratorMessageErrorFork, EnvironmentAuthorizationError]),
     }),
   ] as const,
 };
@@ -261,5 +291,5 @@ export const wsRpcsFork = [
   ...githubIssuesRpcFork.rpcs,
   ...checkoutMoveRpcFork.rpcs,
   ...threadGroupsRpcFork.rpcs,
-  ...colleagueRpcFork.rpcs,
+  ...collaboratorRpcFork.rpcs,
 ] as const;
