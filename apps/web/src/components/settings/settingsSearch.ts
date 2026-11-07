@@ -1266,6 +1266,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/source-control",
   },
   {
+    id: "github-reference-style",
+    title: "GitHub reference style",
+    to: "/settings/source-control",
+    searchTerms: ["issue pull request chip link title hover"],
+  }, // fork-hook: github-issues/settings-search-reference-style
+  {
     id: "github-link-destination",
     title: "GitHub repository link destination",
     to: "/settings/source-control",
