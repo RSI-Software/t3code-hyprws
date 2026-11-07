@@ -61,7 +61,8 @@ Never edit a report; a rerun supersedes it.
 2. Stopped: [resolve](#resolve), then rerun
 3. `rebased`: commit [tip work](#tip-work), rerun
 4. Green, with budget left: [fold](#fold), rerun
-5. [Hand off](#hand-off) the marker
+5. Record [decisions](#decisions), then rerun once
+6. [Hand off](#hand-off) the marker
 
 Never `git rebase --continue`, `git cherry-pick --continue`, or script a resolver.
 The rerun continues with every automatic resolver, and the report keeps only stops a run saw.
@@ -159,6 +160,27 @@ rm .t3/fork-sync/worktree.json                               # main checkout
 vp run fork:sync [<tag>]
 ```
 
+## Decisions
+
+**Land, then ask:** a product call never stalls the sync; it lands on the default, and a human answers after.
+Record a call **only when user-visible behaviour changes**, as one line in `.t3/fork-sync/<tag>.decisions.md` in the main checkout:
+
+- **A fork feature** retired, or its behaviour changed
+- **An upstream feature** the fork drops or alters
+
+**Never record** behaviour-preserving work: fixture and test adaptation, kept upstream code, or a Reshape that keeps behaviour.
+
+- **One line:** the feature, the call, the alternative
+- **References:** full fork form; upstream in code spans
+- **Carried:** the next marker's trailers
+- **Resumed marker:** its items merge into the file
+- **Land run:** files them as one issue
+- **No items:** nothing posted
+
+```md
+- FilePreviewPanel: truncated `.md` stays read-only; alternative: the rich editor
+```
+
 ## Fold
 
 After a green run, fold the stack in the kept worktree per [fork-fold](../fork-fold/SKILL.md).
@@ -219,10 +241,8 @@ A live one holds the job open and can rewrite the marker after the bundle.
 
 - **Default:** upstream stands; port at the tip
 - **Port fails its checks:** Retire it
-- **Each Reshape or Retire:** one Verify item
+- **Behaviour changed:** one [decision](#decisions)
 - **Blocked:** only a driver or setup failure
-
-The summary ends with `Verify:` and those items: behaviour to exercise once the sync lands.
 
 **Lost hooks first.** Clear every lost hook in one batch before any type or test work:
 
@@ -241,7 +261,7 @@ The one exception: `fork:fold apply`'s own rebase worktree, which holds no insta
 - **Fold:** start one only before 20 minutes gone
 - **Work:** to the wrap-up steer; never stop early
 - **Steer, or 35 minutes gone:** wrap up
-  1. Commit tip work as it is
+  1. Commit tip work; record [decisions](#decisions)
   2. One rerun; it writes the marker before `check`
   3. Hand off, even if the cut stops that rerun
 - **After the steer:** no tests, typecheck, or amend

@@ -1,17 +1,23 @@
 // @effect-diagnostics nodeBuiltinImport:off - The marker is Git plumbing over the common git dir.
 
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
 import { SYNC_RESOLUTION_BRANCH } from "./fork-policy.ts";
 import { git, gitResult, lines, runRequire, type CommandRunner } from "./fork-sync-git.ts";
 import { FOLD_AMEND_LINE } from "./fork-sync-todo.ts";
 
 /**
  * A session hands its rebased tip to the land run as one empty-message marker commit on
- * `sync/resolution` whose parent is the tip. Trailers name the target tag and lease; a partial
- * marker's body is the remaining rebase todo. The marker's tree is the lease's: a push runs the
+ * `sync/resolution` whose parent is the tip. Trailers name the session's decision items, the target
+ * tag, and the lease; a partial marker's body is the remaining rebase todo. The marker's tree is the lease's: a push runs the
  * pushed commit's workflow files, and those must be the trunk's, never a resolver's.
  */
 export const RESOLUTION_REF = "refs/fork-sync/resolution";
 const RESOLUTION_REMOTE_REF = `refs/remotes/origin/${SYNC_RESOLUTION_BRANCH}`;
+export const SYNC_DIR = ".t3/fork-sync";
+const DECISION_TRAILER = "Fork-Sync-Decision";
+const DECISION_LINE = new RegExp(`^${DECISION_TRAILER}: (.+)$`);
 const TAG_TRAILER = "Fork-Sync-Tag";
 const LEASE_TRAILER = "Fork-Sync-Lease";
 const SHA = /^[0-9a-f]{40}$/;
@@ -26,7 +32,36 @@ export interface Marker {
   readonly lease: string;
   /** The rest of the rebase todo; `null` once the rebase finished. */
   readonly todo: ReadonlyArray<string> | null;
+  /** Calls the sync made alone; the land run files them for a human. */
+  readonly decisions: ReadonlyArray<string>;
 }
+
+/** One decision item per line, beside the report; a bullet marker is optional. */
+const decisionsPath = (root: string, tag: string): string =>
+  NodePath.join(root, SYNC_DIR, `${tag}.decisions.md`);
+
+export const readDecisions = (root: string, tag: string): ReadonlyArray<string> =>
+  NodeFS.existsSync(decisionsPath(root, tag))
+    ? [
+        ...new Set(
+          lines(NodeFS.readFileSync(decisionsPath(root, tag), "utf8"))
+            .map((line) => line.replace(/^[-*]\s+(?:\[[ x]\]\s+)?/, "").trim())
+            .filter((line) => line !== ""),
+        ),
+      ]
+    : [];
+
+/** A run starting from a marker keeps its items, so a fresh checkout loses none. */
+export const carryDecisions = (root: string, marker: Marker): void => {
+  const local = readDecisions(root, marker.tag);
+  const merged = [...new Set([...local, ...marker.decisions])];
+  if (merged.length === local.length) return;
+  NodeFS.mkdirSync(NodePath.join(root, SYNC_DIR), { recursive: true });
+  NodeFS.writeFileSync(
+    decisionsPath(root, marker.tag),
+    merged.map((item) => `- ${item}\n`).join(""),
+  );
+};
 
 /** The commits a todo replays, so a resume can refuse one outside its stack. */
 export const todoCommits = (todo: ReadonlyArray<string>): ReadonlyArray<string> =>
@@ -41,6 +76,7 @@ const markerMessage = (marker: Omit<Marker, "commit">): string =>
       : `fork-sync partial ${marker.tag}: ${todoCommits(marker.todo).length} commits left`,
     "",
     ...(marker.todo === null ? [] : [...marker.todo, ""]),
+    ...marker.decisions.map((item) => `${DECISION_TRAILER}: ${item}`),
     `${TAG_TRAILER}: ${marker.tag}`,
     `${LEASE_TRAILER}: ${marker.lease}`,
     "",
@@ -63,21 +99,24 @@ export const readMarker = (runner: CommandRunner, root: string, ref: string): Ma
   )
     return null;
   const body = rest.slice(0, -2).filter((line) => line !== "");
-  if (!subject.startsWith(`fork-sync ${body.length === 0 ? "finished" : "partial"} ${tag}`))
+  const decisions = body.flatMap((line) => DECISION_LINE.exec(line)?.[1] ?? []);
+  const todo = body.filter((line) => !DECISION_LINE.test(line));
+  if (!subject.startsWith(`fork-sync ${todo.length === 0 ? "finished" : "partial"} ${tag}`))
     return null;
-  if (!body.every(todoLine)) return null;
-  return { commit, tip, tag, lease, todo: body.length === 0 ? null : body };
+  if (!todo.every(todoLine)) return null;
+  return { commit, tip, tag, lease, todo: todo.length === 0 ? null : todo, decisions };
 };
 
 /**
- * Write the marker for `tip` at `RESOLUTION_REF`. An unchanged marker, local
- * or on origin, is reused, so a rerun that changed nothing pushes nothing new.
+ * Write the marker for `tip` at `RESOLUTION_REF`, carrying the tag's decision items. An unchanged
+ * marker, local or on origin, is reused, so a rerun that changed nothing pushes nothing new.
  */
 export const writeMarker = (
   runner: CommandRunner,
   root: string,
-  marker: Omit<Marker, "commit">,
+  written: Omit<Marker, "commit" | "decisions">,
 ): Marker => {
+  const marker = { ...written, decisions: readDecisions(root, written.tag) };
   const same = [RESOLUTION_REF, RESOLUTION_REMOTE_REF]
     .map((ref) => readMarker(runner, root, ref))
     .find(
@@ -86,7 +125,8 @@ export const writeMarker = (
         existing.tip === marker.tip &&
         existing.tag === marker.tag &&
         existing.lease === marker.lease &&
-        JSON.stringify(existing.todo) === JSON.stringify(marker.todo),
+        JSON.stringify([existing.todo, existing.decisions]) ===
+          JSON.stringify([marker.todo, marker.decisions]),
     );
   const commit =
     same?.commit ??

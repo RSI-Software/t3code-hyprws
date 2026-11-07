@@ -98,7 +98,7 @@ Issue comments are projections of it: never parse one, and never treat an edit t
 | `trunk`       | Trunk before and after                    |
 | `conflicts[]` | Every stop's path, commits, resolution    |
 | `ci`          | The candidate's `hyprws CI` run and jobs  |
-| `marker`      | Marker written or read; commits left      |
+| `marker`      | Marker written or read; left, decisions   |
 | `decision`    | Worktree, manual paths, resume, hand-off  |
 
 Decisions persist to the report before any comment posts.
@@ -133,6 +133,7 @@ A session hands its tip to the land run as one marker commit, `refs/fork-sync/re
 - **Or:** `fork-sync partial <tag>: N commits left`
 - **Partial body:** the remaining rebase todo
 - **Trailers:** `Fork-Sync-Tag`, `Fork-Sync-Lease`
+- **Before them:** a `Fork-Sync-Decision` per item
 - **Written:** every rebased or blocked run
 - **Unchanged rerun:** reuses the same commit
 
@@ -161,8 +162,21 @@ A pod killed mid-job leaves the sticky at `running`; the schedule covers that.
 6. Carry new trunk commits; link guard
 7. [Candidate CI](#candidate-ci), then the lease push
 8. Close the attention issues
+9. File the [decision issue](#decision-issue)
 
 A partial marker's issue names the commits left; the next `vp run fork:sync <tag>` resumes.
+
+### Decision issue
+
+A job decides every seam alone, so each call that changes user-visible behaviour must outlive the attention issue the land closes.
+The marker's `Fork-Sync-Decision` trailers come from `.t3/fork-sync/<tag>.decisions.md` ([skill](../../../.agents/skills/fork-sync/SKILL.md#decisions)).
+
+- **Items:** one `hyprws sync landed <tag>` issue
+- **Body:** a task per item
+- **No items:** nothing posted
+- **Closed by:** a human, never a sync run
+- **An answer:** a normal follow-up fix
+- **Refused post:** the applied report's `error`
 
 ## Attention issue lifecycle
 
