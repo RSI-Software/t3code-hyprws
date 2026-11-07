@@ -117,7 +117,7 @@ import {
 } from "./chat/externalLinkContextMenu";
 import { SharedTooltipTrigger } from "./ui/shared-tooltip";
 import { useGitHubDestinationLinkFork } from "./chat/GitHubDestinationLink.fork"; // fork-hook: github-issues/chat-markdown-github-destination-import
-import { withStyledHtml } from "@t3tools/shared/markdownStyledHtml.fork"; // fork-hook: markdown-editing/chat-markdown-styled-html-import
+import { GITHUB_REFERENCE_EXTENSIONS_FORK } from "./chat/githubReferences.fork"; // fork-hook: github-issues/chat-markdown-github-reference-import
 import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { recordVisitForThread } from "../browserHistoryStore";
@@ -443,10 +443,6 @@ function safeUrl(value: string): string {
     ? value
     : "";
 }
-
-const CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS = withStyledHtml(
-  CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS,
-); // fork-hook: markdown-editing/chat-markdown-styled-html-plugins
 
 function markdownUrlTransform(href: string) {
   if (parseAssistantCitationHref(href)) return href;
@@ -859,7 +855,11 @@ function useChatMarkdownState(
       return result;
     });
   };
-  const githubDestination = useGitHubDestinationLinkFork({ openExternalLinkInPreview }); // fork-hook: github-issues/chat-markdown-github-destination
+  const githubDestination = useGitHubDestinationLinkFork({
+    openExternalLinkInPreview,
+    environmentId,
+    threadRef,
+  }); // fork-hook: github-issues/chat-markdown-github-destination
   const openMarkdownFileInPreview = (path: string) => {
     const preparedConnection = threadRef ? readPreparedConnection(threadRef.environmentId) : null;
     if (!threadRef || !canOperatePreview || preparedConnection === null) {
@@ -1309,6 +1309,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
       renderContextReference,
     } = use(ChatMarkdownRendererContext);
     const text = use(ChatMarkdownTextContext);
+    const resolvedHref = githubDestination.resolveHref(href); // fork-hook: github-issues/chat-markdown-github-reference-resolve
+    if (resolvedHref === null) return children; // fork-hook: github-issues/chat-markdown-github-reference-unresolved
+    href = resolvedHref; // fork-hook: github-issues/chat-markdown-github-reference-href
     const citation = href ? parseAssistantCitationHref(href) : null;
     const before = node?.position?.start.offset;
     const after = node?.position?.end.offset;
@@ -1395,6 +1398,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
           href: href ?? "",
           props,
           children: linkChildren,
+          written: node?.children.every((child) => child.type === "text")
+            ? plainHastText(node)
+            : null,
           canOpenInPreview,
           canOperateHost,
           faviconHost,
@@ -2137,6 +2143,7 @@ function ChatMarkdown({
   const bindMarkdownRef = (node: HTMLElement | null) => {
     markdownRef.current = node;
   };
+  extensions = extensions === NO_EXTENSIONS ? GITHUB_REFERENCE_EXTENSIONS_FORK : extensions; // fork-hook: github-issues/chat-markdown-github-reference-plugins
   const markdown = wordsOptions(extensions, {
     math: componentState.mathEnabled,
     breaks: lineBreaks,
@@ -2166,9 +2173,6 @@ function ChatMarkdown({
             key={index}
             text={source}
             markdown={markdown}
-            {...(props.styledHtml && parseRawHtml
-              ? { rehypePlugins: CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS }
-              : {})} // fork-hook: markdown-editing/chat-markdown-styled-html-select
             // Every block before the last is finished, so its parse can be reused.
             cache={!props.isStreaming || index < blocks.length - 1}
           />

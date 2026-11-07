@@ -13,3 +13,8 @@ export const DEFAULT_GITHUB_LINK_OPEN_MODE: GitHubLinkOpenMode = "external";
 export const GitHubChangeRequestOpenMode = Schema.Literals(["native", "integrated", "external"]);
 export type GitHubChangeRequestOpenMode = typeof GitHubChangeRequestOpenMode.Type;
 export const DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE: GitHubChangeRequestOpenMode = "native";
+
+/** How chat renders a GitHub issue or pull request reference: a titled chip, or a plain link. */
+export const GitHubReferenceStyle = Schema.Literals(["chip", "link"]);
+export type GitHubReferenceStyle = typeof GitHubReferenceStyle.Type;
+export const DEFAULT_GITHUB_REFERENCE_STYLE: GitHubReferenceStyle = "chip";
