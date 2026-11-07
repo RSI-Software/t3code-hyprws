@@ -52,9 +52,11 @@ import {
   type CommandRunner,
 } from "./lib/fork-sync-git.ts";
 import {
+  carryDecisions,
   fetchMarker,
   remainingTodo,
   RESOLUTION_REF,
+  SYNC_DIR,
   todoCommits,
   writeMarker,
   type Marker,
@@ -69,7 +71,6 @@ import {
 } from "./lib/fork-sync-todo.ts";
 import { splitTrailerBlock } from "./lib/fork-trailers.ts";
 
-const SYNC_DIR = ".t3/fork-sync";
 const WORKTREE_DIR = "worktree";
 /** The attention issue keeps the governed label and outcome-shaped legacy titles. */
 const BLOCK_LABEL = "ci";
@@ -202,6 +203,8 @@ export const MarkerReport = Schema.Struct({
   finished: Schema.Boolean,
   /** Fork commits the partial marker's todo still replays; 0 once finished. */
   remaining: Schema.Number,
+  /** The calls the sync made alone; a land run files them as one issue. */
+  decisions: Schema.Array(Schema.String),
 });
 export interface MarkerReport extends Schema.Schema.Type<typeof MarkerReport> {}
 
@@ -211,6 +214,7 @@ const markerReport = (marker: Marker): MarkerReport => ({
   lease: marker.lease,
   finished: marker.todo === null,
   remaining: marker.todo === null ? 0 : todoCommits(marker.todo).length,
+  decisions: marker.decisions,
 });
 
 export const ForkSyncReport = Schema.Struct({
@@ -1082,10 +1086,12 @@ export const rebaseOnto = (
     git(runner, root, ["worktree", "prune"]);
     git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, marker?.tip ?? trunk]);
     runWorktreeSetup(runner, root, worktree);
-    if (marker !== null)
+    if (marker !== null) {
+      carryDecisions(root, marker);
       process.stdout.write(
         `sync: starting from marker ${marker.commit.slice(0, 7)} on ${marker.tip.slice(0, 7)}${marker.todo === null ? "" : `, ${todoCommits(marker.todo).length} fork commit(s) left`}\n`,
       );
+    }
     state = {
       tag: target.tag,
       targetSha: target.sha,
@@ -1814,6 +1820,35 @@ export const publishAttention = (
 const blockCloseComment = (newSha: string): string => `Resolved by ${HYPRWS_BRANCH} ${newSha}.`;
 
 /**
+ * Land, then ask: a landed marker's decision items reach a human as one issue no clean run
+ * closes; none files nothing. Returns the refusal, if any.
+ */
+const fileDecisions = (
+  runner: CommandRunner,
+  root: string,
+  tag: string,
+  sha: string,
+  decisions: ReadonlyArray<string>,
+): string | null => {
+  if (decisions.length === 0) return null;
+  const count = `${decisions.length} decision${decisions.length === 1 ? "" : "s"}`;
+  const body = [
+    `\`${HYPRWS_BRANCH}\` landed \`${tag}\` at ${sha}, taking the default at each call below.`,
+    "Tick one to keep it, or answer it with a follow-up fix; close this issue once all are settled.",
+    "",
+    ...decisions.map((item) => `- [ ] ${item}`),
+  ].join("\n");
+  try {
+    const title = `hyprws sync landed ${tag}: ${count} to review`;
+    const issue = withBodyFile(body, (path) => githubClient(runner, root).create(title, path));
+    process.stdout.write(`sync: filed ${count} as #${issue ?? "?"}\n`);
+    return null;
+  } catch (error) {
+    return `filing the decision issue failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+};
+
+/**
  * A clean run closes every open sync issue — block and failure alike: the trunk
  * moved, so none can hold. `gh issue close --comment` posts the close evidence
  * and closes in one call. Each issue reports its own refusal; one refusal
@@ -1856,7 +1891,7 @@ export const renderReport = (report: ForkSyncReport): string => {
     ...(report.marker === null
       ? []
       : [
-          `Marker: ${report.marker.commit.slice(0, 7)} on ${report.marker.tip.slice(0, 7)}, ${report.marker.finished ? "finished" : `partial (${report.marker.remaining} left)`}`,
+          `Marker: ${report.marker.commit.slice(0, 7)} on ${report.marker.tip.slice(0, 7)}, ${report.marker.finished ? "finished" : `partial (${report.marker.remaining} left)`}, ${report.marker.decisions.length} decision(s)`,
         ]),
     `Report: ${SYNC_DIR}/${report.target.tag}.json`,
   ];
@@ -2364,6 +2399,12 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     status?.({ kind: "landed", sha: newSha });
     const close = closeStaleBlocks(newSha);
+    const refused = [
+      close.error,
+      fileDecisions(runner, root, target.tag, newSha, finished.decisions),
+    ]
+      .filter((error) => error !== null)
+      .join("; ");
     return finish(
       frame({
         outcome: "applied",
@@ -2373,7 +2414,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         marker: markerReport(finished),
         push: { pushed: true, detail: `${newSha.slice(0, 7)} → origin/${HYPRWS_BRANCH}` },
         closedBlocks: [...close.closed],
-        ...(close.error === null ? {} : { error: close.error }),
+        ...(refused === "" ? {} : { error: refused }),
       }),
     );
   } catch (error) {

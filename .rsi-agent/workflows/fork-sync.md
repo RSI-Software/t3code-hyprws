@@ -17,7 +17,7 @@ The `fork-sync` skill owns every step and rule; follow its procedure and its Job
 
 - **Hand off:** `HEAD` at the marker; `committed`
 - **Unsure:** decide per the skill; never block
-- **Verify:** summary ends with what to test
+- **Decisions:** record each per the skill
 - **Partial:** fine; hand off before the budget
 - **Never push `hyprws`:** the land run writes it
 - **Never post:** to `pingdotgg/t3code`
