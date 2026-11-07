@@ -13,6 +13,7 @@ import {
   TurnItemId,
 } from "./baseSchemas.ts";
 import { GUEST_MESSAGE_MAX_LENGTH, GUEST_NAME_MAX_LENGTH } from "./guestShare.ts";
+import { CollaboratorAttributionFork } from "./collaborator.fork.ts"; // fork-hook: colleague-collab/message-context-attribution-import
 
 /** Image and file records reference `ChatAttachment` ids, never bytes. */
 
@@ -312,6 +313,7 @@ export type GuestMessageAttribution = typeof GuestMessageAttribution.Type;
 export const OrchestrationMessageContext = Schema.Struct({
   version: Schema.Literal(1),
   guest: Schema.optional(GuestMessageAttribution),
+  collaboratorFork: Schema.optional(CollaboratorAttributionFork), // fork-hook: colleague-collab/message-context-attribution
   records: Schema.Array(Schema.Unknown)
     .check(
       Schema.isMaxLength(COMPOSER_CONTEXT_MAX_RECORDS),
