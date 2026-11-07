@@ -2,7 +2,7 @@
 // `layerWsRpc` without exercising a fork RPC.
 import * as Layer from "effect/Layer";
 
-import { ColleagueSharesFork } from "./colleague/ColleagueShares.fork.ts";
+import { CollaboratorSharesFork } from "./collaborator/CollaboratorShares.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
 import * as ThreadIssueSyncReactor from "./githubIssue/ThreadIssueSyncReactor.fork.ts";
@@ -13,9 +13,12 @@ export const layerUnusedWsRpcServicesFork = Layer.mergeAll(
   Layer.mock(GitHubIssueService.GitHubIssueService)({}),
   Layer.mock(ThreadIssueSyncReactor.ThreadIssueSyncReactor)({}),
   Layer.mock(ThreadGroups.ThreadGroupsServiceFork)({}),
-  Layer.mock(ColleagueSharesFork)({
+  Layer.mock(CollaboratorSharesFork)({
     wrapHandlers: (_subject, handlers) => handlers,
     guardRpc: () => (self) => self,
     isShared: () => false,
+    messageHandlers: () => {
+      throw new Error("No test sends a collaborator message RPC through this harness.");
+    },
   }),
 );

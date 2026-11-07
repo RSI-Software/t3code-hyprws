@@ -66,7 +66,7 @@ import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
-import { colleagueFrozenComposerFork } from "./colleague/colleagueFrozen.fork"; // fork-hook: colleague-collab/chat-frozen-import
+import { useCollaboratorChatFork } from "./collaborator/CollaboratorChat.fork"; // fork-hook: colleague-collab/chat-import
 import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
@@ -3116,6 +3116,13 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onWorktreeSetupWorkLocallyStable = useStableCallback(onWorktreeSetupWorkLocally);
   const onComposerSendStable = useStableCallback(onSend);
+  const collaboratorFork = useCollaboratorChatFork(
+    activeThread,
+    composerDraftTarget,
+    composerRef,
+    timelineLiveFollowEnabled,
+    scrollToEnd,
+  ); // fork-hook: colleague-collab/chat-state
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -3603,6 +3610,7 @@ export default function ChatView(props: ChatViewProps) {
                   {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
                   isPreparingWorktree={isPreparingWorktree}
                   footer={timelineFooter}
+                  {...collaboratorFork.footer(timelineFooter)} // fork-hook: colleague-collab/chat-waiting-messages
                   listRef={legendListRef}
                   runs={serverProjection?.runs ?? []}
                   latestRun={activeActivityRun}
@@ -3904,7 +3912,7 @@ export default function ChatView(props: ChatViewProps) {
                                 onRemoveEditingQueuedAttachment={
                                   queuedRunEdit.removeEditingAttachment
                                 }
-                                {...colleagueFrozenComposerFork(activeThread, composerBannerItems)} // fork-hook: colleague-collab/chat-frozen-composer
+                                {...collaboratorFork.composer(composerBannerItems)} // fork-hook: colleague-collab/chat-composer
                               />
                             )}
                           </div>
