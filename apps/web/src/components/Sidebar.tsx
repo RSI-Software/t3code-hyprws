@@ -85,6 +85,7 @@ import {
 import { desktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { openCollaboratorShareDialog } from "./collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
+import { collaboratorRowControlsFork } from "./collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/sidebar-row-controls-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -3757,6 +3758,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             settlementSupported={serverConfigs.has(thread.environmentId)}
                             snoozeSupported={serverConfigs.has(thread.environmentId)}
                             pinningSupported={serverConfigs.has(thread.environmentId)}
+                            {...collaboratorRowControlsFork(
+                              thread,
+                            )} /* fork-hook: colleague-collab/sidebar-row-controls */
                             isPinned={thread.pinnedAt != null}
                             grouped={groupState?.grouped} // fork-hook: thread-ordering/group-member-state
                             groupParent={groupState?.parent} // fork-hook: thread-ordering/group-parent
