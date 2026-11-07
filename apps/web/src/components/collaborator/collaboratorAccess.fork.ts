@@ -24,3 +24,9 @@ export const ACCESS: Record<CollaboratorAccessFork, { label: string; detail: str
   approve: { label: "Needs approval", detail: "Each message waits for you to send it" },
   send: { label: "Can send", detail: "Messages go straight to the agent" },
 };
+
+/** A collaborator's copy is the host's thread, so pinning, settling, and snoozing stay the host's. */
+export const collaboratorRowControlsFork = (thread: { readonly collaboratorFork?: string }) =>
+  thread.collaboratorFork === undefined
+    ? {}
+    : { settlementSupported: false, snoozeSupported: false, pinningSupported: false };

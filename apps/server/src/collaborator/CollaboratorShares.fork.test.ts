@@ -283,6 +283,10 @@ database("CollaboratorSharesFork", (it) => {
         }
         const refused = yield* Effect.exit(dispatch(message(other), undefined as never));
         assert.isTrue(Exit.isFailure(refused));
+        for (const type of ["thread.archive", "thread.settle", "thread.runtime-mode.set"]) {
+          const hostOnly = yield* Effect.exit(dispatch(message(shared, type), undefined as never));
+          assert.isTrue(Exit.isFailure(hostOnly));
+        }
         const live = yield* Queue.unbounded<OrchestrationV2ThreadStreamItem>();
         const open = yield* wrapped["orchestration.subscribeThread"](
           { threadId: shared } as never,
