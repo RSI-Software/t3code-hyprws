@@ -2160,7 +2160,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/thread-shell-checkout-move
-  colleagueFrozenFork: Schema.optional(Schema.Boolean), // fork-hook: colleague-collab/thread-shell-frozen
+  collaboratorFork: Schema.optional(Schema.Literals(["send", "approve", "frozen"])), // fork-hook: colleague-collab/thread-shell-access
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   issues: ThreadIssuesFork.ThreadIssueLinksFieldFork, // fork-hook: github-issues/thread-shell-issues

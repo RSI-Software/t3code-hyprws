@@ -32,7 +32,8 @@ import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAp
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ThreadGroupsSyncFork } from "../components/ThreadGroupsSyncFork"; // fork-hook: thread-ordering/thread-groups-sync-import
-import { ColleagueShareDialogHostFork } from "../components/colleague/ColleagueShareDialog.fork"; // fork-hook: colleague-collab/share-dialog-import
+import { CollaboratorShareDialogHostFork } from "../components/collaborator/CollaboratorShareDialog.fork"; // fork-hook: colleague-collab/share-dialog-import
+import { CollaboratorMessageToastsFork } from "../components/collaborator/CollaboratorChat.fork"; // fork-hook: colleague-collab/message-toasts-import
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
@@ -195,7 +196,8 @@ function RootRouteBranch() {
       <ConfirmDialogHost />
       <CustomSnoozeDialogHost />
       <GuestShareDialogHost />
-      <ColleagueShareDialogHostFork /> {/* fork-hook: colleague-collab/share-dialog */}
+      <CollaboratorShareDialogHostFork /> {/* fork-hook: colleague-collab/share-dialog */}
+      <CollaboratorMessageToastsFork /> {/* fork-hook: colleague-collab/message-toasts */}
       <ProjectCloneToastCoordinator />
       <WindowProjectsPublishFork /> {/* fork-hook: multi-window/window-projects-publish */}
       <AddProjectToMachineDialogHost />
