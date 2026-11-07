@@ -237,12 +237,12 @@ export interface EnvironmentThreadShell {
   readonly pullRequests: ReadonlyArray<import("@t3tools/contracts").ThreadPullRequestLink>;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
-  readonly colleagueFrozenFork?: boolean; // fork-hook: colleague-collab/client-shell-frozen-field
   readonly issues?: OrchestrationV2ThreadShell["issues"]; // fork-hook: github-issues/client-shell-issues-field
   readonly artifacts?: OrchestrationV2ThreadShell["artifacts"]; // fork-hook: thread-artifacts/client-shell-artifacts-field
   readonly checkoutMove?: import("@t3tools/contracts").ThreadCheckoutMove; // fork-hook: zmux-estate/shell-checkout-move-field
   /** Absent from rows built before issue linking; the server sends an empty list. */
   readonly issues?: ReadonlyArray<import("@t3tools/contracts").ThreadIssueLink>;
+  readonly collaboratorFork?: "send" | "approve" | "frozen"; // fork-hook: colleague-collab/client-shell-access-field
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -352,11 +352,11 @@ export function presentThreadShell(
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
-    ...(thread.colleagueFrozenFork ? { colleagueFrozenFork: true } : {}), // fork-hook: colleague-collab/client-shell-frozen
     ...(thread.issues === undefined ? {} : { issues: thread.issues }), // fork-hook: github-issues/client-shell-issues
     ...(thread.artifacts === undefined ? {} : { artifacts: thread.artifacts }), // fork-hook: thread-artifacts/client-shell-artifacts
     ...checkoutMoveShellFieldsFork(thread), // fork-hook: zmux-estate/shell-checkout-move
     issues: thread.issues ?? [],
+    ...(thread.collaboratorFork ? { collaboratorFork: thread.collaboratorFork } : {}), // fork-hook: colleague-collab/client-shell-access
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
     linkOrigin: thread.linkOrigin ?? null,
