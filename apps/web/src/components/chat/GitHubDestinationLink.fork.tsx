@@ -1,25 +1,19 @@
 import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
 
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
-import {
-  CircleDotIcon,
-  ExternalLinkIcon,
-  FolderGit2Icon,
-  GithubIcon,
-  Globe2Icon,
-  PanelRightIcon,
-} from "lucide-react";
+import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 
 import { readLocalApi } from "~/localApi";
-import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useClientSettings } from "~/hooks/useSettings";
-import { cn } from "~/lib/utils";
+import { useProject, useThreadShell } from "~/state/entities";
+import { useRightPanelStore } from "~/rightPanelStore";
 
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { Button } from "../ui/button";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { showExternalLinkContextMenu } from "./externalLinkContextMenu";
+import { GitHubReferenceLink } from "./GitHubReferenceLink.fork";
+import { GITHUB_REFERENCE_HREF_PREFIX, resolveGitHubReferenceHref } from "./githubReferences.fork";
 
 // Fork: GitHub link destination controls (target parsing, destination policy
 // from the open-mode client settings, open dispatch, context menu), so
@@ -62,10 +56,6 @@ export function parseGitHubLinkTarget(href: string | undefined): GitHubLinkTarge
   };
 }
 
-export function githubLinkLabel(target: GitHubLinkTarget): string | null {
-  return target.number === null ? null : `${target.repository}#${target.number}`;
-}
-
 export function githubLinkDestinations(
   target: GitHubLinkTarget,
   canOpenInPreview: boolean,
@@ -93,188 +83,13 @@ export function preferredGitHubLinkDestination(options: {
 type GitHubLinkOpenMode = "integrated" | "external";
 type GitHubChangeRequestOpenMode = "native" | "integrated" | "external";
 
-interface GitHubDestinationLinkProps extends Omit<
-  ComponentPropsWithoutRef<"a">,
-  "children" | "href" | "onClick"
-> {
-  readonly children: ReactNode;
-  readonly href: string;
-  readonly linkTarget: GitHubLinkTarget;
-  readonly destinations: readonly GitHubLinkDestination[];
-  readonly preferredDestination: GitHubLinkDestination;
-  readonly onClick?: ComponentPropsWithoutRef<"a">["onClick"];
-  readonly onContextMenu?: ComponentPropsWithoutRef<"a">["onContextMenu"];
-  readonly onOpen: (
-    destination: GitHubLinkDestination,
-    event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
-  ) => void;
-}
-
-function destinationName(destination: GitHubLinkDestination, target: GitHubLinkTarget): string {
-  if (destination === "integrated") return "T3 Browser";
-  if (destination === "external") return "external browser";
-  return target.kind === "issue" ? "issue panel" : "pull request panel";
-}
-
-function destinationLabel(destination: GitHubLinkDestination, target: GitHubLinkTarget): string {
-  return `Open in ${destinationName(destination, target)}`;
-}
-
-function DestinationIcon({ destination }: { readonly destination: GitHubLinkDestination }) {
-  if (destination === "integrated") return <Globe2Icon />;
-  if (destination === "external") return <ExternalLinkIcon />;
-  return <PanelRightIcon />;
-}
-
-function GitHubTargetIcon({ target }: { readonly target: GitHubLinkTarget }) {
-  if (target.kind === "issue") return <CircleDotIcon />;
-  if (target.kind === "pull-request") return <PullRequestGlyph.pullRequest />;
-  return <FolderGit2Icon />;
-}
-
-function hasModifier(event: MouseEvent<HTMLElement>): boolean {
-  return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
-}
-
-const destinationControlOrder: readonly GitHubLinkDestination[] = [
-  "external",
-  "integrated",
-  "native",
-];
-
-function GitHubDestinationLink({
-  children,
-  className,
-  destinations,
-  href,
-  linkTarget,
-  onClick,
-  onContextMenu,
-  onOpen,
-  preferredDestination,
-  ...props
-}: GitHubDestinationLinkProps) {
-  const controls = [
-    ...destinationControlOrder.filter(
-      (destination) => destination !== preferredDestination && destinations.includes(destination),
-    ),
-    preferredDestination,
-  ];
-  const reference = githubLinkLabel(linkTarget) ?? linkTarget.repository;
-  const childText = typeof children === "string" ? children.trim() : null;
-  const showTitle = childText === null || (childText !== reference && childText !== href);
-  const defaultName = destinationName(preferredDestination, linkTarget);
-
-  return (
-    <span
-      className={cn(
-        "group/github-link relative inline-flex max-w-full min-w-0 align-middle",
-        "rounded-lg border border-border/65 bg-muted/30",
-        "transition-colors duration-150 hover:border-foreground/20 hover:bg-muted/50 focus-within:border-foreground/20 focus-within:bg-muted/50",
-      )}
-      data-github-link-kind={linkTarget.kind}
-    >
-      <a
-        {...props}
-        href={href}
-        onContextMenu={onContextMenu}
-        aria-label={`Open ${reference} in ${defaultName}`}
-        className={cn(
-          "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[inherit] py-1.75 pr-10 pl-2.5 text-sm leading-snug text-foreground no-underline",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-          linkTarget.kind === "repository"
-            ? "[@media(hover:none)]:pr-17"
-            : "[@media(hover:none)]:pr-25",
-          className,
-        )}
-        onClick={(event) => {
-          onClick?.(event);
-          if (event.defaultPrevented || hasModifier(event)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          onOpen(preferredDestination, event);
-        }}
-      >
-        <GithubIcon className="size-4 shrink-0 text-foreground/85" aria-hidden />
-        <span
-          className="inline-flex shrink-0 items-center text-muted-foreground [&_svg]:size-3.5"
-          aria-hidden
-        >
-          <GitHubTargetIcon target={linkTarget} />
-        </span>
-        {/* In a narrow chip the title gives way first, then the repository; the
-            number stays whole and clear of the destination toolbar. */}
-        <span className="flex min-w-0 font-mono font-semibold text-primary">
-          <span className="truncate">{linkTarget.repository}</span>
-          {linkTarget.number === null ? null : (
-            <span className="shrink-0">#{linkTarget.number}</span>
-          )}
-        </span>
-        {showTitle ? (
-          <>
-            <span className="shrink-0 text-muted-foreground/50" aria-hidden>
-              ·
-            </span>
-            <span className="min-w-0 shrink-[1000] overflow-hidden text-ellipsis whitespace-nowrap text-foreground/85">
-              {children}
-            </span>
-          </>
-        ) : null}
-      </a>
-      <span
-        className={cn(
-          "absolute top-1/2 right-1 z-10 flex -translate-y-1/2 items-center gap-0.5",
-          "before:pointer-events-none before:absolute before:inset-y-0 before:-left-6 before:right-0 before:-z-10 before:rounded-md before:bg-gradient-to-r before:from-transparent before:via-background/95 before:to-background before:opacity-0 before:transition-opacity before:duration-150",
-          "group-hover/github-link:before:opacity-100 group-focus-within/github-link:before:opacity-100 [@media(hover:none)]:before:opacity-100",
-        )}
-        role="toolbar"
-        aria-label={`Open ${reference} in another destination`}
-      >
-        {controls.map((destination) => {
-          const preferred = destination === preferredDestination;
-          const label = destinationLabel(destination, linkTarget);
-          const button = (
-            <Button
-              size="icon-xs"
-              variant={preferred ? "ghost" : "ghost-muted"}
-              aria-label={`${label}${preferred ? ", default" : ""}`}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onOpen(destination, event);
-              }}
-            >
-              <DestinationIcon destination={destination} />
-            </Button>
-          );
-          return (
-            <span
-              key={destination}
-              className={cn(
-                "inline-flex transition-[opacity,transform] duration-150",
-                !preferred &&
-                  "pointer-events-none translate-x-1 opacity-0 group-hover/github-link:pointer-events-auto group-hover/github-link:translate-x-0 group-hover/github-link:opacity-100 group-focus-within/github-link:pointer-events-auto group-focus-within/github-link:translate-x-0 group-focus-within/github-link:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:translate-x-0 [@media(hover:none)]:opacity-100",
-              )}
-            >
-              <Tooltip>
-                <TooltipTrigger render={button} />
-                <TooltipPopup side="top">
-                  {preferred ? `Default: ${defaultName}` : label}
-                </TooltipPopup>
-              </Tooltip>
-            </span>
-          );
-        })}
-      </span>
-    </span>
-  );
-}
-
 /** What the anchor renderer hands the destination controller when it takes a link over. */
 export interface GitHubDestinationRenderInput {
   readonly href: string;
   readonly props: ComponentPropsWithoutRef<"a">;
   readonly children: ReactNode;
+  /** The link's label when it is plain text; null for images or formatted labels. */
+  readonly written: string | null;
   readonly canOpenInPreview: boolean;
   /** Operate scope on the link's thread environment; gates the link-to-thread write. */
   readonly canOperateHost: boolean;
@@ -306,13 +121,37 @@ function isAtomInterrupted(result: unknown): boolean {
 export function useGitHubDestinationLinkFork(accept: {
   /** The surface's preview-open callback, already wired to its reporting. */
   readonly openExternalLinkInPreview: (href: string) => Promise<unknown>;
+  readonly environmentId: EnvironmentId | null;
+  readonly threadRef: ScopedThreadRef | undefined;
 }): {
+  /** A written `repo#12` placeholder as its GitHub URL; null when it resolves to nothing. */
+  resolveHref: (href: string | undefined) => string | null | undefined;
   claims: (href: string | undefined) => boolean;
   render: (input: GitHubDestinationRenderInput) => ReactNode;
 } {
   const linkMode = useClientSettings((settings) => settings.githubLinkOpenMode);
   const changeRequestMode = useClientSettings((settings) => settings.githubChangeRequestOpenMode);
-  const { openExternalLinkInPreview } = accept;
+  const referenceStyle = useClientSettings((settings) => settings.githubReferenceStyle);
+  const { openExternalLinkInPreview, environmentId } = accept;
+  const thread = useThreadShell(accept.threadRef ?? null);
+  const project = useProject(
+    thread ? scopeProjectRef(thread.environmentId, thread.projectId) : null,
+  );
+  const identity = project?.repositoryIdentity;
+  // Links resolve only on github.com; an Enterprise thread's `#12` is not a github.com issue.
+  const repository =
+    identity?.provider === "github" &&
+    identity.canonicalKey.split("/")[0] === "github.com" &&
+    identity.owner &&
+    identity.name
+      ? { owner: identity.owner, name: identity.name }
+      : null;
+  const { threadRef } = accept;
+  const claimPanelOpen = () => {
+    if (!threadRef) return () => true;
+    const revision = useRightPanelStore.getState().markUserAction(threadRef);
+    return () => useRightPanelStore.getState().getUserActionRevision(threadRef) === revision;
+  };
 
   return (() => {
     const reportFailure = (operation: string, target: string, cause: unknown): void => {
@@ -371,13 +210,17 @@ export function useGitHubDestinationLinkFork(accept: {
     };
 
     return {
+      resolveHref(href) {
+        return href?.startsWith(GITHUB_REFERENCE_HREF_PREFIX)
+          ? resolveGitHubReferenceHref(href, repository)
+          : href;
+      },
       claims(href: string | undefined): boolean {
         return parseGitHubLinkTarget(href) !== null;
       },
       render(input: GitHubDestinationRenderInput): ReactNode {
         const target = parseGitHubLinkTarget(input.href);
         if (target === null) return null;
-        const destinations = githubLinkDestinations(target, input.canOpenInPreview);
         const preferredDestination = preferredGitHubLinkDestination({
           target,
           canOpenInPreview: input.canOpenInPreview,
@@ -413,21 +256,22 @@ export function useGitHubDestinationLinkFork(accept: {
           });
         };
         return (
-          <GitHubDestinationLink
+          <GitHubReferenceLink
             {...input.props}
             href={input.href}
+            written={input.written}
             linkTarget={target}
-            destinations={destinations}
+            referenceStyle={referenceStyle}
+            environmentId={environmentId}
             preferredDestination={preferredDestination}
-            target="_blank"
-            rel="noopener noreferrer"
+            claimPanelOpen={claimPanelOpen}
             onContextMenu={handleContextMenu}
-            onOpen={(destination, event) =>
-              open(destination, event, input.href, input.openChangeRequestLink)
+            onOpen={(destination, event, href) =>
+              open(destination, event, href, input.openChangeRequestLink)
             }
           >
             {input.children}
-          </GitHubDestinationLink>
+          </GitHubReferenceLink>
         );
       },
     };

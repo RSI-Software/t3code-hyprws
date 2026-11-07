@@ -138,6 +138,62 @@ describe("GitHubIssueService isPullRequest", () => {
   );
 });
 
+describe("GitHubIssueService reference", () => {
+  it.effect("maps each state, answers null for a missing reference, and fails on outages", () =>
+    Effect.gen(function* () {
+      const nodes: Record<number, unknown> = {
+        1: { __typename: "PullRequest", state: "MERGED", isDraft: false },
+        2: { __typename: "PullRequest", state: "OPEN", isDraft: true },
+        3: { __typename: "Issue", state: "CLOSED", stateReason: "NOT_PLANNED" },
+        4: { __typename: "Issue", state: "CLOSED", stateReason: "COMPLETED" },
+        5: null,
+      };
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) => {
+        const number = call.variables?.["number"] as number;
+        const context = { host: call.host, operation: call.operation };
+        if (number === 6)
+          return Effect.fail(new GitHubRequestPolicy.GitHubApiNotFoundError(context));
+        if (number === 7) {
+          return Effect.fail(
+            new GitHubRequestPolicy.GitHubApiResponseError({ ...context, status: 502 }),
+          );
+        }
+        const node = nodes[number];
+        return Effect.succeed(
+          JSON.stringify({
+            data: {
+              repository: {
+                owner: { avatarUrl: "https://avatars.test/acme" },
+                issueOrPullRequest: node && {
+                  ...node,
+                  title: `Ref ${number}`,
+                  url: `https://github.com/acme/web/issues/${number}`,
+                  updatedAt: "2026-11-01T00:00:00Z",
+                  author: { login: "octo", avatarUrl: null },
+                },
+              },
+            },
+          }),
+        );
+      });
+      const service = yield* makeService([], graphql);
+      const read = (number: number) =>
+        service.reference({ host: "github.com", repository: "acme/web", number });
+
+      const states = yield* Effect.forEach([1, 2, 3, 4, 5, 6], (number) =>
+        read(number).pipe(Effect.map((summary) => summary?.state ?? null)),
+      );
+      assert.deepStrictEqual(states, ["merged", "draft", "not-planned", "closed", null, null]);
+      const first = yield* read(1);
+      assert.strictEqual(first?.kind, "pull-request");
+      assert.strictEqual(first?.ownerAvatarUrl, "https://avatars.test/acme");
+      assert.deepStrictEqual(first?.author, { login: "octo", avatarUrl: null });
+      const outage = yield* Effect.flip(read(7));
+      assert.deepInclude(outage, { _tag: "GitHubIssueOperationError", operation: "reference" });
+    }),
+  );
+});
+
 // One GraphQL read attaches the children's close reasons the detail read omits, fired only when
 // a closed child exists (RSI-Software/t3code-hyprws#1461).
 describe("GitHubIssueService detail sub-issue reasons", () => {
