@@ -95,6 +95,10 @@ export function useCollaboratorChatFork(
   composerRef: RefObject<ChatComposerHandle | null>,
 ) {
   const prompt = () => composerRef.current?.getSendContext().prompt.trim() ?? "";
+  const hasAttachments = () => {
+    const context = composerRef.current?.getSendContext();
+    return (context?.images.length ?? 0) + (context?.files.length ?? 0) > 0;
+  };
   const waiting = useWaitingMessages(thread?.environmentId ?? null).filter(
     (message) => message.threadId === thread?.id,
   );
@@ -106,6 +110,14 @@ export function useCollaboratorChatFork(
     event?.preventDefault();
     const text = prompt();
     if (thread == null || text.length === 0) return;
+    if (hasAttachments()) {
+      toastManager.add({
+        type: "warning",
+        title: "Only text waits for the host",
+        description: "Remove the attachments to send this message for approval.",
+      });
+      return;
+    }
     void submit({
       environmentId: thread.environmentId,
       input: { threadId: thread.id, text },
@@ -127,9 +139,7 @@ export function useCollaboratorChatFork(
         };
       }
       if (access === "approve") {
-        // Text only: attachments would have to wait on the host's machine too.
         return {
-          canOperateThread: false,
           onSend: submitForApproval,
           bannerItems: [APPROVAL_BANNER, ...bannerItems],
         };

@@ -132,33 +132,58 @@ export class CollaboratorShareErrorFork extends Schema.TaggedError<CollaboratorS
 export class CollaboratorUnshareErrorFork extends Schema.TaggedError<CollaboratorUnshareErrorFork>()(
   "CollaboratorUnshareErrorFork",
   {
-    operation: Schema.Literals(["freeze-share", "set-access", "read-shares"]),
+    operation: Schema.Literals(["freeze-share", "read-shares"]),
     threadId: ThreadId,
     cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    return this.operation === "set-access" ? "Could not change access." : "Could not stop sharing.";
+    return "Could not stop sharing.";
   }
 }
 
-const COLLABORATOR_MESSAGE_FAILURES = {
-  missing: "That message was already sent or dismissed.",
-  busy: "Wait for the host to answer your earlier messages.",
-  failed: "Could not deliver the message.",
-} as const;
-
-export class CollaboratorMessageErrorFork extends Schema.TaggedError<CollaboratorMessageErrorFork>()(
-  "CollaboratorMessageErrorFork",
-  {
-    reason: Schema.Literals(["missing", "busy", "failed"]),
-    cause: Schema.optional(Schema.Defect()),
-  },
+export class CollaboratorAccessErrorFork extends Schema.TaggedError<CollaboratorAccessErrorFork>()(
+  "CollaboratorAccessErrorFork",
+  { threadId: ThreadId, cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return COLLABORATOR_MESSAGE_FAILURES[this.reason];
+    return "Could not change access.";
   }
 }
+
+export class CollaboratorMessageMissingErrorFork extends Schema.TaggedError<CollaboratorMessageMissingErrorFork>()(
+  "CollaboratorMessageMissingErrorFork",
+  { messageId: Schema.String },
+) {
+  override get message(): string {
+    return "That message was already sent or dismissed.";
+  }
+}
+
+export class CollaboratorMessageBusyErrorFork extends Schema.TaggedError<CollaboratorMessageBusyErrorFork>()(
+  "CollaboratorMessageBusyErrorFork",
+  { threadId: ThreadId },
+) {
+  override get message(): string {
+    return "Wait for the host to answer your earlier messages.";
+  }
+}
+
+export class CollaboratorMessageDeliveryErrorFork extends Schema.TaggedError<CollaboratorMessageDeliveryErrorFork>()(
+  "CollaboratorMessageDeliveryErrorFork",
+  { threadId: ThreadId, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not deliver the message.";
+  }
+}
+
+export const CollaboratorMessageErrorFork = Schema.Union([
+  CollaboratorMessageMissingErrorFork,
+  CollaboratorMessageBusyErrorFork,
+  CollaboratorMessageDeliveryErrorFork,
+]);
+export type CollaboratorMessageErrorFork = typeof CollaboratorMessageErrorFork.Type;
 
 /** Query param on a `t3code://pair` link naming the thread to open after pairing. */
 export const COLLABORATOR_THREAD_LINK_PARAM = "thread";

@@ -4,6 +4,7 @@ import {
   EnvironmentAuthenticatedPrincipal,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
+  type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
   ORCHESTRATION_V2_WS_METHODS,
@@ -27,7 +28,6 @@ import * as Stream from "effect/Stream";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
-import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { collaboratorPrompt } from "./CollaboratorMessages.fork.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
@@ -74,20 +74,19 @@ const threadShell = (id: ThreadId): OrchestrationV2ThreadShell => ({
   deletedAt: null,
 });
 
+const hostDispatches: Array<OrchestrationV2Command> = [];
 const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
   getThreadShell: (threadId) => Effect.succeed(threadShell(ThreadId.make(threadId))),
+  // Yields first, as a real dispatch does, so concurrent sends interleave.
+  dispatch: (command) =>
+    Effect.yieldNow.pipe(
+      Effect.andThen(Effect.sync(() => hostDispatches.push(command as OrchestrationV2Command))),
+      Effect.as({} as never),
+    ),
 });
 const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
   createPairingLink: () => Effect.succeed({ credential: "token" } as never),
   listSessions: () => Effect.succeed([...pairedSubjects].map((subject) => ({ subject }) as never)),
-});
-const hostDispatches: Array<OrchestrationV2Command> = [];
-const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
-  dispatch: (command) =>
-    Effect.sync(() => {
-      hostDispatches.push(command as OrchestrationV2Command);
-      return {} as never;
-    }),
 });
 const config = Layer.succeed(ServerConfig.ServerConfig, {
   host: "127.0.0.1",
@@ -103,7 +102,6 @@ const database = it.layer(
     threads,
     auth,
     config,
-    orchestrator,
   ),
 );
 type Ingress = ReadonlyArray<{ hostname?: string; path?: string; service: string }>;
@@ -147,6 +145,8 @@ const threadInputs: Array<number | undefined> = [];
 const handlers = {
   "orchestration.dispatchCommand": (command: OrchestrationV2Command, _options: never) =>
     Effect.succeed(command),
+  "orchestration.launchThread": (input: OrchestrationV2ThreadLaunchInput, _options: never) =>
+    Effect.succeed(input),
   "orchestration.subscribeShell": (input: object, _options: never) => {
     shellInputs.push(input);
     return Stream.concat(
@@ -181,8 +181,9 @@ const visibleProjects = (item: OrchestrationV2ShellStreamItem) =>
 const message = (threadId: ThreadId, type = "message.dispatch", text = "hi", context?: object) =>
   ({ type, threadId, text, context }) as never as OrchestrationV2Command;
 const sentText = (command: OrchestrationV2Command) => ("text" in command ? command.text : "");
-const sentAuthor = (command: OrchestrationV2Command) =>
-  "context" in command ? command.context?.collaboratorFork : undefined;
+const sentContext = (command: OrchestrationV2Command) =>
+  "context" in command ? command.context : undefined;
+const sentAuthor = (command: OrchestrationV2Command) => sentContext(command)?.collaboratorFork;
 
 database("CollaboratorSharesFork", (it) => {
   it.effect("narrows a collaborator's shell live, from a fresh snapshot on every change", () =>
@@ -244,6 +245,13 @@ database("CollaboratorSharesFork", (it) => {
           undefined as never,
         );
         assert.isUndefined(sentAuthor(ownerSent));
+        const launched = yield* owner["orchestration.launchThread"](
+          {
+            initialMessage: { text: "hi", context: sentContext(claimed), attachments: [] },
+          } as never,
+          undefined as never,
+        );
+        assert.isUndefined(launched.initialMessage?.context?.collaboratorFork);
       }),
     ),
   );
@@ -361,11 +369,13 @@ database("CollaboratorSharesFork", (it) => {
           messageId: second!.id,
           decision: "dismiss",
         });
-        yield* host["collaborator.resolveMessageFork"]({
+        // Two tabs sending at once dispatch it once.
+        const send = host["collaborator.resolveMessageFork"]({
           threadId: shared,
           messageId: first!.id,
           decision: "send",
         });
+        yield* Effect.all([Effect.exit(send), Effect.exit(send)], { concurrency: "unbounded" });
         assert.deepStrictEqual(yield* waiting(host), []);
         assert.deepStrictEqual(
           hostDispatches.map((command) => [sentText(command), sentAuthor(command)]),
