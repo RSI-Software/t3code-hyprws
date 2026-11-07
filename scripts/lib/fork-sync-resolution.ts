@@ -42,9 +42,13 @@ const decisionsPath = (root: string, tag: string): string =>
 
 export const readDecisions = (root: string, tag: string): ReadonlyArray<string> =>
   NodeFS.existsSync(decisionsPath(root, tag))
-    ? lines(NodeFS.readFileSync(decisionsPath(root, tag), "utf8"))
-        .map((line) => line.replace(/^[-*]\s+(?:\[[ x]\]\s+)?/, "").trim())
-        .filter((line) => line !== "")
+    ? [
+        ...new Set(
+          lines(NodeFS.readFileSync(decisionsPath(root, tag), "utf8"))
+            .map((line) => line.replace(/^[-*]\s+(?:\[[ x]\]\s+)?/, "").trim())
+            .filter((line) => line !== ""),
+        ),
+      ]
     : [];
 
 /** A run starting from a marker keeps its items, so a fresh checkout loses none. */
