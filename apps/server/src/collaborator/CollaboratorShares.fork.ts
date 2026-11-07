@@ -38,6 +38,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -293,6 +294,33 @@ const needsApproval = new EnvironmentAuthorizationError({
   requiredScope: AuthOrchestrationOperateScope,
 });
 
+// A `send` collaborator takes part in the conversation; managing the thread, its runtime mode,
+// and its checkpoints stays the host's.
+const COLLABORATOR_COMMANDS: ReadonlySet<OrchestrationV2Command["type"]> = new Set([
+  "message.dispatch",
+  "queued-run.edit",
+  "queued-run.cancel",
+  "queued-run.start",
+  "queued-run.reorder",
+  "queue.resume",
+  "queued-message.promote-to-steer",
+  "prepared-run.retry",
+  "run.interrupt",
+  "thread.stop",
+  "subagent.stop",
+  "runtime-request.respond",
+  "thread.user-input.dismiss",
+  "thread.model-selection.set",
+  "thread.interaction-mode.set",
+  "thread.visit",
+  "thread.mark-unread",
+]);
+
+const hostOnly = new EnvironmentAuthorizationError({
+  message: "Only the host can change this thread.",
+  requiredScope: AuthOrchestrationOperateScope,
+});
+
 const notCollaborator = new EnvironmentAuthorizationError({
   message: "Only a collaborator submits messages for approval.",
   requiredScope: AuthOrchestrationOperateScope,
@@ -404,6 +432,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
   const config = yield* ServerConfig.ServerConfig;
+  const platform = yield* HostProcess.Platform;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const httpClient = yield* HttpClient.HttpClient;
   const messages = yield* makeCollaboratorMessages;
@@ -420,6 +449,7 @@ const make = Effect.gen(function* () {
       config.devUrl?.origin ??
       resolveHeadlessConnectionString(config.host, config.port, {
         privateNetworkOnly: config.privateNetworkOnly,
+        platform,
       });
     const { hostname } = new URL(base);
     return { base, localOnly: isPrivateNetworkHost(hostname) };
@@ -685,6 +715,7 @@ const make = Effect.gen(function* () {
           return Effect.fail(notShared(AuthOrchestrationOperateScope));
         }
         if (access === "approve") return Effect.fail(needsApproval);
+        if (!COLLABORATOR_COMMANDS.has(command.type)) return Effect.fail(hostOnly);
         if (command.type !== "message.dispatch" && command.type !== "queued-run.edit") {
           return dispatch(command, options);
         }
