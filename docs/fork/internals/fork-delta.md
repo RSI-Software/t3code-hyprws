@@ -930,7 +930,7 @@ Upstream desktop dictation supports configurable external transcription services
 
 | Aspect  | Rule                                                                                               |
 | ------- | -------------------------------------------------------------------------------------------------- |
-| Pairing | A standard-scope pairing link for subject `colleague:<slug>`; it pairs the whole environment       |
+| Pairing | A pairing link for subject `colleague:<slug>`, with only the orchestration read and operate scopes |
 | Names   | Code says collaborator; the subject prefix, tables, and this domain id keep `colleague`            |
 | Storage | `fork_colleague_shares`, one row per subject and thread, with its `access`                         |
 | Socket  | `CollaboratorSharesFork.wrapHandlers` narrows dispatch, shell, and thread subscriptions in `ws.ts` |
@@ -941,7 +941,6 @@ Upstream desktop dictation supports configurable external transcription services
 | HTTP    | Collaborator subjects are refused the unfiltered HTTP shell snapshot                               |
 | Guard   | `guardRpc` allows a closed RPC set; thread reads and asset URLs only for live shares               |
 | Address | Behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is recorded                       |
-| Limit   | Other reads (diffs, files, search, terminals) stay environment-wide; sharing is not a sandbox      |
 | Link    | The thread id rides the pairing URL query, which pairing ignores; the desktop opens it once paired |
 
 ### Retirement condition

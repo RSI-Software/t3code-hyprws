@@ -217,6 +217,7 @@ export const threadGroupsRpcFork = {
 
 // Collaborators (colleague-collab): share one thread through a pairing link.
 import {
+  CollaboratorAccessErrorFork,
   CollaboratorMessageErrorFork,
   CollaboratorMessageFork,
   CollaboratorResolveMessageInputFork,
@@ -262,7 +263,7 @@ export const collaboratorRpcFork = {
     }),
     Rpc.make("collaborator.setAccessFork", {
       payload: CollaboratorSetAccessInputFork,
-      error: Schema.Union([CollaboratorUnshareErrorFork, EnvironmentAuthorizationError]),
+      error: Schema.Union([CollaboratorAccessErrorFork, EnvironmentAuthorizationError]),
     }),
     // Every waiting message this session may see: all of them for the host, its own for a
     // collaborator.

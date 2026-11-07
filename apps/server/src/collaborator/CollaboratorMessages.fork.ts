@@ -1,9 +1,11 @@
 // Fork-only (colleague-collab): a collaborator with `approve` access sends nothing to the agent.
 // Their messages wait here until the host sends or dismisses each one, or they withdraw it.
 import {
-  CommandId,
-  CollaboratorMessageErrorFork,
+  CollaboratorMessageBusyErrorFork,
+  CollaboratorMessageDeliveryErrorFork,
   type CollaboratorMessageFork,
+  CollaboratorMessageMissingErrorFork,
+  CommandId,
   type CollaboratorResolveMessageInputFork,
   GUEST_PENDING_MESSAGE_LIMIT,
   MessageId,
@@ -13,11 +15,12 @@ import {
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 
 /**
  * What the agent reads. It names the collaborator and says they follow the thread live, so the
@@ -59,12 +62,12 @@ const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
   submittedAt: row.submitted_at,
 });
 
-const failed = (cause: unknown) => new CollaboratorMessageErrorFork({ reason: "failed", cause });
-
 export const makeCollaboratorMessages = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const threads = yield* ThreadManagement.ThreadManagementService;
   const random = yield* SecureRandom.SecureRandom;
+  // One change at a time, so two tabs sending one message cannot both dispatch it.
+  const lock = (yield* Semaphore.make(1)).withPermits(1);
 
   const read = sql<MessageRow>`
     SELECT id, thread_id, subject, collaborator_name, text, submitted_at
@@ -76,52 +79,42 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   const submit = Effect.fn("CollaboratorMessagesFork.submit")(function* (input: {
     readonly subject: string;
     readonly name: string;
-    readonly threadId: string;
+    readonly threadId: ThreadId;
     readonly text: string;
   }) {
+    const undelivered = (cause: unknown) =>
+      new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
     const waiting = (yield* SubscriptionRef.get(ref)).filter(
       (message) => message.subject === input.subject && message.threadId === input.threadId,
     );
     if (waiting.length >= GUEST_PENDING_MESSAGE_LIMIT) {
-      return yield* new CollaboratorMessageErrorFork({ reason: "busy" });
+      return yield* new CollaboratorMessageBusyErrorFork({ threadId: input.threadId });
     }
-    const id = yield* random.uuidV4().pipe(Effect.mapError(failed));
+    const id = yield* random.uuidV4().pipe(Effect.mapError(undelivered));
     const submittedAt = DateTime.formatIso(yield* DateTime.now);
     yield* sql`
       INSERT INTO fork_collaborator_messages
         (id, thread_id, subject, collaborator_name, text, submitted_at)
       VALUES (${id}, ${input.threadId}, ${input.subject}, ${input.name}, ${input.text}, ${submittedAt})
-    `.pipe(Effect.mapError(failed));
-    yield* reload.pipe(Effect.mapError(failed));
-  });
-
-  const take = Effect.fn("CollaboratorMessagesFork.take")(function* (
-    input: CollaboratorResolveMessageInputFork,
-    subject: string | null,
-  ) {
-    const message = (yield* SubscriptionRef.get(ref)).find(
-      (candidate) =>
-        candidate.id === input.messageId &&
-        candidate.threadId === input.threadId &&
-        (subject === null || candidate.subject === subject),
-    );
-    if (message === undefined)
-      return yield* new CollaboratorMessageErrorFork({ reason: "missing" });
-    return message;
-  });
-
-  const remove = (id: string) =>
-    sql`DELETE FROM fork_collaborator_messages WHERE id = ${id}`.pipe(
-      Effect.andThen(reload),
-      Effect.mapError(failed),
-    );
+    `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
+  }, lock);
 
   /** `subject` null is the host, who may send; a collaborator may only withdraw their own. */
   const resolve = Effect.fn("CollaboratorMessagesFork.resolve")(function* (
     input: CollaboratorResolveMessageInputFork,
     subject: string | null,
   ) {
-    const message = yield* take(input, subject);
+    const undelivered = (cause: unknown) =>
+      new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
+    const message = (yield* SubscriptionRef.get(ref)).find(
+      (candidate) =>
+        candidate.id === input.messageId &&
+        candidate.threadId === input.threadId &&
+        (subject === null || candidate.subject === subject),
+    );
+    if (message === undefined) {
+      return yield* new CollaboratorMessageMissingErrorFork({ messageId: input.messageId });
+    }
     if (input.decision === "send" && subject === null) {
       const attribution = collaboratorAttribution(message.name, message.text);
       const context: OrchestrationMessageContext = {
@@ -129,13 +122,13 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
         records: [],
         ...attribution.context,
       };
-      const commandId = yield* random.uuidV4().pipe(Effect.mapError(failed));
-      yield* orchestrator
+      // Ids from the message, so a retry after a failed delete replays instead of sending twice.
+      yield* threads
         .dispatch({
           type: "message.dispatch",
-          commandId: CommandId.make(commandId),
+          commandId: CommandId.make(`collaborator-message:${message.id}`),
           threadId: message.threadId,
-          messageId: MessageId.make(commandId),
+          messageId: MessageId.make(`collaborator-message:${message.id}`),
           text: attribution.text,
           context,
           attachments: [],
@@ -143,15 +136,26 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
           createdBy: "user",
           creationSource: "server",
         })
-        .pipe(Effect.mapError(failed));
+        .pipe(Effect.mapError(undelivered));
     }
-    yield* remove(message.id);
-  });
+    yield* sql`DELETE FROM fork_collaborator_messages WHERE id = ${message.id}`.pipe(
+      Effect.andThen(reload),
+      Effect.mapError(undelivered),
+    );
+  }, lock);
+
+  /** Drops a collaborator's waiting messages on a thread they no longer share. */
+  const drop = (subject: string, threadId: string) =>
+    lock(
+      sql`
+        DELETE FROM fork_collaborator_messages WHERE subject = ${subject} AND thread_id = ${threadId}
+      `.pipe(Effect.andThen(reload)),
+    );
 
   return {
     submit,
     resolve,
-    reload,
+    drop,
     /** The waiting messages a session may see, re-emitted whenever any changes. */
     visible: (
       visibleTo: (message: CollaboratorMessageFork) => boolean,

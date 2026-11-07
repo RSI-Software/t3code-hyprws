@@ -7,7 +7,8 @@ import {
   COLLABORATOR_SCOPES,
   COLLABORATOR_THREAD_LINK_PARAM,
   CollaboratorAccessFork,
-  CollaboratorMessageErrorFork,
+  CollaboratorAccessErrorFork,
+  type CollaboratorMessageErrorFork,
   type CollaboratorMessageFork,
   type CollaboratorResolveMessageInputFork,
   type CollaboratorSetAccessInputFork,
@@ -25,6 +26,7 @@ import {
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2SubscribeShellInput,
+  type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2SubscribeThreadInput,
   OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
@@ -189,6 +191,7 @@ const filterShellItem = (
 
 const {
   dispatchCommand: DISPATCH,
+  launchThread: LAUNCH,
   subscribeShell: SHELL,
   subscribeThread: THREAD,
 } = ORCHESTRATION_V2_WS_METHODS;
@@ -215,8 +218,12 @@ interface CollaboratorMessageHandlersFork {
 }
 
 // `options: never` accepts each upstream handler whatever its RPC options type.
-interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR> {
+interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR> {
   readonly [DISPATCH]: (command: OrchestrationV2Command, options: never) => Effect.Effect<A, E, R>;
+  readonly [LAUNCH]: (
+    input: OrchestrationV2ThreadLaunchInput,
+    options: never,
+  ) => Effect.Effect<LA, LE, LR>;
   readonly [SHELL]: (
     input: OrchestrationV2SubscribeShellInput,
     options: never,
@@ -257,6 +264,15 @@ const withoutCollaboratorAttribution = (
   }
   const { collaboratorFork: _claimed, ...context } = command.context;
   return { ...command, context };
+};
+
+const launchWithoutAttribution = (
+  input: OrchestrationV2ThreadLaunchInput,
+): OrchestrationV2ThreadLaunchInput => {
+  const context = input.initialMessage?.context;
+  if (input.initialMessage === undefined || context?.collaboratorFork === undefined) return input;
+  const { collaboratorFork: _claimed, ...rest } = context;
+  return { ...input, initialMessage: { ...input.initialMessage, context: rest } };
 };
 
 const notShared = (
@@ -349,7 +365,7 @@ export class CollaboratorSharesFork extends Context.Service<
     ) => Effect.Effect<void, CollaboratorUnshareErrorFork>;
     readonly setAccess: (
       input: CollaboratorSetAccessInputFork,
-    ) => Effect.Effect<void, CollaboratorUnshareErrorFork>;
+    ) => Effect.Effect<void, CollaboratorAccessErrorFork>;
     /** The waiting-message handlers for `subject`, or the host's for `null`. */
     readonly messageHandlers: (subject: string | null) => CollaboratorMessageHandlersFork;
     /**
@@ -365,9 +381,9 @@ export class CollaboratorSharesFork extends Context.Service<
      * Narrows a collaborator session's thread handlers and answers its waiting messages; other
      * sessions only lose the right to attribute a message to a collaborator.
      */
-    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR>(
+    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR>(
       subject: string,
-      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR>,
+      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR>,
     ) => CollaboratorHandlersFork<
       A,
       E | EnvironmentAuthorizationError,
@@ -375,7 +391,10 @@ export class CollaboratorSharesFork extends Context.Service<
       SE,
       SR,
       TE | EnvironmentAuthorizationError,
-      TR
+      TR,
+      LA,
+      LE,
+      LR
     > &
       Partial<CollaboratorMessageHandlersFork>;
   }
@@ -512,20 +531,16 @@ const make = Effect.gen(function* () {
         WHERE subject = ${subject} AND thread_id = ${threadId}
       `.pipe(Effect.mapError(fail("freeze-share")));
     }
-    // A frozen copy cannot follow up, so its waiting messages go with the share.
-    yield* sql`
-      DELETE FROM fork_collaborator_messages WHERE subject = ${subject} AND thread_id = ${threadId}
-    `.pipe(Effect.mapError(fail("freeze-share")));
     yield* reload.pipe(Effect.mapError(fail("read-shares")));
-    yield* messages.reload.pipe(Effect.mapError(fail("read-shares")));
+    // A frozen copy cannot follow up, so its waiting messages go with the share.
+    yield* messages.drop(subject, threadId).pipe(Effect.mapError(fail("freeze-share")));
   });
 
   const setAccess = Effect.fn("CollaboratorSharesFork.setAccess")(function* (
     input: CollaboratorSetAccessInputFork,
   ) {
     const { subject, threadId, access } = input;
-    const fail = (cause: unknown) =>
-      new CollaboratorUnshareErrorFork({ operation: "set-access", threadId, cause });
+    const fail = (cause: unknown) => new CollaboratorAccessErrorFork({ threadId, cause });
     yield* sql`
       UPDATE fork_colleague_shares SET access = ${access}
       WHERE subject = ${subject} AND thread_id = ${threadId} AND frozen_shell_json IS NULL
@@ -637,15 +652,19 @@ const make = Effect.gen(function* () {
   const wrapHandlers: CollaboratorSharesFork["Service"]["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
     const { [DISPATCH]: dispatch, [SHELL]: subscribeShell, [THREAD]: subscribeThread } = handlers;
+    const { [LAUNCH]: launch } = handlers;
     if (!isCollaboratorSubject(subject)) {
       return {
         ...handlers,
         [DISPATCH]: (command, options) =>
           dispatch(withoutCollaboratorAttribution(command), options),
+        [LAUNCH]: (input, options) => launch(launchWithoutAttribution(input), options),
       };
     }
     return {
       ...messageHandlers(subject),
+      // Outside the collaborator's closed RPC set, so `guardRpc` refuses it first.
+      [LAUNCH]: launch,
       [DISPATCH]: (command, options) => {
         const share = current.get(subject);
         const access = share?.threadIds.get(commandThreadId(command));
