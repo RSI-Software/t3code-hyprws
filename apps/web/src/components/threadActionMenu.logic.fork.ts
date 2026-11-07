@@ -33,12 +33,12 @@ export function openInNewWindowMenuItems(
     : [];
 }
 
-/** Fork: share the thread to a colleague's app through a pairing link (colleague-collab). */
-export function colleagueShareMenuItems(
+/** Fork: share the thread with a collaborator's app through a pairing link (colleague-collab). */
+export function collaboratorShareMenuItems(
   state: Pick<ThreadActionMenuState, "canOperate">,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   return state.canOperate
-    ? [{ id: "share-colleague" as const, label: "Share to colleague…", icon: "user-plus" }]
+    ? [{ id: "share-collaborator" as const, label: "Share with collaborator…", icon: "user-plus" }]
     : [];
 }
 
