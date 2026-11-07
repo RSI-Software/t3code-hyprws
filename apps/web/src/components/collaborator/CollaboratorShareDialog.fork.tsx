@@ -172,7 +172,6 @@ function CollaboratorShareDialog({
       input: {
         threadId: threadRef.threadId,
         collaboratorName,
-        access: "approve",
         ...linkBase(threadRef),
       },
     });
