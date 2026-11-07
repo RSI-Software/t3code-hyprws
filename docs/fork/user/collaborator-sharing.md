@@ -8,9 +8,8 @@ The agent treats them as it would yours and answers them in the thread.
 
 1. Right-click the thread in the sidebar
 2. Choose **Share with collaborator**
-3. Type their name and pick their **access**
-4. Choose **Share**
-5. Send them the link
+3. Type their name and choose **Share**
+4. Send them the link
 
 The link is a normal `https` page, so any chat makes it clickable.
 It offers **Open in desktop app** or **Continue in this browser**.
@@ -19,10 +18,12 @@ The link expires after 24 hours.
 
 ## Access
 
-Each shared thread has its own access, changeable in the dialog anytime:
+Each shared thread has its own access, set beside their name under **People with access**:
 
-- **You approve messages** (default): each waits for you
-- **Sends directly**, each reaching the agent at once
+- **Needs approval**, the default: messages **wait for you**
+- **Can send**, so messages **reach the agent** at once
+
+Sharing again keeps the access you set.
 
 A waiting message shows at the end of the thread, with **Send** and **Dismiss**.
 You also get a notice when you are elsewhere.
@@ -31,7 +32,7 @@ They send text only while approval is on.
 
 ## Share more threads
 
-A collaborator with at least one shared thread shows as **Share with <name>**.
+Collaborators you shared other threads with show under **Shared before**; choose their name.
 The thread appears in their sidebar right away; no new link needed.
 
 ## Stop sharing
