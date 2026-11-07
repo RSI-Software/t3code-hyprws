@@ -17,8 +17,10 @@ const FORK_COLUMNS: ReadonlyArray<{
   { table: "auth_external_mcp_requests", column: "pinned_target", definition: "TEXT" },
   // When the legacy import folded a V1 issue link into its V2 thread; set rows never import again.
   { table: "projection_thread_issues", column: "imported_at", definition: "TEXT" },
-  // A stopped colleague share's thread shell, frozen when sharing stopped; null while live.
+  // A stopped collaborator share's thread shell, frozen when sharing stopped; null while live.
   { table: "fork_colleague_shares", column: "frozen_shell_json", definition: "TEXT" },
+  // What a live share's collaborator messages may do: `send`, or `approve` to wait for the host.
+  { table: "fork_colleague_shares", column: "access", definition: "TEXT" },
 ];
 
 /**
@@ -89,13 +91,22 @@ const FORK_TABLES = [
     thread_ids_json TEXT NOT NULL,
     parent_thread_id TEXT
   )`,
-  // Threads shared with a colleague's pairing subject for the colleague-collab domain.
+  // Threads shared with a collaborator's pairing subject for the colleague-collab domain.
   `CREATE TABLE IF NOT EXISTS fork_colleague_shares (
     subject TEXT NOT NULL,
     thread_id TEXT NOT NULL,
     colleague_name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     PRIMARY KEY (subject, thread_id)
+  )`,
+  // Collaborator messages waiting for the host to send or dismiss them (colleague-collab).
+  `CREATE TABLE IF NOT EXISTS fork_collaborator_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    collaborator_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    submitted_at TEXT NOT NULL
   )`,
 ] as const;
 

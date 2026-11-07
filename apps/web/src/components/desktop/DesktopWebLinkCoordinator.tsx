@@ -26,7 +26,7 @@ import { useOpenChangeRequestLink } from "../../lib/openPullRequestLink";
 import { selectActiveRightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { resolveThreadRouteTarget } from "../../threadRoutes";
-import { useColleagueLinkPairingFork } from "../colleague/colleagueLink.fork"; // fork-hook: colleague-collab/link-pair-import
+import { useCollaboratorLinkPairingFork } from "../collaborator/collaboratorLink.fork"; // fork-hook: colleague-collab/link-pair-import
 import { assetEnvironment } from "../../state/assets";
 import { readProject, readThreadShell } from "../../state/entities";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironment } from "../../state/environments";
@@ -95,7 +95,7 @@ export function DesktopWebLinkCoordinator() {
   const httpBaseUrl = useEnvironmentHttpBaseUrl(primaryEnvironment?.environmentId ?? null);
   const queueRef = useRef(Promise.resolve());
   const pairedUrlsRef = useRef(new Set<string>());
-  const pairColleagueLinkFork = useColleagueLinkPairingFork(); // fork-hook: colleague-collab/link-pair-handler
+  const pairCollaboratorLinkFork = useCollaboratorLinkPairingFork(); // fork-hook: colleague-collab/link-pair-handler
   const webLinks = window.desktopBridge?.webLinks;
   // A sync IPC read; the setting only changes across a relaunch.
   const [localEnvironmentDisabled] = useState(isLocalEnvironmentDisabled);
@@ -133,7 +133,7 @@ export function DesktopWebLinkCoordinator() {
       reportPairingFailure(error);
       return;
     }
-    if (await pairColleagueLinkFork(pairingUrl, origin, pairedUrlsRef.current)) return; // fork-hook: colleague-collab/link-pair
+    if (await pairCollaboratorLinkFork(pairingUrl, origin, pairedUrlsRef.current)) return; // fork-hook: colleague-collab/link-pair
     const confirmed = (await requestConfirmDialog(`Add the backend at ${origin}?`)) ?? false;
     if (!confirmed) return;
     const result = await connectPairingEnvironment({ pairingUrl });
