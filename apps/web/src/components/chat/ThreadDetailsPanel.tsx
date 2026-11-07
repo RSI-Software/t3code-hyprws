@@ -27,6 +27,7 @@ import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
+import { ThreadCollaboratorsPanelFork } from "../collaborator/ThreadCollaboratorsPanel.fork"; // fork-hook: colleague-collab/details-panel-import
 import {
   ThreadDetailsContext,
   ThreadDetailsUsage,
@@ -264,6 +265,14 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   </div>
                 </ThreadDetailsSection>
               ) : null}
+
+              {/* fork-hook: colleague-collab/details-panel */}
+              <ThreadCollaboratorsPanelFork
+                show={density === "full" && !props.draftId && visible.collaborators}
+                environmentId={props.environmentId}
+                threadId={props.threadId}
+              />
+              {/* fork-hook-end */}
 
               {density === "full" && !props.draftId && visible.servers ? (
                 <ThreadServersPanel environmentId={props.environmentId} threadId={props.threadId} />

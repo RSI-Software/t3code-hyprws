@@ -293,6 +293,33 @@ const needsApproval = new EnvironmentAuthorizationError({
   requiredScope: AuthOrchestrationOperateScope,
 });
 
+// A `send` collaborator takes part in the conversation; managing the thread, its runtime mode,
+// and its checkpoints stays the host's.
+const COLLABORATOR_COMMANDS: ReadonlySet<OrchestrationV2Command["type"]> = new Set([
+  "message.dispatch",
+  "queued-run.edit",
+  "queued-run.cancel",
+  "queued-run.start",
+  "queued-run.reorder",
+  "queue.resume",
+  "queued-message.promote-to-steer",
+  "prepared-run.retry",
+  "run.interrupt",
+  "thread.stop",
+  "subagent.stop",
+  "runtime-request.respond",
+  "thread.user-input.dismiss",
+  "thread.model-selection.set",
+  "thread.interaction-mode.set",
+  "thread.visit",
+  "thread.mark-unread",
+]);
+
+const hostOnly = new EnvironmentAuthorizationError({
+  message: "Only the host can change this thread.",
+  requiredScope: AuthOrchestrationOperateScope,
+});
+
 const notCollaborator = new EnvironmentAuthorizationError({
   message: "Only a collaborator submits messages for approval.",
   requiredScope: AuthOrchestrationOperateScope,
@@ -685,6 +712,7 @@ const make = Effect.gen(function* () {
           return Effect.fail(notShared(AuthOrchestrationOperateScope));
         }
         if (access === "approve") return Effect.fail(needsApproval);
+        if (!COLLABORATOR_COMMANDS.has(command.type)) return Effect.fail(hostOnly);
         if (command.type !== "message.dispatch" && command.type !== "queued-run.edit") {
           return dispatch(command, options);
         }
