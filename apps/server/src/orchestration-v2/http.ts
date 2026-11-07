@@ -40,9 +40,9 @@ import {
 } from "./ShellStream.ts";
 import { encodeThreadSnapshotBody } from "./threadSnapshotBody.ts";
 import { boundedSnapshotResponseFields } from "./ThreadStream.ts";
-import { requireColleagueHttpThreadFork } from "../colleague/ColleagueShares.fork.ts"; // fork-hook: colleague-collab/http-thread-guard-import
-import { refuseColleagueHttpShellFork } from "../colleague/ColleagueShares.fork.ts"; // fork-hook: colleague-collab/http-shell-refuse-import
+import { requireCollaboratorHttpThreadFork } from "../collaborator/CollaboratorShares.fork.ts"; // fork-hook: colleague-collab/http-thread-guard-import
 import { makeThreadGroupTitleHandlerFork } from "./ThreadGroupTitles.ts"; // fork-hook: thread-ordering/group-title-handler-import
+import { refuseCollaboratorHttpShellFork } from "../collaborator/CollaboratorShares.fork.ts"; // fork-hook: colleague-collab/http-shell-refuse-import
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
 
 const isInvalidThreadHistoryCursorError = Schema.is(InvalidThreadHistoryCursorError);
@@ -195,7 +195,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          yield* refuseColleagueHttpShellFork; // fork-hook: colleague-collab/http-shell-refuse
+          yield* refuseCollaboratorHttpShellFork; // fork-hook: colleague-collab/http-shell-refuse
           return yield* answerShellSnapshot(args.query).pipe(
             traceLocalHandlerWork,
             Effect.catch((cause) =>
@@ -209,7 +209,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.threadSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          yield* requireColleagueHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
+          yield* requireCollaboratorHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
           const body = yield* loadThreadSnapshot(
             args.params.threadId,
             "orchestration_thread_snapshot_failed",
@@ -235,7 +235,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.threadTranscript")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          yield* requireColleagueHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
+          yield* requireCollaboratorHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
           return yield* threadManagement.getThreadTranscript(args.params.threadId).pipe(
             Effect.provideService(ServerEnvironment.ServerEnvironmentIdentity, environment),
             traceLocalHandlerWork,
@@ -261,7 +261,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.threadBoundedSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          yield* requireColleagueHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
+          yield* requireCollaboratorHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
           const snapshot = yield* loadThreadSnapshotWindow(
             args.params.threadId,
             undefined,
@@ -288,7 +288,7 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.threadHistoryPage")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          yield* requireColleagueHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
+          yield* requireCollaboratorHttpThreadFork(args.params.threadId); // fork-hook: colleague-collab/http-thread-guard
           const decoded = Result.try(() => decodeThreadHistoryCursor(args.query.cursor));
           if (Result.isFailure(decoded)) {
             const cause = decoded.failure;
