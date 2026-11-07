@@ -32,7 +32,6 @@ import {
   type SpeechModel,
 } from "./model.ts";
 import { listNativeSpeechGpuDevices, loadNativeSpeechModel } from "./native.ts";
-import { nativeSpeechLanguage } from "./nativeLanguage.ts";
 import { SILERO_VAD } from "./silero.ts";
 import { isSpeechPlatformSupported } from "./platform.ts";
 import * as SpeechModelStore from "./SpeechModelStore.ts";
@@ -614,12 +613,11 @@ const make = Effect.gen(function* () {
                 try: (signal) => {
                   // Interruption kills the isolated process; the next request reloads the model.
                   signal.addEventListener("abort", () => dropModel(inference), { once: true });
-                  const hint = nativeSpeechLanguage(inference.languages, language);
                   return inference.transcribe(
                     pcm,
                     {
                       timestamps: "none",
-                      ...(hint ? { language: hint } : {}),
+                      ...(language === "auto" ? {} : { language }),
                       ...(translateToEnglish
                         ? { task: "translate" as const, targetLanguage: "en" as const }
                         : {}),
@@ -751,11 +749,10 @@ const make = Effect.gen(function* () {
         streamModel.supportsVocabulary && !translateToEnglish && customWords.length
           ? customWords
           : undefined;
-      const hint = nativeSpeechLanguage(streamModel.languages, language);
       await streamModel.begin(
         {
           timestamps: "none",
-          ...(hint ? { language: hint } : {}),
+          ...(language === "auto" ? {} : { language }),
           ...(translateToEnglish ? { task: "translate", targetLanguage: "en" } : {}),
           ...(vocabulary ? { vocabulary } : {}),
         },

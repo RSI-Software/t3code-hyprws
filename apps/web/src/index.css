@@ -1848,21 +1848,21 @@ code {
   -webkit-app-region: no-drag;
 }
 
-/* Keep parent scrollbar styles off iframe owners to avoid WebKit resize loops: https://webkit.org/b/324485 */
-:where(:not(iframe))::-webkit-scrollbar {
+/* Scrollbar styling */
+::-webkit-scrollbar {
   width: var(--app-scrollbar-width);
 }
 
-:where(:not(iframe))::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
 
-:where(:not(iframe))::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: var(--app-scrollbar-thumb);
   border-radius: 3px;
 }
 
-:where(:not(iframe))::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: var(--app-scrollbar-thumb-hover);
 }
 

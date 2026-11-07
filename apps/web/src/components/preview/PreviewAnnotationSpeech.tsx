@@ -61,7 +61,6 @@ export function PreviewAnnotationSpeech({
     projectName: project?.title,
     ownerKey: JSON.stringify(["preview-annotation", threadRef, tabId, config.sessionId]),
     draftText: text,
-    offerSetup: false,
     readDraft: () => ({
       text: draft.current.text,
       selection: { start: draft.current.cursor, end: draft.current.selectionEnd },
@@ -184,11 +183,9 @@ export function PreviewAnnotationSpeech({
       step={speech.setup.step}
       status={speech.status}
       model={speech.setup.model}
-      language={speech.setup.language}
       downloading={speech.setup.downloading}
       error={speech.setup.error}
       onOpenChange={speech.setup.setOpen}
-      onRetryCatalog={speech.setup.retryCatalog}
       onDownload={() => void speech.setup.download()}
       onCancelDownload={() => void speech.setup.cancelDownload()}
       onStartRecording={() => void speech.setup.startRecording()}

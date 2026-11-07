@@ -147,7 +147,6 @@ process.on("message", async (message) => {
         throw new Error("The selected speech GPU is unavailable.");
       model = await TranscribeModel.load(message.path, device ? { device } : { backend: message.acceleration });
       process.send({ type: "t3-speech-reply", ok: true, backend: model.backend,
-        languages: model.capabilities.languages,
         supportsStreaming: model.capabilities.supportsStreaming,
         supportsLongForm: model.supports("long_form"),
         supportsTranslation: model.capabilities.supportsTranslate,
@@ -195,7 +194,6 @@ type Reply = {
   readonly supportsTranslation?: boolean;
   readonly supportsVocabulary?: boolean;
   readonly backend?: string;
-  readonly languages?: unknown;
   readonly revision?: number;
   readonly preview?: SpeechStreamText | null;
 };
@@ -393,9 +391,6 @@ async function loadNativeSpeechModelOnce(
   }
   return {
     backend: loaded.backend ?? "unknown",
-    languages: Array.isArray(loaded.languages)
-      ? loaded.languages.filter((entry): entry is string => typeof entry === "string")
-      : [],
     supportsStreaming: loaded.supportsStreaming === true,
     supportsLongForm: loaded.supportsLongForm === true,
     supportsTranslation: loaded.supportsTranslation === true,

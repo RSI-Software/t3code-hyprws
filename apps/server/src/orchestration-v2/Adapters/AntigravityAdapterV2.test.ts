@@ -540,7 +540,7 @@ describe("AntigravityAdapterV2 workspace changes", () => {
           },
         ],
       );
-      assert.include(JSON.stringify(sent.prompt), JSON.stringify(documentPath).slice(1, -1));
+      assert.include(JSON.stringify(sent.prompt), documentPath);
       if (readTextFile === undefined) {
         return yield* Effect.die("Antigravity sessions must serve client file requests");
       }

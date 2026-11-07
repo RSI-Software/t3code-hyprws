@@ -174,7 +174,6 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   scheduledTaskThreadModes: Schema.optionalKey(Schema.Boolean),
   /** Server can transcribe 16 kHz mono PCM audio on the environment machine. */
   voiceTranscription: Schema.optionalKey(Schema.Boolean),
-  cloudVoiceTranscription: Schema.optionalKey(Schema.Boolean),
   githubIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-capability
   threadIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-thread-issues-capability
   githubIssueStateChange: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-state-change-capability

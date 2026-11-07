@@ -14,15 +14,12 @@ import {
   useVoiceTranscriptionDestination,
 } from "../../speech/useEnvironmentSpeechInput";
 import { chooseAudioDestination, chooseTranscriptCleanup } from "../../speech/voiceConsent";
-import { useEnvironmentScope } from "../../state/session";
 import { toastManager } from "../ui/toast";
 import { SettingsScopeProvider } from "./SettingsScopeContext";
 import { SpeechLanguageSelect } from "./SpeechLanguageSelect";
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
 
 vi.mock(import("../../speech/useEnvironmentSpeechInput"), { spy: true });
-vi.mock(import("../../state/session"), { spy: true });
-
 // The real connection runtime authorizes relay requests with a signed-in cloud session.
 vi.mock("../../connection/runtime", async () => {
   const [{ ManagedRelay }, rpc, { Atom }, Context, Effect, Layer] = await Promise.all([
@@ -71,7 +68,7 @@ vi.mock("../../connection/runtime", async () => {
   };
 });
 
-it("tests the selected model after download and preserves its transcript across filters", async () => {
+it("preserves the model test transcript when its model is filtered out", async () => {
   const target = new PrimaryConnectionTarget({
     environmentId: EnvironmentId.make("voice-filter"),
     label: "Test environment",
@@ -106,23 +103,15 @@ it("tests the selected model after download and preserves its transcript across 
     modelUnloadTimeout: "never",
     gpuDevices: [],
   } satisfies EnvironmentSpeechStatus;
-  let installed = false;
   const fetch = globalThis.fetch;
   using _network = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = new URL(input instanceof Request ? input.url : input, window.location.href);
-    if (url.pathname === "/api/voice/status")
-      return Promise.resolve(
-        Response.json(installed ? status : { ...status, state: "missing-model" }),
-      );
-    if (url.pathname === "/api/voice/models/download") {
-      installed = true;
-      return Promise.resolve(Response.json({ models: [model] }));
-    }
+    if (url.pathname === "/api/voice/status") return Promise.resolve(Response.json(status));
     if (url.pathname === "/api/voice/models")
       return Promise.resolve(
         Response.json({
           models: [
-            installed ? model : { ...model, state: "downloadable", active: false },
+            model,
             {
               ...model,
               id: "both",
@@ -147,7 +136,6 @@ it("tests the selected model after download and preserves its transcript across 
     return fetch(input, init);
   });
   const transcript = "Keep this transcript.";
-  using _scope = vi.mocked(useEnvironmentScope).mockReturnValue(true);
   await vi.mocked(useVoiceTranscriptionDestination).withImplementation(
     () => ({ environmentId: target.environmentId, label: target.label, grantId: "test", prepared }),
     async () => {
@@ -161,10 +149,7 @@ it("tests the selected model after download and preserves its transcript across 
             open: false,
             step: 0,
             model: null,
-            language: null,
             downloading: false,
-            catalogFailed: false,
-            retryCatalog: null,
             error: null,
             setOpen: () => {},
             download: async () => {},
@@ -192,13 +177,7 @@ it("tests the selected model after download and preserves its transcript across 
             </SettingsScopeProvider>,
           );
           const testModel = screen.getByRole("button", { name: "Test model", exact: true });
-          const download = screen.getByRole("button", { name: "Download", exact: true });
-          await expect.element(download).toBeVisible();
-          expect(testModel.query()).toBeNull();
-          expect(screen.getByRole("button", { name: "Set up voice input" }).query()).toBeNull();
-          await userEvent.click(download);
           await expect.element(testModel).toBeVisible();
-          expect(screen.getByRole("button", { name: "Set up voice input" }).query()).toBeNull();
           await userEvent.click(testModel);
           const result = screen.getByRole("status", { name: "Test transcript" });
           await expect.element(result).toHaveTextContent(transcript);
@@ -396,7 +375,7 @@ it.each([
     );
     await vi.waitFor(() => expect(document.activeElement?.id).toBe(prerequisite));
     await expect
-      .element(screen.getByRole("combobox", { name: "Transcribe with" }))
+      .element(screen.getByRole("combobox", { name: "Send microphone audio to" }))
       .toHaveTextContent("Off");
     await expect
       .element(screen.getByRole("switch", { name: "Clean up transcripts with a provider" }))
@@ -415,7 +394,7 @@ it("keeps a missing destination selected without claiming it cannot transcribe",
     </SettingsScopeProvider>,
   );
   await expect
-    .element(screen.getByRole("combobox", { name: "Transcribe with" }))
+    .element(screen.getByRole("combobox", { name: "Send microphone audio to" }))
     .toHaveTextContent("Chosen environment (unavailable)");
   await expect.element(screen.getByText(/can’t transcribe audio/)).not.toBeInTheDocument();
 });
