@@ -517,24 +517,32 @@ const make = Effect.gen(function* () {
     const fail = (operation: CollaboratorUnshareErrorFork["operation"]) => (cause: unknown) =>
       new CollaboratorUnshareErrorFork({ operation, threadId, cause });
     if (!isShared(subject, threadId)) return;
-    // A frozen copy cannot follow up, so its waiting messages go first: a failure here leaves
-    // the share live, and a retry repeats both steps.
-    yield* messages.drop(subject, threadId).pipe(Effect.mapError(fail("freeze-share")));
     const thread = yield* threads
       .getThreadShell(threadId)
       .pipe(Effect.mapError(fail("freeze-share")));
-    if (thread === null || thread.deletedAt !== null) {
-      yield* sql`
-        DELETE FROM fork_colleague_shares WHERE subject = ${subject} AND thread_id = ${threadId}
-      `.pipe(Effect.mapError(fail("freeze-share")));
-    } else {
-      const frozen = yield* encodeFrozenShell(thread).pipe(Effect.mapError(fail("freeze-share")));
-      yield* sql`
-        UPDATE fork_colleague_shares SET frozen_shell_json = ${frozen}
-        WHERE subject = ${subject} AND thread_id = ${threadId}
-      `.pipe(Effect.mapError(fail("freeze-share")));
-    }
-    yield* reload.pipe(Effect.mapError(fail("read-shares")));
+    const frozen =
+      thread === null || thread.deletedAt !== null
+        ? null
+        : yield* encodeFrozenShell(thread).pipe(Effect.mapError(fail("freeze-share")));
+    // A frozen copy cannot follow up, so its waiting messages go first, and no submit lands
+    // between. A failure leaves the share live, and a retry repeats every step.
+    yield* messages.exclusive(
+      Effect.gen(function* () {
+        yield* messages.drop(subject, threadId).pipe(Effect.mapError(fail("freeze-share")));
+        yield* (
+          frozen === null
+            ? sql`
+                DELETE FROM fork_colleague_shares
+                WHERE subject = ${subject} AND thread_id = ${threadId}
+              `
+            : sql`
+                UPDATE fork_colleague_shares SET frozen_shell_json = ${frozen}
+                WHERE subject = ${subject} AND thread_id = ${threadId}
+              `
+        ).pipe(Effect.mapError(fail("freeze-share")));
+        yield* reload.pipe(Effect.mapError(fail("read-shares")));
+      }),
+    );
   });
 
   const setAccess = Effect.fn("CollaboratorSharesFork.setAccess")(function* (
@@ -636,13 +644,17 @@ const make = Effect.gen(function* () {
       messages.visible(
         (message) => message.subject === subject && isShared(subject, message.threadId),
       ),
-    [SUBMIT]: (input) => {
-      const share = current.get(subject);
-      // A collaborator with `send` access dispatches like the host; this path is for `approve`.
-      return share?.threadIds.get(input.threadId) === "approve"
-        ? messages.submit({ subject, name: share.name, ...input })
-        : Effect.fail(notShared(AuthOrchestrationOperateScope));
-    },
+    // Checked inside `exclusive`, so an unshare in flight finishes first.
+    [SUBMIT]: (input) =>
+      messages.exclusive(
+        Effect.suspend((): Effect.Effect<void, MessageError> => {
+          const share = current.get(subject);
+          // A collaborator with `send` access dispatches like the host; this path is for `approve`.
+          return share?.threadIds.get(input.threadId) === "approve"
+            ? messages.submit({ subject, name: share.name, ...input })
+            : Effect.fail(notShared(AuthOrchestrationOperateScope));
+        }),
+      ),
     // A collaborator can withdraw a message, never send it past the host.
     [RESOLVE]: (input) =>
       input.decision === "dismiss"

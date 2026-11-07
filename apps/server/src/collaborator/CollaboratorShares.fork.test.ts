@@ -24,6 +24,7 @@ import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
@@ -120,7 +121,7 @@ const tunnelClient = (ingress?: Ingress) =>
   );
 
 const withService = <A, E>(
-  effect: Effect.Effect<A, E, CollaboratorShares.CollaboratorSharesFork>,
+  effect: Effect.Effect<A, E, CollaboratorShares.CollaboratorSharesFork | SqlClient.SqlClient>,
   tunnel?: Ingress,
 ) =>
   Effect.andThen(
@@ -392,6 +393,26 @@ database("CollaboratorSharesFork", (it) => {
             ),
           ),
         );
+
+        // An unshare whose purge fails leaves the share live; a retry purges and freezes.
+        yield* service.setAccess({ subject: "colleague:sam", threadId: shared, access: "approve" });
+        yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "late" });
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`
+          CREATE TRIGGER refuse_purge BEFORE DELETE ON fork_collaborator_messages
+          BEGIN SELECT RAISE(ABORT, 'refused'); END
+        `;
+        const unshare = service.unshare({ threadId: shared, subject: "colleague:sam" });
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(unshare)));
+        assert.isTrue(service.isShared("colleague:sam", shared));
+        assert.deepStrictEqual(
+          (yield* waiting(sam)).map(({ text }) => text),
+          ["late"],
+        );
+        yield* sql`DROP TRIGGER refuse_purge`;
+        yield* unshare;
+        assert.isFalse(service.isShared("colleague:sam", shared));
+        assert.deepStrictEqual(yield* waiting(host), []);
       }),
     ),
   );

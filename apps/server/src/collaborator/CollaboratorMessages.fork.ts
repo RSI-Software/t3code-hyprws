@@ -66,7 +66,8 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const random = yield* SecureRandom.SecureRandom;
-  // One change at a time, so two tabs sending one message cannot both dispatch it.
+  // One change at a time: two tabs cannot both send one message, and a submit cannot slip
+  // between an unshare's purge and its freeze.
   const lock = (yield* Semaphore.make(1)).withPermits(1);
 
   const read = sql<MessageRow>`
@@ -97,7 +98,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
         (id, thread_id, subject, collaborator_name, text, submitted_at)
       VALUES (${id}, ${input.threadId}, ${input.subject}, ${input.name}, ${input.text}, ${submittedAt})
     `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
-  }, lock);
+  });
 
   /** `subject` null is the host, who may send; a collaborator may only withdraw their own. */
   const resolve = Effect.fn("CollaboratorMessagesFork.resolve")(function* (
@@ -146,13 +147,13 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
 
   /** Drops a collaborator's waiting messages on a thread they no longer share. */
   const drop = (subject: string, threadId: string) =>
-    lock(
-      sql`
-        DELETE FROM fork_collaborator_messages WHERE subject = ${subject} AND thread_id = ${threadId}
-      `.pipe(Effect.andThen(reload)),
-    );
+    sql`
+      DELETE FROM fork_collaborator_messages WHERE subject = ${subject} AND thread_id = ${threadId}
+    `.pipe(Effect.andThen(reload));
 
   return {
+    /** Runs `effect` alone; `submit` and `drop` run only inside it, with the share check. */
+    exclusive: lock,
     submit,
     resolve,
     drop,
