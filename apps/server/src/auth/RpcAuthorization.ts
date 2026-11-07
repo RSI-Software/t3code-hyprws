@@ -174,7 +174,10 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.threadCheckoutMoveRequest]: AuthOrchestrationOperateScope, // fork-hook: zmux-estate/checkout-move-rpc-auth
   [WS_METHODS.threadGroupsSubscribeFork]: AuthOrchestrationReadScope, // fork-hook: thread-ordering/thread-groups-rpc-auth
   [WS_METHODS.threadGroupsMutateFork]: AuthOrchestrationOperateScope, // fork-hook: thread-ordering/thread-groups-rpc-auth
-  [WS_METHODS.colleagueThreadSharesFork]: AuthOrchestrationReadScope, // fork-hook: colleague-collab/thread-shares-rpc-auth
+  [WS_METHODS.collaboratorThreadSharesFork]: AuthOrchestrationReadScope, // fork-hook: colleague-collab/thread-shares-rpc-auth
+  [WS_METHODS.collaboratorSubscribeMessagesFork]: AuthOrchestrationReadScope, // fork-hook: colleague-collab/messages-rpc-auth
+  [WS_METHODS.collaboratorSubmitMessageFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/messages-rpc-auth
+  [WS_METHODS.collaboratorResolveMessageFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/messages-rpc-auth
   [WS_METHODS.assetsCreateUrl]: AuthOrchestrationReadScope,
   [WS_METHODS.assetsPersistChatAttachments]: AuthOrchestrationOperateScope,
   [WS_METHODS.attachmentsCreateUploadUrl]: AuthOrchestrationOperateScope,
