@@ -189,7 +189,6 @@ function CollaboratorShareDialog({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, subject, access: next },
     });
-    refreshShares();
   };
 
   const busy = state.status === "creating";

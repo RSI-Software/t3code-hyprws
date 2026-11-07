@@ -7,7 +7,7 @@ import { UserIcon, UserPlusIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
-import { useEnvironmentQueryRefresh, useEnvironmentQuerySelector } from "~/state/query";
+import { useEnvironmentQuerySelector } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
@@ -39,7 +39,6 @@ export function ThreadCollaboratorsPanelFork({
 function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaboratorsPanelProps) {
   const sharesAtom = threadSharesQuery({ environmentId, input: { threadId } });
   const shares = useEnvironmentQuerySelector(sharesAtom, selectEnvironmentQueryData);
-  const { refresh } = useEnvironmentQueryRefresh(sharesAtom);
   const setAccess = useAtomCommand(setAccessCommand);
   const [busySubject, setBusySubject] = useState<string | null>(null);
 
@@ -50,7 +49,6 @@ function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaborator
     setBusySubject(subject);
     await setAccess({ environmentId, input: { threadId, subject, access } });
     setBusySubject(null);
-    refresh();
   };
 
   return (
