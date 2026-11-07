@@ -123,6 +123,7 @@ import {
   showExternalLinkContextMenu,
 } from "./chat/externalLinkContextMenu";
 import { useGitHubDestinationLinkFork } from "./chat/GitHubDestinationLink.fork"; // fork-hook: github-issues/chat-markdown-github-destination-import
+import { GITHUB_REFERENCE_REMARK_PLUGINS_FORK } from "./chat/githubReferences.fork"; // fork-hook: github-issues/chat-markdown-github-reference-import
 import { withStyledHtml } from "@t3tools/shared/markdownStyledHtml.fork"; // fork-hook: markdown-editing/chat-markdown-styled-html-import
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { Button } from "./ui/button";
@@ -758,7 +759,11 @@ function useChatMarkdownState({
       return result;
     });
   };
-  const githubDestination = useGitHubDestinationLinkFork({ openExternalLinkInPreview }); // fork-hook: github-issues/chat-markdown-github-destination
+  const githubDestination = useGitHubDestinationLinkFork({
+    openExternalLinkInPreview,
+    environmentId,
+    threadRef,
+  }); // fork-hook: github-issues/chat-markdown-github-destination
   const openMarkdownFileInPreview = (path: string) => {
     const preparedConnection = threadRef ? readPreparedConnection(threadRef.environmentId) : null;
     if (!threadRef || !canOperatePreview || preparedConnection === null) {
@@ -1163,6 +1168,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
       renderContextReference,
     } = use(ChatMarkdownRendererContext);
     const text = use(ChatMarkdownTextContext);
+    const resolvedHref = githubDestination.resolveHref(href); // fork-hook: github-issues/chat-markdown-github-reference-resolve
+    if (resolvedHref === null) return children; // fork-hook: github-issues/chat-markdown-github-reference-unresolved
+    href = resolvedHref; // fork-hook: github-issues/chat-markdown-github-reference-href
     const citation = href ? parseAssistantCitationHref(href) : null;
     const before = node?.position?.start.offset;
     const after = node?.position?.end.offset;
@@ -1232,6 +1240,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
           href: href ?? "",
           props,
           children: linkChildren,
+          written: node?.children.every((child) => child.type === "text")
+            ? plainHastText(node)
+            : null,
           canOpenInPreview,
           canOperateHost,
           faviconHost,
@@ -1872,6 +1883,8 @@ function ChatMarkdown({
     ];
   // The incremental parser keeps per-instance state, so its output is not shared.
   const uncachedPlugins = incrementalParsing;
+  extraRemarkPlugins =
+    extraRemarkPlugins.length === 0 ? GITHUB_REFERENCE_REMARK_PLUGINS_FORK : extraRemarkPlugins; // fork-hook: github-issues/chat-markdown-github-reference-plugins
   const remarkPlugins = incrementalParsing
     ? [...sharedRemarkPlugins, ...extraRemarkPlugins, createIncrementalMarkdownPlugin()]
     : withExtraPlugins(
