@@ -2,10 +2,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   githubLinkDestinations,
-  githubLinkLabel,
   parseGitHubLinkTarget,
   preferredGitHubLinkDestination,
 } from "./GitHubDestinationLink.fork";
+import { findGitHubReferences, resolveGitHubReferenceHref } from "./githubReferences.fork";
 
 describe("GitHub link destinations", () => {
   it.each([
@@ -24,11 +24,6 @@ describe("GitHub link destinations", () => {
   it("does not claim other hosts or GitHub pages without a repository", () => {
     expect(parseGitHubLinkTarget("https://example.com/acme/repo/issues/1")).toBeNull();
     expect(parseGitHubLinkTarget("https://github.com/acme")).toBeNull();
-  });
-
-  it("labels issues and pull requests with their full repository identity", () => {
-    const target = parseGitHubLinkTarget("https://github.com/acme/repo/pull/12");
-    expect(target && githubLinkLabel(target)).toBe("acme/repo#12");
   });
 
   it("offers native only for issues and pull requests", () => {
@@ -50,5 +45,33 @@ describe("GitHub link destinations", () => {
         changeRequestMode: "native",
       }),
     ).toBe("external");
+  });
+});
+
+describe("GitHub references written as text", () => {
+  const thread = { owner: "RSI-Software", name: "donjor-skills" };
+
+  it.each([
+    ["see #12 here", "https://github.com/RSI-Software/donjor-skills/issues/12"],
+    ["(rsi#1182)", "https://github.com/RSI-Software/rsi/issues/1182"],
+    ["in pingdotgg/t3code#7.", "https://github.com/pingdotgg/t3code/issues/7"],
+  ])("resolves %s against the thread repository", (text, url) => {
+    const [reference] = findGitHubReferences(text);
+    expect(reference && resolveGitHubReferenceHref(reference.url, thread)).toBe(url);
+  });
+
+  it.each(["C# 12", "a/b/#3", "https://x.dev/#4", "word#0", "#12abc"])(
+    "leaves %s alone",
+    (text) => {
+      expect(findGitHubReferences(text)).toEqual([]);
+    },
+  );
+
+  it("links a short reference only when the thread has a GitHub repository", () => {
+    const [short, full] = findGitHubReferences("rsi#1 and acme/repo#2");
+    expect(resolveGitHubReferenceHref(short!.url, null)).toBeNull();
+    expect(resolveGitHubReferenceHref(full!.url, null)).toBe(
+      "https://github.com/acme/repo/issues/2",
+    );
   });
 });
