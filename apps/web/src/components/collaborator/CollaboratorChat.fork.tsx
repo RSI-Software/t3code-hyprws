@@ -1,6 +1,6 @@
 // Fork-only (colleague-collab): the collaborator parts of a thread view. Messages waiting for the
-// host sit at the end of the timeline, with Send and Dismiss for the host and Withdraw for their
-// author. An `approve` collaborator's composer queues for the host instead of sending, and a thread
+// host sit at the end of the timeline like queued ones, with Send and Dismiss for the host and
+// Withdraw for their author. An `approve` collaborator's composer queues for the host instead of sending, and a thread
 // its host stopped sharing stays readable with a locked composer.
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -16,12 +16,12 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { HourglassIcon, UnplugIcon } from "lucide-react";
+import { ArrowUpIcon, Clock3Icon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import { useComposerDraftStore, type ComposerThreadTarget } from "~/composerDraftStore";
 import { connectionAtomRuntime } from "~/connection/runtime";
-import { cn } from "~/lib/utils";
+import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
 import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
@@ -30,9 +30,11 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
 import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
-import { guestBubbleClassName } from "../chat/guestMessageStyle";
+import { GuestMessageName } from "../chat/guestMessageStyle";
+import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const collaboratorMessages = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:messages",
@@ -93,6 +95,8 @@ export function useCollaboratorChatFork(
   thread: CollaboratorChatThread | null | undefined,
   draftTarget: ComposerThreadTarget,
   composerRef: RefObject<ChatComposerHandle | null>,
+  followingTimeline: boolean,
+  scrollToEnd: (animated: boolean) => void,
 ) {
   const prompt = () => composerRef.current?.getSendContext().prompt.trim() ?? "";
   const hasAttachments = () => {
@@ -102,6 +106,20 @@ export function useCollaboratorChatFork(
   const waiting = useWaitingMessages(thread?.environmentId ?? null).filter(
     (message) => message.threadId === thread?.id,
   );
+  const threadKey = thread?.id ?? null;
+  const waitingIds = waiting.map(({ id }) => id).join(",");
+  const previousWaiting = useRef({ threadKey, waitingIds });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the timeline to a new waiting message, which joins the list footer the list does not follow
+  useEffect(() => {
+    const previous = previousWaiting.current;
+    previousWaiting.current = { threadKey, waitingIds };
+    if (previous.threadKey !== threadKey) return;
+    const seen = new Set(previous.waitingIds.split(","));
+    // The follow flag still holds the position from before the footer grew.
+    if (followingTimeline && waitingIds.split(",").some((id) => id !== "" && !seen.has(id))) {
+      scrollToEnd(true);
+    }
+  }, [threadKey, waitingIds, followingTimeline, scrollToEnd]);
   const submit = useAtomCommand(submitMessageCommand);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const access = thread?.collaboratorFork;
@@ -164,6 +182,7 @@ export function useCollaboratorChatFork(
   };
 }
 
+/** Waiting messages wear the queued-message look: a dashed bubble, then a row of quiet controls. */
 function WaitingMessages({
   environmentId,
   messages,
@@ -174,6 +193,7 @@ function WaitingMessages({
   /** The collaborator sees their own, to withdraw; the host sends or dismisses. */
   readonly asAuthor: boolean;
 }) {
+  const timestampFormat = useEnvironmentSettings(environmentId).timestampFormat;
   const resolve = useAtomCommand(resolveMessageCommand);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const run = async (message: CollaboratorMessageFork, decision: "send" | "dismiss") => {
@@ -190,64 +210,73 @@ function WaitingMessages({
   };
 
   return (
-    <ol
-      className="chat-content-lane flex flex-col gap-4 pb-4"
-      aria-label={`${messages.length} collaborator message${messages.length === 1 ? "" : "s"} waiting`}
-      aria-live="polite"
+    <section
+      aria-label={`${messages.length} message${messages.length === 1 ? "" : "s"} waiting for the host`}
+      className="relative mx-auto flex w-full max-w-(--chat-content-max-width) flex-col pb-4"
     >
-      {messages.map((message) => {
-        const busy = busyIds.has(message.id);
-        return (
-          <li key={message.id} className="flex flex-col items-end gap-1">
-            <p className="me-1 text-2xs text-guest-foreground">
-              {asAuthor ? "Waiting for the host" : `${message.name} · waiting for you`}
-            </p>
-            <div
-              className={cn(
-                "flex min-w-0 max-w-[80%] flex-col gap-2 rounded-2xl p-3 text-foreground",
-                guestBubbleClassName(true),
-              )}
-            >
-              <p className="text-sm leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
-                {message.text}
-              </p>
-            </div>
-            <div className="flex items-center gap-1 pe-1">
-              {asAuthor ? (
-                <Button
-                  size="xs"
-                  variant="ghost-muted"
-                  disabled={busy}
-                  onClick={() => void run(message, "dismiss")}
-                >
-                  Withdraw
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    size="xs"
-                    variant="ghost-muted"
-                    disabled={busy}
-                    aria-label={`Dismiss message from ${message.name}`}
-                    onClick={() => void run(message, "dismiss")}
+      <ol className="flex flex-col items-end gap-3" aria-live="polite">
+        {messages.map((message) => {
+          const busy = busyIds.has(message.id);
+          return (
+            <li key={message.id} className="group/queued flex w-full flex-col items-end gap-1">
+              {asAuthor ? null : <GuestMessageName name={message.name} />}
+              <div className="flex min-w-0 max-w-[80%] flex-col rounded-2xl border border-dashed border-guest/50 px-3 py-2 text-muted-foreground text-sm">
+                <p className="whitespace-pre-wrap wrap-anywhere">{message.text}</p>
+              </div>
+              <div className="flex items-center gap-0.5 pe-1 text-muted-foreground text-xs">
+                <span className="me-1 flex items-center px-1 opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/queued:opacity-100">
+                  <TimelineRowTimestamp
+                    createdAt={message.submittedAt}
+                    timestampFormat={timestampFormat}
+                    alwaysVisible
+                  />
+                </span>
+                {asAuthor ? (
+                  <span className="flex items-center gap-1 px-1">
+                    <Clock3Icon aria-hidden className="size-3" />
+                    Waiting for the host
+                  </span>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="flex shrink-0" />}>
+                      <Button
+                        size="xs"
+                        variant="ghost-muted"
+                        disabled={busy}
+                        aria-label={`Send ${message.name}'s message`}
+                        onClick={() => void run(message, "send")}
+                      >
+                        <ArrowUpIcon />
+                        Send
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipPopup>Send to the agent</TooltipPopup>
+                  </Tooltip>
+                )}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-xs"
+                        variant="ghost-muted"
+                        disabled={busy}
+                        aria-label={
+                          asAuthor ? "Withdraw message" : `Dismiss ${message.name}'s message`
+                        }
+                        onClick={() => void run(message, "dismiss")}
+                      />
+                    }
                   >
-                    Dismiss
-                  </Button>
-                  <Button
-                    size="xs"
-                    disabled={busy}
-                    aria-label={`Send message from ${message.name}`}
-                    onClick={() => void run(message, "send")}
-                  >
-                    Send
-                  </Button>
-                </>
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+                    <XIcon />
+                  </TooltipTrigger>
+                  <TooltipPopup>{asAuthor ? "Withdraw" : "Dismiss"}</TooltipPopup>
+                </Tooltip>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

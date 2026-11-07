@@ -1,5 +1,5 @@
 // Fork-only (colleague-collab): share this thread with a collaborator, set whether their messages
-// need approval, and stop sharing. A first share mints a pairing link; a collaborator already
+// need approval, and stop sharing, all in one list of people with access. A first share mints a pairing link; a collaborator already
 // paired sees the thread live.
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -16,7 +16,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, PlusIcon, UserIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
@@ -37,6 +37,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
 
 const isCollaboratorName = Schema.is(CollaboratorNameFork);
@@ -56,9 +57,9 @@ const setAccessCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   tag: WS_METHODS.collaboratorSetAccessFork,
 });
 
-const ACCESS_LABELS: Record<CollaboratorAccessFork, string> = {
-  approve: "You approve messages",
-  send: "Sends directly",
+const ACCESS: Record<CollaboratorAccessFork, { label: string; detail: string }> = {
+  approve: { label: "Needs approval", detail: "Each message waits for you to send it" },
+  send: { label: "Can send", detail: "Messages go straight to the agent" },
 };
 
 function AccessSelect({
@@ -69,24 +70,27 @@ function AccessSelect({
 }: {
   readonly value: CollaboratorAccessFork;
   readonly label: string;
-  readonly disabled?: boolean;
+  readonly disabled: boolean;
   readonly onChange: (access: CollaboratorAccessFork) => void;
 }) {
   return (
     <Select
       value={value}
-      disabled={disabled ?? false}
+      disabled={disabled}
       onValueChange={(next) => {
         if (next === "send" || next === "approve") onChange(next);
       }}
     >
       <SelectTrigger size="sm" aria-label={label} className="w-auto shrink-0">
-        <SelectValue>{(selected: CollaboratorAccessFork) => ACCESS_LABELS[selected]}</SelectValue>
+        <SelectValue>{(selected: CollaboratorAccessFork) => ACCESS[selected].label}</SelectValue>
       </SelectTrigger>
-      <SelectPopup alignItemWithTrigger={false}>
+      <SelectPopup align="end" alignItemWithTrigger={false} matchTriggerWidth={false}>
         {(["approve", "send"] as const).map((access) => (
           <SelectItem key={access} value={access}>
-            {ACCESS_LABELS[access]}
+            <span className="flex flex-col py-0.5">
+              <span>{ACCESS[access].label}</span>
+              <span className="text-muted-foreground text-xs">{ACCESS[access].detail}</span>
+            </span>
           </SelectItem>
         ))}
       </SelectPopup>
@@ -152,7 +156,6 @@ function CollaboratorShareDialog({
   const { refresh: refreshShares } = useEnvironmentQueryRefresh(sharesAtom);
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "collaborator link" });
   const [name, setName] = useState("");
-  const [access, setNewAccess] = useState<CollaboratorAccessFork>("approve");
   const [state, setState] = useState<ShareState>({ status: "idle" });
   const trimmedName = name.trim();
   const validName = isCollaboratorName(trimmedName);
@@ -166,10 +169,16 @@ function CollaboratorShareDialog({
     setState({ status: "creating" });
     const result = await share({
       environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, collaboratorName, access, ...linkBase(threadRef) },
+      input: {
+        threadId: threadRef.threadId,
+        collaboratorName,
+        access: "approve",
+        ...linkBase(threadRef),
+      },
     });
     refreshShares();
     if (result._tag === "Success") {
+      setName("");
       setState({ status: "created", name: collaboratorName, ...result.value });
       return;
     }
@@ -201,54 +210,66 @@ function CollaboratorShareDialog({
     refreshShares();
   };
 
+  const busy = state.status === "creating";
+
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && state.status !== "creating") onClose();
+        if (!open && !busy) onClose();
       }}
     >
-      <DialogPopup className="max-w-lg">
+      <DialogPopup className="max-w-md">
         <DialogHeader>
           <DialogTitle>Share with collaborator</DialogTitle>
           <DialogDescription>
-            They follow the thread live and message the agent under their name. Someone new gets a
-            link that pairs their T3 Code app; anyone you shared with before sees it right away.
+            Collaborators follow this thread live and message the agent under their name.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          <div className="flex flex-col gap-3">
-            {sharedWith.length > 0 ? (
-              <ul aria-label="Shared with" className="flex flex-col gap-1">
-                {sharedWith.map((collaborator) => (
-                  <li key={collaborator.subject} className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm">{collaborator.name}</span>
-                    <AccessSelect
-                      value={collaborator.access}
-                      label={`${collaborator.name}'s access`}
-                      disabled={!canShare}
-                      onChange={(next) => void changeAccess(collaborator.subject, next)}
-                    />
-                    <Button
-                      size="xs"
-                      variant="ghost-muted"
-                      disabled={!canShare}
-                      onClick={() => void stopSharing(collaborator.subject)}
-                    >
-                      Stop sharing
-                    </Button>
-                  </li>
+          <div className="flex flex-col gap-4">
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (validName && !busy) void create(trimmedName);
+              }}
+            >
+              <Input
+                autoFocus
+                aria-label="Collaborator name"
+                placeholder="Name"
+                value={name}
+                onChange={(event) => setName(event.currentTarget.value)}
+              />
+              <Button type="submit" size="sm" disabled={!canShare || !validName || busy}>
+                {busy ? "Sharing..." : "Share"}
+              </Button>
+            </form>
+            {suggestions.length > 0 ? (
+              <div className="-mt-2 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
+                <span>Shared before:</span>
+                {suggestions.map((collaborator) => (
+                  <Button
+                    key={collaborator.subject}
+                    size="xs"
+                    variant="outline"
+                    disabled={!canShare || busy}
+                    onClick={() => void create(collaborator.name)}
+                  >
+                    <PlusIcon />
+                    {collaborator.name}
+                  </Button>
                 ))}
-              </ul>
+              </div>
             ) : null}
             {state.status === "created" ? (
-              <>
-                {state.knownCollaborator ? (
-                  <p className="text-sm">
-                    {state.name} is already paired; it is in their sidebar now. For a new device,
-                    send this link:
-                  </p>
-                ) : null}
+              <div className="flex flex-col gap-2">
+                <p className="text-sm">
+                  {state.knownCollaborator
+                    ? `${state.name} already sees it in their sidebar. For another device, send this link.`
+                    : `Send ${state.name} this link to open the thread in T3 Code.`}
+                </p>
                 <div className="flex items-center gap-2">
                   <Input
                     readOnly
@@ -270,79 +291,62 @@ function CollaboratorShareDialog({
                     No public address found, so this link works only on your network.
                   </p>
                 ) : null}
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <form
-                    className="min-w-0 flex-1"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (validName) void create(trimmedName);
-                    }}
-                  >
-                    <Input
-                      autoFocus
-                      aria-label="Collaborator name"
-                      placeholder="Collaborator name"
-                      value={name}
-                      onChange={(event) => setName(event.currentTarget.value)}
-                    />
-                  </form>
-                  <AccessSelect
-                    value={access}
-                    label="New collaborator's access"
-                    onChange={setNewAccess}
-                  />
-                </div>
-                {suggestions.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {suggestions.map((collaborator) => (
-                      <Button
-                        key={collaborator.subject}
-                        size="xs"
-                        variant="outline"
-                        disabled={!canShare || state.status === "creating"}
-                        onClick={() => void create(collaborator.name)}
-                      >
-                        Share with {collaborator.name}
-                      </Button>
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            )}
+              </div>
+            ) : null}
             {state.status === "failed" ? (
               <p role="alert" className="text-destructive text-xs">
                 {state.message}
               </p>
             ) : null}
+            {sharedWith.length > 0 ? (
+              <section
+                aria-labelledby="collaborator-access-heading"
+                className="flex flex-col gap-1"
+              >
+                <h3
+                  id="collaborator-access-heading"
+                  className="font-medium text-muted-foreground text-xs"
+                >
+                  People with access
+                </h3>
+                <ul className="flex flex-col">
+                  {sharedWith.map((collaborator) => (
+                    <li key={collaborator.subject} className="flex min-h-9 items-center gap-2">
+                      <UserIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate text-sm">{collaborator.name}</span>
+                      <AccessSelect
+                        value={collaborator.access}
+                        label={`${collaborator.name}'s access`}
+                        disabled={!canShare}
+                        onChange={(next) => void changeAccess(collaborator.subject, next)}
+                      />
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="ghost-muted"
+                              disabled={!canShare}
+                              aria-label={`Stop sharing with ${collaborator.name}`}
+                              onClick={() => void stopSharing(collaborator.subject)}
+                            />
+                          }
+                        >
+                          <XIcon />
+                        </TooltipTrigger>
+                        <TooltipPopup>Stop sharing</TooltipPopup>
+                      </Tooltip>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
           </div>
         </DialogPanel>
         <DialogFooter>
-          {state.status === "created" ? (
-            <Button size="sm" onClick={onClose}>
-              Done
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onClose}
-                disabled={state.status === "creating"}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => void create(trimmedName)}
-                disabled={!canShare || !validName || state.status === "creating"}
-              >
-                {state.status === "creating" ? "Sharing..." : "Share"}
-              </Button>
-            </>
-          )}
+          <Button size="sm" variant="outline" onClick={onClose} disabled={busy}>
+            Done
+          </Button>
         </DialogFooter>
       </DialogPopup>
     </Dialog>
