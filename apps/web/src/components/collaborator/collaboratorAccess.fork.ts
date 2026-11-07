@@ -1,0 +1,26 @@
+// Fork-only (colleague-collab): who a thread is shared with, and their access. The share dialog and
+// the thread details card read the same query, so a change in one refreshes the other.
+import {
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+} from "@t3tools/client-runtime/state/runtime";
+import { type CollaboratorAccessFork, WS_METHODS } from "@t3tools/contracts";
+
+import { connectionAtomRuntime } from "~/connection/runtime";
+
+export const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:collaborator:thread-shares",
+  tag: WS_METHODS.collaboratorThreadSharesFork,
+  staleTimeMs: 0,
+  idleTtlMs: 0,
+});
+
+export const setAccessCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "change collaborator access",
+  tag: WS_METHODS.collaboratorSetAccessFork,
+});
+
+export const ACCESS: Record<CollaboratorAccessFork, { label: string; detail: string }> = {
+  approve: { label: "Needs approval", detail: "Each message waits for you to send it" },
+  send: { label: "Can send", detail: "Messages go straight to the agent" },
+};
