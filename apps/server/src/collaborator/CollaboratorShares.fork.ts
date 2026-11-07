@@ -517,6 +517,9 @@ const make = Effect.gen(function* () {
     const fail = (operation: CollaboratorUnshareErrorFork["operation"]) => (cause: unknown) =>
       new CollaboratorUnshareErrorFork({ operation, threadId, cause });
     if (!isShared(subject, threadId)) return;
+    // A frozen copy cannot follow up, so its waiting messages go first: a failure here leaves
+    // the share live, and a retry repeats both steps.
+    yield* messages.drop(subject, threadId).pipe(Effect.mapError(fail("freeze-share")));
     const thread = yield* threads
       .getThreadShell(threadId)
       .pipe(Effect.mapError(fail("freeze-share")));
@@ -532,8 +535,6 @@ const make = Effect.gen(function* () {
       `.pipe(Effect.mapError(fail("freeze-share")));
     }
     yield* reload.pipe(Effect.mapError(fail("read-shares")));
-    // A frozen copy cannot follow up, so its waiting messages go with the share.
-    yield* messages.drop(subject, threadId).pipe(Effect.mapError(fail("freeze-share")));
   });
 
   const setAccess = Effect.fn("CollaboratorSharesFork.setAccess")(function* (
