@@ -1,4 +1,4 @@
-// Fork-only (colleague-collab): a colleague link is https so any chat makes it clickable. In a
+// Fork-only (colleague-collab): a collaborator link is https so any chat makes it clickable. In a
 // browser it first offers the T3 Code app, which pairs through the `t3code://pair` app link.
 import type { AuthSessionState } from "@t3tools/contracts";
 import { buildPairingAppLink } from "@t3tools/shared/remote";
@@ -8,15 +8,15 @@ import { isElectron } from "~/env";
 import { PairingRouteSurface } from "../auth/PairingRouteSurface";
 import { Button } from "../ui/button";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
-import { linkThreadIdFork, sharedThreadPathFork } from "./colleagueLink.fork";
+import { linkThreadIdFork, sharedThreadPathFork } from "./collaboratorLink.fork";
 
 interface PairingGate {
   readonly auth: AuthSessionState["auth"];
   readonly errorMessage?: string;
 }
 
-/** A colleague link opened in a browser: the landing, then pairing that opens the shared thread. */
-export function useColleagueLinkLandingFork(gate: PairingGate | undefined): ReactNode | null {
+/** A collaborator link opened in a browser: the landing, then pairing that opens the shared thread. */
+export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): ReactNode | null {
   // Read once: pairing in this browser strips the token from the URL.
   const [href] = useState(() => window.location.href);
   const [continued, setContinued] = useState(false);
