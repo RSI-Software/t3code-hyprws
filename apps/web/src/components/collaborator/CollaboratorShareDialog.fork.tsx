@@ -1,5 +1,6 @@
-// Fork-only (colleague-collab): share this thread with a colleague, see who has it, and stop
-// sharing. A first share mints a pairing link; a colleague already paired sees it live.
+// Fork-only (colleague-collab): share this thread with a collaborator, set whether their messages
+// need approval, and stop sharing. A first share mints a pairing link; a collaborator already
+// paired sees the thread live.
 import { useAtomValue } from "@effect/atom-react";
 import {
   createEnvironmentRpcCommand,
@@ -8,7 +9,12 @@ import {
   selectEnvironmentQueryData,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ColleagueNameFork, type ScopedThreadRef, WS_METHODS } from "@t3tools/contracts";
+import {
+  type CollaboratorAccessFork,
+  CollaboratorNameFork,
+  type ScopedThreadRef,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useState } from "react";
@@ -30,23 +36,67 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { colleagueShareDialogThreadAtom } from "./colleagueShareDialogState.fork";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
 
-const isColleagueName = Schema.is(ColleagueNameFork);
+const isCollaboratorName = Schema.is(CollaboratorNameFork);
 
-const shareThreadWithColleagueCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
-  label: "share thread with colleague",
-  tag: WS_METHODS.colleagueShareThreadFork,
+const shareThreadWithCollaboratorCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "share thread with collaborator",
+  tag: WS_METHODS.collaboratorShareThreadFork,
 });
 
 const unshareThreadCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
-  label: "stop sharing thread with colleague",
-  tag: WS_METHODS.colleagueUnshareThreadFork,
+  label: "stop sharing thread with collaborator",
+  tag: WS_METHODS.collaboratorUnshareThreadFork,
 });
 
+const setAccessCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "change collaborator access",
+  tag: WS_METHODS.collaboratorSetAccessFork,
+});
+
+const ACCESS_LABELS: Record<CollaboratorAccessFork, string> = {
+  approve: "You approve messages",
+  send: "Sends directly",
+};
+
+function AccessSelect({
+  value,
+  label,
+  disabled,
+  onChange,
+}: {
+  readonly value: CollaboratorAccessFork;
+  readonly label: string;
+  readonly disabled?: boolean;
+  readonly onChange: (access: CollaboratorAccessFork) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      disabled={disabled ?? false}
+      onValueChange={(next) => {
+        if (next === "send" || next === "approve") onChange(next);
+      }}
+    >
+      <SelectTrigger size="sm" aria-label={label} className="w-auto shrink-0">
+        <SelectValue>{(selected: CollaboratorAccessFork) => ACCESS_LABELS[selected]}</SelectValue>
+      </SelectTrigger>
+      <SelectPopup alignItemWithTrigger={false}>
+        {(["approve", "send"] as const).map((access) => (
+          <SelectItem key={access} value={access}>
+            {ACCESS_LABELS[access]}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
+  );
+}
+
 const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
-  label: "environment-data:colleague:thread-shares",
-  tag: WS_METHODS.colleagueThreadSharesFork,
+  label: "environment-data:collaborator:thread-shares",
+  tag: WS_METHODS.collaboratorThreadSharesFork,
   staleTimeMs: 0,
   idleTtlMs: 0,
 });
@@ -57,14 +107,14 @@ const linkBase = (threadRef: ScopedThreadRef) => {
   return linkBaseUrl === undefined ? {} : { linkBaseUrl };
 };
 
-export function ColleagueShareDialogHostFork() {
-  const threadRef = useAtomValue(colleagueShareDialogThreadAtom);
+export function CollaboratorShareDialogHostFork() {
+  const threadRef = useAtomValue(collaboratorShareDialogThreadAtom);
   if (threadRef === null) return null;
   return (
-    <ColleagueShareDialog
+    <CollaboratorShareDialog
       key={`${threadRef.environmentId}:${threadRef.threadId}`}
       threadRef={threadRef}
-      onClose={() => appAtomRegistry.set(colleagueShareDialogThreadAtom, null)}
+      onClose={() => appAtomRegistry.set(collaboratorShareDialogThreadAtom, null)}
     />
   );
 }
@@ -77,11 +127,11 @@ type ShareState =
       readonly name: string;
       readonly pairingUrl: string;
       readonly localOnly: boolean;
-      readonly knownColleague: boolean;
+      readonly knownCollaborator: boolean;
     }
   | { readonly status: "failed"; readonly message: string };
 
-function ColleagueShareDialog({
+function CollaboratorShareDialog({
   threadRef,
   onClose,
 }: {
@@ -89,36 +139,38 @@ function ColleagueShareDialog({
   readonly onClose: () => void;
 }) {
   const canShare = useAtomValue(
-    shareThreadWithColleagueCommand.permissionAtom(threadRef.environmentId),
+    shareThreadWithCollaboratorCommand.permissionAtom(threadRef.environmentId),
   );
-  const share = useAtomCommand(shareThreadWithColleagueCommand, { reportFailure: false });
+  const share = useAtomCommand(shareThreadWithCollaboratorCommand, { reportFailure: false });
   const unshare = useAtomCommand(unshareThreadCommand);
+  const setAccess = useAtomCommand(setAccessCommand);
   const sharesAtom = threadSharesQuery({
     environmentId: threadRef.environmentId,
     input: { threadId: threadRef.threadId },
   });
   const shares = useEnvironmentQuerySelector(sharesAtom, selectEnvironmentQueryData);
   const { refresh: refreshShares } = useEnvironmentQueryRefresh(sharesAtom);
-  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "colleague link" });
+  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "collaborator link" });
   const [name, setName] = useState("");
+  const [access, setNewAccess] = useState<CollaboratorAccessFork>("approve");
   const [state, setState] = useState<ShareState>({ status: "idle" });
   const trimmedName = name.trim();
-  const validName = isColleagueName(trimmedName);
+  const validName = isCollaboratorName(trimmedName);
 
   const sharedWith = shares?.sharedWith ?? [];
-  const suggestions = (shares?.colleagues ?? []).filter(
-    (colleague) => !sharedWith.some((shared) => shared.subject === colleague.subject),
+  const suggestions = (shares?.collaborators ?? []).filter(
+    (collaborator) => !sharedWith.some((shared) => shared.subject === collaborator.subject),
   );
 
-  const create = async (colleagueName: string) => {
+  const create = async (collaboratorName: string) => {
     setState({ status: "creating" });
     const result = await share({
       environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, colleagueName, ...linkBase(threadRef) },
+      input: { threadId: threadRef.threadId, collaboratorName, access, ...linkBase(threadRef) },
     });
     refreshShares();
     if (result._tag === "Success") {
-      setState({ status: "created", name: colleagueName, ...result.value });
+      setState({ status: "created", name: collaboratorName, ...result.value });
       return;
     }
     if (isAtomCommandInterrupted(result)) {
@@ -128,7 +180,7 @@ function ColleagueShareDialog({
     const error = squashAtomCommandFailure(result);
     setState({
       status: "failed",
-      message: error instanceof Error ? error.message : "Could not create a colleague link.",
+      message: error instanceof Error ? error.message : "Could not create a collaborator link.",
     });
   };
 
@@ -141,6 +193,14 @@ function ColleagueShareDialog({
     refreshShares();
   };
 
+  const changeAccess = async (subject: string, next: CollaboratorAccessFork) => {
+    await setAccess({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, subject, access: next },
+    });
+    refreshShares();
+  };
+
   return (
     <Dialog
       open
@@ -150,24 +210,30 @@ function ColleagueShareDialog({
     >
       <DialogPopup className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Share to colleague</DialogTitle>
+          <DialogTitle>Share with collaborator</DialogTitle>
           <DialogDescription>
-            A colleague you have shared with before sees this thread in their sidebar right away.
-            Someone new gets a link that pairs their T3 Code app. Their messages run here, marked
-            with their name.
+            They follow the thread live and message the agent under their name. Someone new gets a
+            link that pairs their T3 Code app; anyone you shared with before sees it right away.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <div className="flex flex-col gap-3">
             {sharedWith.length > 0 ? (
               <ul aria-label="Shared with" className="flex flex-col gap-1">
-                {sharedWith.map((colleague) => (
-                  <li key={colleague.subject} className="flex items-center justify-between gap-2">
-                    <span className="text-sm">Shared with {colleague.name}</span>
+                {sharedWith.map((collaborator) => (
+                  <li key={collaborator.subject} className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm">{collaborator.name}</span>
+                    <AccessSelect
+                      value={collaborator.access}
+                      label={`${collaborator.name}'s access`}
+                      disabled={!canShare}
+                      onChange={(next) => void changeAccess(collaborator.subject, next)}
+                    />
                     <Button
                       size="xs"
-                      variant="outline"
-                      onClick={() => void stopSharing(colleague.subject)}
+                      variant="ghost-muted"
+                      disabled={!canShare}
+                      onClick={() => void stopSharing(collaborator.subject)}
                     >
                       Stop sharing
                     </Button>
@@ -177,7 +243,7 @@ function ColleagueShareDialog({
             ) : null}
             {state.status === "created" ? (
               <>
-                {state.knownColleague ? (
+                {state.knownCollaborator ? (
                   <p className="text-sm">
                     {state.name} is already paired; it is in their sidebar now. For a new device,
                     send this link:
@@ -186,7 +252,7 @@ function ColleagueShareDialog({
                 <div className="flex items-center gap-2">
                   <Input
                     readOnly
-                    aria-label="Colleague link"
+                    aria-label="Collaborator link"
                     value={state.pairingUrl}
                     onFocus={(event) => event.currentTarget.select()}
                   />
@@ -207,31 +273,39 @@ function ColleagueShareDialog({
               </>
             ) : (
               <>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (validName) void create(trimmedName);
-                  }}
-                >
-                  <Input
-                    autoFocus
-                    aria-label="Colleague name"
-                    placeholder="Colleague name"
-                    value={name}
-                    onChange={(event) => setName(event.currentTarget.value)}
+                <div className="flex items-center gap-2">
+                  <form
+                    className="min-w-0 flex-1"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (validName) void create(trimmedName);
+                    }}
+                  >
+                    <Input
+                      autoFocus
+                      aria-label="Collaborator name"
+                      placeholder="Collaborator name"
+                      value={name}
+                      onChange={(event) => setName(event.currentTarget.value)}
+                    />
+                  </form>
+                  <AccessSelect
+                    value={access}
+                    label="New collaborator's access"
+                    onChange={setNewAccess}
                   />
-                </form>
+                </div>
                 {suggestions.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
-                    {suggestions.map((colleague) => (
+                    {suggestions.map((collaborator) => (
                       <Button
-                        key={colleague.subject}
+                        key={collaborator.subject}
                         size="xs"
                         variant="outline"
                         disabled={!canShare || state.status === "creating"}
-                        onClick={() => void create(colleague.name)}
+                        onClick={() => void create(collaborator.name)}
                       >
-                        Share with {colleague.name}
+                        Share with {collaborator.name}
                       </Button>
                     ))}
                   </div>
