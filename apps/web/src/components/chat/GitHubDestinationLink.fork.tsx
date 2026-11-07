@@ -8,6 +8,7 @@ import { readLocalApi } from "~/localApi";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useProject, useThreadShell } from "~/state/entities";
+import { useRightPanelStore } from "~/rightPanelStore";
 
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { showExternalLinkContextMenu } from "./externalLinkContextMenu";
@@ -87,7 +88,7 @@ export interface GitHubDestinationRenderInput {
   readonly href: string;
   readonly props: ComponentPropsWithoutRef<"a">;
   readonly children: ReactNode;
-  /** The link's own text, when it says more than the URL or reference it points at. */
+  /** The link's label when it is plain text; null for images or formatted labels. */
   readonly written: string | null;
   readonly canOpenInPreview: boolean;
   /** Operate scope on the link's thread environment; gates the link-to-thread write. */
@@ -137,10 +138,17 @@ export function useGitHubDestinationLinkFork(accept: {
     thread ? scopeProjectRef(thread.environmentId, thread.projectId) : null,
   );
   const identity = project?.repositoryIdentity;
+  // Links resolve only on github.com; an Enterprise thread's `#12` is not a github.com issue.
   const repository =
-    identity?.provider === "github" && identity.owner && identity.name
+    identity?.provider === "github" &&
+    identity.canonicalKey.split("/")[0] === "github.com" &&
+    identity.owner &&
+    identity.name
       ? { owner: identity.owner, name: identity.name }
       : null;
+  const { threadRef } = accept;
+  const userActionRevision = () =>
+    threadRef ? useRightPanelStore.getState().getUserActionRevision(threadRef) : 0;
 
   return (() => {
     const reportFailure = (operation: string, target: string, cause: unknown): void => {
@@ -253,6 +261,7 @@ export function useGitHubDestinationLinkFork(accept: {
             referenceStyle={referenceStyle}
             environmentId={environmentId}
             preferredDestination={preferredDestination}
+            userActionRevision={userActionRevision}
             onContextMenu={handleContextMenu}
             onOpen={(destination, event, href) =>
               open(destination, event, href, input.openChangeRequestLink)

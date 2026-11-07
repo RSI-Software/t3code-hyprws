@@ -1158,7 +1158,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
           href: href ?? "",
           props,
           children: linkChildren,
-          written: hasText ? plainHastText(node) : null,
+          written: node?.children.every((child) => child.type === "text")
+            ? plainHastText(node)
+            : null,
           canOpenInPreview,
           canOperateHost,
           faviconHost,

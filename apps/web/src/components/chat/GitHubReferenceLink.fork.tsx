@@ -7,7 +7,6 @@ import { RelativeTime } from "~/components/RelativeTime";
 import { githubIssueEnvironment } from "~/state/githubIssues";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
-import { cn } from "~/lib/utils";
 
 import { ContextChip, ContextChipLabel } from "../ContextChip";
 import {
@@ -16,6 +15,7 @@ import {
 } from "../githubIssue/githubIssuePresentation";
 import { PULL_REQUEST_STATE_PRESENTATION } from "../pullRequest/pullRequestIcons";
 import { PullRequestActorAvatar } from "../pullRequest/pullRequestPresentation";
+import { InlineButton } from "../ui/button";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import type { GitHubLinkDestination, GitHubLinkTarget } from "./GitHubDestinationLink.fork";
 
@@ -41,12 +41,14 @@ export interface GitHubReferenceLinkProps extends Omit<
 > {
   readonly children: ReactNode;
   readonly href: string;
-  /** The link's own text when it says more than its URL. */
+  /** The link's label when it is plain text; null keeps `children` as written. */
   readonly written: string | null;
   readonly linkTarget: GitHubLinkTarget;
   readonly referenceStyle: GitHubReferenceStyle;
   readonly environmentId: EnvironmentId | null;
   readonly preferredDestination: GitHubLinkDestination;
+  /** Bumped by every panel choice; a late open yields to a newer one. */
+  readonly userActionRevision: () => number;
   readonly onOpen: (
     destination: GitHubLinkDestination,
     event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
@@ -55,7 +57,7 @@ export interface GitHubReferenceLinkProps extends Omit<
 }
 
 export function GitHubReferenceLink({
-  children: _children,
+  children,
   className,
   environmentId,
   href,
@@ -63,6 +65,7 @@ export function GitHubReferenceLink({
   onOpen,
   preferredDestination,
   referenceStyle,
+  userActionRevision,
   written: writtenText,
   ...props
 }: GitHubReferenceLinkProps) {
@@ -93,8 +96,9 @@ export function GitHubReferenceLink({
     reportDefect: false,
   });
   const summary = query.data;
-  // `issues/N` names a pull request too; the read says which panel it belongs in.
-  const resolvedHref = summary?.url ?? href;
+  // `issues/N` names a pull request too; the read picks the panel, the written URL stays.
+  const panelHref = (read: GitHubReferenceSummary | null | undefined) =>
+    read && read.kind !== linkTarget.kind ? read.url : href;
   const state = summary ? statePresentation(summary) : null;
   const shortReference = numbered ? `${name}#${linkTarget.number}` : linkTarget.repository;
 
@@ -103,21 +107,23 @@ export function GitHubReferenceLink({
     event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
   ) => {
     // An unread `issues/N` may be a pull request; ask before choosing the panel.
-    if (summary || readTarget === null || linkTarget.kind !== "issue" || destination !== "native") {
-      onOpen(destination, event, resolvedHref);
+    if (destination !== "native") {
+      onOpen(destination, event, href);
       return;
     }
-    void readReference(readTarget).then((result) =>
-      onOpen(
-        destination,
-        event,
-        result._tag === "Success" && result.value ? result.value.url : href,
-      ),
-    );
+    if (summary || readTarget === null || linkTarget.kind !== "issue") {
+      onOpen(destination, event, panelHref(summary));
+      return;
+    }
+    const revision = userActionRevision();
+    void readReference(readTarget).then((result) => {
+      if (userActionRevision() !== revision) return;
+      onOpen(destination, event, panelHref(result._tag === "Success" ? result.value : null));
+    });
   };
   const anchorProps = {
     ...props,
-    href: resolvedHref,
+    href,
     target: "_blank",
     rel: "noopener noreferrer",
     onClick: (event: MouseEvent<HTMLAnchorElement>) => {
@@ -130,7 +136,11 @@ export function GitHubReferenceLink({
 
   const Icon = state?.Icon ?? (numbered ? GithubIcon : FolderGit2Icon);
   const trigger =
-    referenceStyle === "chip" ? (
+    writtenText === null ? (
+      <a {...anchorProps} className={className} data-github-reference="link">
+        {children}
+      </a>
+    ) : referenceStyle === "chip" ? (
       <ContextChip
         kind="pull-request"
         render={<a {...anchorProps} />}
@@ -171,21 +181,16 @@ export function GitHubReferenceLink({
               <GithubIcon aria-hidden className="size-3.5 shrink-0" />
             )}
             <span className="min-w-0 truncate">{linkTarget.repository}</span>
-            <button
-              type="button"
-              className={cn(
-                "inline-flex shrink-0 cursor-pointer items-center gap-0.5 font-medium underline-offset-2 hover:underline",
-                state?.toneClassName ?? "text-foreground",
-              )}
+            <InlineButton
               aria-label={`Open ${linkTarget.repository}${numbered ? `#${linkTarget.number}` : ""} on GitHub`}
               onClick={(event) => {
                 setOpen(false);
-                onOpen("external", event, resolvedHref);
+                onOpen("external", event, href);
               }}
             >
-              {numbered ? `#${linkTarget.number}` : null}
+              {numbered ? <span className={state?.toneClassName}>#{linkTarget.number}</span> : null}
               <ExternalLinkIcon aria-hidden className="size-2.5" />
-            </button>
+            </InlineButton>
             {state ? (
               <state.Icon
                 role="img"
