@@ -3053,7 +3053,13 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onWorktreeSetupWorkLocallyStable = useStableCallback(onWorktreeSetupWorkLocally);
   const onComposerSendStable = useStableCallback(onSend);
-  const collaboratorFork = useCollaboratorChatFork(activeThread, composerDraftTarget, composerRef); // fork-hook: colleague-collab/chat-state
+  const collaboratorFork = useCollaboratorChatFork(
+    activeThread,
+    composerDraftTarget,
+    composerRef,
+    timelineLiveFollowEnabled,
+    scrollToEnd,
+  ); // fork-hook: colleague-collab/chat-state
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
