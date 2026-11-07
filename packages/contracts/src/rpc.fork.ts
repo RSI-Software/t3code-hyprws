@@ -81,7 +81,11 @@ import {
   GitHubIssueSetStateInput,
 } from "./githubIssue.ts";
 import { PullRequestLinkedThreadsResult } from "./pullRequest.ts";
-import { ThreadIssueKey, ThreadIssueSyncInput } from "./threadIssues.fork.ts";
+import {
+  GitHubReferenceSummary,
+  ThreadIssueKey,
+  ThreadIssueSyncInput,
+} from "./threadIssues.fork.ts";
 
 const GitHubIssueRpcErrorFork = Schema.Union([
   GitHubIssueCliMissingError,
@@ -109,6 +113,13 @@ const WsGitHubIssuesLinkedThreadsRpcFork = Rpc.make("githubIssues.linkedThreads"
   error: GitHubIssueRpcErrorFork,
 });
 
+/** Title and state of the issue or pull request a chat reference names; null when it is gone. */
+const WsGitHubIssuesReferenceRpcFork = Rpc.make("githubIssues.reference", {
+  payload: ThreadIssueKey,
+  success: Schema.NullOr(GitHubReferenceSummary),
+  error: GitHubIssueRpcErrorFork,
+});
+
 const WsGitHubIssuesSetStateRpcFork = Rpc.make("githubIssues.setState", {
   payload: GitHubIssueSetStateInput,
   error: GitHubIssueRpcErrorFork,
@@ -132,6 +143,7 @@ export const githubIssuesRpcFork = {
     githubIssuesList: "githubIssues.list",
     githubIssuesDetail: "githubIssues.detail",
     githubIssuesLinkedThreads: "githubIssues.linkedThreads",
+    githubIssuesReference: "githubIssues.reference",
     githubIssuesSetState: "githubIssues.setState",
     githubIssuesSyncThreadLinks: "githubIssues.syncThreadLinks",
   } as const,
@@ -139,6 +151,7 @@ export const githubIssuesRpcFork = {
     WsGitHubIssuesListRpcFork,
     WsGitHubIssuesDetailRpcFork,
     WsGitHubIssuesLinkedThreadsRpcFork,
+    WsGitHubIssuesReferenceRpcFork,
     WsGitHubIssuesSetStateRpcFork,
     WsGitHubIssuesSyncThreadLinksRpcFork,
   ] as const,
