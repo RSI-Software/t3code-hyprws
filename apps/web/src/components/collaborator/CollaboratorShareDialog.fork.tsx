@@ -4,7 +4,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   createEnvironmentRpcCommand,
-  createEnvironmentRpcQueryAtomFamily,
   isAtomCommandInterrupted,
   selectEnvironmentQueryData,
   squashAtomCommandFailure,
@@ -38,6 +37,7 @@ import {
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { ACCESS, setAccessCommand, threadSharesQuery } from "./collaboratorAccess.fork";
 import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
 
 const isCollaboratorName = Schema.is(CollaboratorNameFork);
@@ -51,16 +51,6 @@ const unshareThreadCommand = createEnvironmentRpcCommand(connectionAtomRuntime, 
   label: "stop sharing thread with collaborator",
   tag: WS_METHODS.collaboratorUnshareThreadFork,
 });
-
-const setAccessCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
-  label: "change collaborator access",
-  tag: WS_METHODS.collaboratorSetAccessFork,
-});
-
-const ACCESS: Record<CollaboratorAccessFork, { label: string; detail: string }> = {
-  approve: { label: "Needs approval", detail: "Each message waits for you to send it" },
-  send: { label: "Can send", detail: "Messages go straight to the agent" },
-};
 
 function AccessSelect({
   value,
@@ -97,13 +87,6 @@ function AccessSelect({
     </Select>
   );
 }
-
-const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
-  label: "environment-data:collaborator:thread-shares",
-  tag: WS_METHODS.collaboratorThreadSharesFork,
-  staleTimeMs: 0,
-  idleTtlMs: 0,
-});
 
 // The server prefers its tunnel's public hostname, then a public origin the host reached it on.
 const linkBase = (threadRef: ScopedThreadRef) => {
@@ -206,7 +189,6 @@ function CollaboratorShareDialog({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, subject, access: next },
     });
-    refreshShares();
   };
 
   const busy = state.status === "creating";
