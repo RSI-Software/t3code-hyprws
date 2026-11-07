@@ -13,6 +13,7 @@ export const THREAD_DETAILS_ITEMS = [
     label: msg("Changes", { $context: "thread details item: version control changes" }),
     defaultVisible: true,
   },
+  { id: "collaborators", label: "Collaborators", defaultVisible: true }, // fork-hook: colleague-collab/details-item
   {
     id: "servers",
     label: msg("Servers", { $context: "thread details item: running dev servers" }),
