@@ -147,8 +147,11 @@ export function useGitHubDestinationLinkFork(accept: {
       ? { owner: identity.owner, name: identity.name }
       : null;
   const { threadRef } = accept;
-  const userActionRevision = () =>
-    threadRef ? useRightPanelStore.getState().getUserActionRevision(threadRef) : 0;
+  const claimPanelOpen = () => {
+    if (!threadRef) return () => true;
+    const revision = useRightPanelStore.getState().markUserAction(threadRef);
+    return () => useRightPanelStore.getState().getUserActionRevision(threadRef) === revision;
+  };
 
   return (() => {
     const reportFailure = (operation: string, target: string, cause: unknown): void => {
@@ -261,7 +264,7 @@ export function useGitHubDestinationLinkFork(accept: {
             referenceStyle={referenceStyle}
             environmentId={environmentId}
             preferredDestination={preferredDestination}
-            userActionRevision={userActionRevision}
+            claimPanelOpen={claimPanelOpen}
             onContextMenu={handleContextMenu}
             onOpen={(destination, event, href) =>
               open(destination, event, href, input.openChangeRequestLink)

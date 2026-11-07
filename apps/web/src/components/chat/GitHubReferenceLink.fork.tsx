@@ -47,8 +47,8 @@ export interface GitHubReferenceLinkProps extends Omit<
   readonly referenceStyle: GitHubReferenceStyle;
   readonly environmentId: EnvironmentId | null;
   readonly preferredDestination: GitHubLinkDestination;
-  /** Bumped by every panel choice; a late open yields to a newer one. */
-  readonly userActionRevision: () => number;
+  /** Claims the panel for a late open; the check fails once a newer panel choice lands. */
+  readonly claimPanelOpen: () => () => boolean;
   readonly onOpen: (
     destination: GitHubLinkDestination,
     event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
@@ -65,7 +65,7 @@ export function GitHubReferenceLink({
   onOpen,
   preferredDestination,
   referenceStyle,
-  userActionRevision,
+  claimPanelOpen,
   written: writtenText,
   ...props
 }: GitHubReferenceLinkProps) {
@@ -115,9 +115,9 @@ export function GitHubReferenceLink({
       onOpen(destination, event, panelHref(summary));
       return;
     }
-    const revision = userActionRevision();
+    const stillCurrent = claimPanelOpen();
     void readReference(readTarget).then((result) => {
-      if (userActionRevision() !== revision) return;
+      if (!stillCurrent()) return;
       onOpen(destination, event, panelHref(result._tag === "Success" ? result.value : null));
     });
   };
