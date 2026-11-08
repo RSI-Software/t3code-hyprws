@@ -1,6 +1,6 @@
-// Fork-owned: the `githubIssues.syncThreadLinks` RPC on Orchestrator V2
-// (RSI-Software/t3code-hyprws#1434). It reads the thread shell and hands its
-// links to the sync reactor; an unknown or deleted thread answers not found.
+// Fork-owned: the issue RPCs that feed the sync reactor (RSI-Software/t3code-hyprws#1434).
+// `syncThreadLinks` reads the thread shell and hands its links over, an unknown or deleted
+// thread answering not found; `setState` asks for a reread of the issue it changed.
 import { assert, it } from "@effect/vitest";
 import {
   ProjectId,
@@ -26,13 +26,16 @@ const shell = {
 } as unknown as OrchestrationV2ThreadShell;
 
 const handlers = gitHubIssueRpcHandlersFork(
-  {} as GitHubIssueService.GitHubIssueService["Service"],
+  { setState: () => Effect.void } as Partial<
+    GitHubIssueService.GitHubIssueService["Service"]
+  > as GitHubIssueService.GitHubIssueService["Service"],
   {} as SqlClient.SqlClient,
 );
 
 it.effect("syncs a known thread's links and answers not found for any other thread", () =>
   Effect.gen(function* () {
     const requested = yield* Ref.make<ReadonlyArray<readonly [ThreadId, ThreadIssueSyncScope]>>([]);
+    const requestedIssues = yield* Ref.make<ReadonlyArray<number>>([]);
     const dependencies = Layer.mergeAll(
       // The shell read already leaves out a deleted thread.
       Layer.mock(Orchestrator.OrchestratorV2)({
@@ -42,8 +45,18 @@ it.effect("syncs a known thread's links and answers not found for any other thre
         drain: Effect.void,
         syncThread: (thread, scope) =>
           Ref.update(requested, (all) => [...all, [thread.id, scope] as const]),
+        requestSync: (key) => Ref.update(requestedIssues, (all) => [...all, key.number]),
       }),
     );
+    // A close in the app rereads the issue for every thread that links it.
+    yield* handlers["githubIssues.setState"]({
+      projectId: ProjectId.make("project-1"),
+      repository: "acme/web",
+      number: 12,
+      state: "closed",
+    }).pipe(Effect.provide(dependencies));
+    assert.deepStrictEqual(yield* Ref.get(requestedIssues), [12]);
+
     const sync = (threadId: ThreadId, scope: ThreadIssueSyncScope) =>
       handlers["githubIssues.syncThreadLinks"]({ threadId, scope }).pipe(
         Effect.provide(dependencies),

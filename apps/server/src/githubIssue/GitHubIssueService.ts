@@ -58,7 +58,12 @@ const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body parent { number tit
 
 const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!,$type:SearchType!){search(query:$query,type:$type,first:$first){nodes{... on Issue{${ISSUE_BASE_SELECTION} comments{totalCount}}}}}`;
 const ISSUE_DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_DETAIL_SELECTION}}}}`;
-const ISSUE_SUMMARY_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_SUMMARY_SELECTION}}}}`;
+/** Issues one summaries request reads; the rest of a repository's numbers go in later requests. */
+export const ISSUE_SUMMARIES_PER_REQUEST = 50;
+const issueSummariesQuery = (numbers: ReadonlyArray<number>) =>
+  `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers
+    .map((number) => `i${number}:issue(number:${number}){${ISSUE_SUMMARY_SELECTION}}`)
+    .join(" ")}}}`;
 const ISSUE_OR_PULL_REQUEST_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issueOrPullRequest(number:$number){__typename}}}`;
 const REFERENCE_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){owner{avatarUrl} issueOrPullRequest(number:$number){__typename ... on Issue{title url state stateReason updatedAt author{login avatarUrl}} ... on PullRequest{title url state isDraft updatedAt author{login avatarUrl}}}}}`;
 const ISSUE_ID_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id}}}`;
@@ -104,18 +109,20 @@ const DetailEnvelope = Schema.Struct({
     repository: Schema.NullOr(Schema.Struct({ issue: Schema.NullOr(GraphQlIssueRow) })),
   }),
 });
-const SummaryEnvelope = Schema.Struct({
+// One alias per issue (`i<number>`); a number GitHub has no issue for answers null.
+const SummariesEnvelope = Schema.Struct({
   data: Schema.Struct({
     repository: Schema.NullOr(
-      Schema.Struct({
-        issue: Schema.NullOr(
+      Schema.Record(
+        Schema.String,
+        Schema.NullOr(
           Schema.Struct({
             title: Schema.String,
             state: Schema.String,
             stateReason: Schema.NullOr(Schema.String),
           }),
         ),
-      }),
+      ),
     ),
   }),
 });
@@ -172,7 +179,7 @@ const MutationEnvelope = Schema.Struct({
 
 const decodeSearchEnvelope = Schema.decodeSync(Schema.fromJsonString(SearchEnvelope));
 const decodeDetailEnvelope = Schema.decodeSync(Schema.fromJsonString(DetailEnvelope));
-const decodeSummaryEnvelope = Schema.decodeSync(Schema.fromJsonString(SummaryEnvelope));
+const decodeSummariesEnvelope = Schema.decodeSync(Schema.fromJsonString(SummariesEnvelope));
 const decodeIssueOrPullRequestEnvelope = Schema.decodeSync(
   Schema.fromJsonString(IssueOrPullRequestEnvelope),
 );
@@ -200,9 +207,12 @@ export class GitHubIssueService extends Context.Service<
       input: GitHubIssueListInput,
     ) => Effect.Effect<GitHubIssueListResult, GitHubIssueError>;
     readonly detail: (input: GitHubIssueRef) => Effect.Effect<GitHubIssueDetail, GitHubIssueError>;
-    readonly summary: (
-      input: GitHubIssueRef,
-    ) => Effect.Effect<GitHubIssueSummary, GitHubIssueError>;
+    /** Light reads of many issues in one repository; a number with no issue is left out. */
+    readonly summaries: (input: {
+      readonly projectId: GitHubIssueRef["projectId"];
+      readonly repository: string;
+      readonly numbers: ReadonlyArray<number>;
+    }) => Effect.Effect<ReadonlyMap<number, GitHubIssueSummary>, GitHubIssueError>;
     readonly setState: (input: GitHubIssueSetStateInput) => Effect.Effect<void, GitHubIssueError>;
     /**
      * Issues and pull requests share one number sequence. True only when GitHub confirms a pull
@@ -415,7 +425,7 @@ export const make = Effect.gen(function* () {
 
   /** The project an issue reference names, which is the repository the API reads. */
   const issueProject = Effect.fn("GitHubIssueService.issueProject")(function* (
-    input: GitHubIssueRef,
+    input: Pick<GitHubIssueRef, "projectId">,
     operation: string,
   ) {
     const projects = yield* workspaceProjects(input.projectId);
@@ -503,20 +513,41 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  const summary: GitHubIssueService["Service"]["summary"] = Effect.fn("GitHubIssueService.summary")(
-    function* (input) {
-      const project = yield* issueProject(input, "summary");
-      const row = yield* readIssueRow(
-        { project, ref: input, operation: "summary", query: ISSUE_SUMMARY_QUERY },
-        decodeSummaryEnvelope,
-      );
-      return yield* decodeParsedGitHubIssueSummary({
-        title: row.title,
-        state: row.state,
-        stateReason: row.stateReason,
-      }).pipe(Effect.mapError((cause) => decodeError("summary", cause)));
-    },
-  );
+  const summaries: GitHubIssueService["Service"]["summaries"] = Effect.fn(
+    "GitHubIssueService.summaries",
+  )(function* (input) {
+    const project = yield* issueProject(input, "summaries");
+    const [owner = "", name = ""] = input.repository.split("/");
+    const found = new Map<number, GitHubIssueSummary>();
+    const numbers = [...new Set(input.numbers)];
+    for (let start = 0; start < numbers.length; start += ISSUE_SUMMARIES_PER_REQUEST) {
+      const chunk = numbers.slice(start, start + ISSUE_SUMMARIES_PER_REQUEST);
+      const body = yield* api
+        .graphql({
+          host: project.host,
+          operation: "summaries",
+          query: issueSummariesQuery(chunk),
+          variables: { owner, name },
+          partialNotFound: true,
+        })
+        .pipe(Effect.mapError(fromApiError("summaries", project.host)));
+      const repository = yield* Effect.try({
+        try: () => decodeSummariesEnvelope(body).data.repository,
+        catch: (cause) => decodeError("summaries", cause),
+      });
+      for (const number of chunk) {
+        const row = repository?.[`i${number}`];
+        if (row == null) continue;
+        found.set(
+          number,
+          yield* decodeParsedGitHubIssueSummary(row).pipe(
+            Effect.mapError((cause) => decodeError("summaries", cause)),
+          ),
+        );
+      }
+    }
+    return found;
+  });
 
   const setState: GitHubIssueService["Service"]["setState"] = Effect.fn(
     "GitHubIssueService.setState",
@@ -652,7 +683,7 @@ export const make = Effect.gen(function* () {
     } satisfies GitHubReferenceSummary;
   });
 
-  return GitHubIssueService.of({ list, detail, summary, setState, isPullRequest, reference });
+  return GitHubIssueService.of({ list, detail, summaries, setState, isPullRequest, reference });
 });
 
 export const layer = Layer.effect(GitHubIssueService, make);
