@@ -122,44 +122,32 @@ it("matches every squashed member by sha prefix, else its subject, and leaves th
       { sha: "plain", subject: "duplicate" },
       { sha: "unlisted", subject: "other", squashes: [member("ffff999")] },
       {
-        sha: "rebased",
-        subject: "feat: folded",
+        sha: "folded",
+        subject: "feat: lead",
         squashes: [
-          member("1111aaa", "fix: twin"),
-          member("2222bbb", "fix: twin"),
-          member("3333ccc", "feat: linked (RSI-Software/t3code-hyprws#7)"),
+          member("1111aaa", "feat: lead"),
+          member("2222bbb", "fix: follow-up (RSI-Software/t3code-hyprws#7)"),
         ],
       },
-      { sha: "trunk-cited", subject: "feat: other fold", squashes: [member("ffff666")] },
-      { sha: "plain-twin", subject: "fix: twin" },
+      { sha: "later", subject: "fix: follow-up" },
     ],
     new Map([
       ["duplicate", ["aaaa1111111", "bbbb2222222"]],
       ["other", ["cccc3333333"]],
-      ["fix: twin", ["dddd4444444", "eeee5555555", "7777aaaaaaa"]],
-      ["feat: linked", ["ffff6666666", "8888bbbbbbb"]],
+      ["feat: lead", ["dddd4444444"]],
+      ["fix: follow-up", ["eeee5555555"]],
     ]),
-    [
-      "aaaa1111111",
-      "bbbb2222222",
-      "cccc3333333",
-      "dddd4444444",
-      "eeee5555555",
-      "7777aaaaaaa",
-      "ffff6666666",
-      "8888bbbbbbb",
-    ],
+    ["aaaa1111111", "bbbb2222222", "cccc3333333", "dddd4444444", "eeee5555555"],
   );
-  // Subject matches follow stack order and skip counterparts a later sha cites.
+  // A member's subject twin never takes a later commit's own ordinal.
   assert.deepStrictEqual(
     [...matches],
     [
       ["squash", ["aaaa1111111", "bbbb2222222"]],
       ["plain", ["aaaa1111111"]],
       ["unlisted", ["cccc3333333"]],
-      ["rebased", ["dddd4444444", "eeee5555555", "8888bbbbbbb"]],
-      ["trunk-cited", ["ffff6666666"]],
-      ["plain-twin", ["7777aaaaaaa"]],
+      ["folded", ["dddd4444444", "eeee5555555"]],
+      ["later", ["eeee5555555"]],
     ],
   );
 });
