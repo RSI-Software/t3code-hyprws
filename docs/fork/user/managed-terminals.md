@@ -1,81 +1,34 @@
 # Managed terminals and checkout moves
 
-A zmux terminal attaches to the zmux session owned by its thread's checkout.
-The first terminal open may create or restore that session.
-A failure is reported in the terminal instead of silently opening a different shell.
+A zmux terminal attaches to the **zmux session of its thread's checkout**, creating or restoring it on first open.
+Managed terminals need a **current `zmux` on the server host**; remote browsers use the host's zmux.
+If zmux is missing or too old, the terminal **reports the failure**; update zmux on the host and retry.
 
 ## Settings
 
-Open **Settings → Terminal**.
+Open **Settings → Terminal**:
 
-| Setting                                | Effect                                           |
-| -------------------------------------- | ------------------------------------------------ |
-| **Default terminal**                   | the shell a new terminal opens                   |
-| **Create zmux sessions automatically** | a session per new worktree, restored on unsettle |
+- **Default terminal** picks plain or zmux
+- **Create zmux sessions automatically** per worktree
 
-Automatic sessions follow the default terminal until you set the switch.
-
-## Requirements
-
-Managed terminals need a compatible `zmux` on the T3 server host, including `zmux checkout ensure` and `zmux open --ready-token`.
-Those commands may exist before a numbered zmux release includes them.
-Remote browsers and mobile devices use the server host's zmux, not a binary on the client.
-
-If zmux is unavailable or too old, T3 Code preserves the existing terminal and reports the failure.
-Update or configure zmux on the host, then retry.
+The terminal's **+** menu offers the other shell: **New plain shell** or **New zmux shell**.
 
 ## Settle a thread
 
-Settling or deleting a worktree thread removes its entire zmux session, including every tab and running command.
-This also disconnects other viewers and threads using that session.
-T3 Code closes its terminals on that session; a new terminal after unsettling opens the fresh session.
-Settlement keeps the worktree and branch, but discards the session permanently.
-Unsettling, or new activity on a settled thread, creates a fresh session when automatic sessions are on.
-Otherwise opening a zmux terminal creates it.
+Settling or deleting a worktree thread **removes its whole zmux session**: every tab and running command, for every viewer.
+The worktree and branch stay.
+Unsettling creates a **fresh session**.
 The base checkout's `main` session stays available.
-Configured settle scripts run in independent shells so session removal does not interrupt them.
 
 ## Move a thread to another checkout
 
-1. The move queues while a turn runs or waits.
-2. Branch selector shows requested and effective.
-3. The turn settles; the provider resumes there.
-4. The new checkout commits.
-5. Clients reattach following terminals.
+A move **waits for a running turn**, then the provider resumes in the new checkout and following terminals reattach.
+The branch selector shows both the requested and current checkout until then.
 
-A remote or disconnected client reattaches once it receives the committed state.
-Hidden terminals stay asleep.
-
-**Recovery**
-
-| Outcome      | Offer                                               |
-| ------------ | --------------------------------------------------- |
-| **Partial**  | the steps that succeeded, plus **Retry**            |
-| **Complete** | **Undo**, while the physical checkout still matches |
-
-Web and desktop show the same status and recovery action.
+If a move **partly fails**, retry it; after a complete move, **Undo** works while the old checkout still matches.
 
 ## Follow or pin a terminal
 
-Terminal views follow their thread by default.
-
-| Choice                     | Effect                                        |
-| -------------------------- | --------------------------------------------- |
-| **Pin to this checkout**   | keeps this device's view where it is          |
-| **Follow thread checkout** | reattaches to the thread's effective checkout |
-
-The preference is local to that browser.
-Pinning does not close or move other devices or external zmux clients.
-
-Both controls are disabled while a move is queued or preparing.
-Attachment identities and follow or pin preferences are never sent in a move request.
-
-## Shell behavior
-
-The terminal's **+** menu also offers the shell that is not your default: **New plain shell** or **New zmux shell**.
-That terminal keeps its choice when you reload or follow another checkout.
-
-Managed attachment starts the shell through zmux in explicit escape mode.
-Shell startup files and environment variables still apply inside the attached shell.
-A restorable session is restored through zmux before attachment.
-T3 Code never infers a replacement checkout from a shell's current directory, and never moves arbitrary processes between checkouts.
+Terminals **follow their thread** by default.
+Select **Pin terminal checkout** to keep this device's view where it is, or **Follow thread checkout** to reattach.
+The choice is **per browser** and locked while a move runs.
