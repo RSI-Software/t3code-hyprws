@@ -1,4 +1,4 @@
-// Fork-owned: the light read the linked-issue sync uses (RSI-Software/t3code-hyprws#1451).
+// Fork-owned: the light batch read the linked-issue sync uses (RSI-Software/t3code-hyprws#1451).
 // The harness mirrors `GitHubIssueService.test.ts`, which owns the list, detail, and state tests.
 import { assert, describe, it, vi } from "@effect/vitest";
 import {
@@ -63,34 +63,47 @@ function makeService(
   );
 }
 
-describe("GitHubIssueService summary", () => {
-  it.effect("reads only the fields a linked-issue sync stores", () =>
+describe("GitHubIssueService summaries", () => {
+  it.effect("reads a repository's issues in aliased batches and leaves out missing ones", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
         Effect.succeed(
           JSON.stringify({
             data: {
-              repository: {
-                issue: { title: "Issue 42", state: "CLOSED", stateReason: "NOT_PLANNED" },
-              },
+              repository: Object.fromEntries(
+                [...call.query.matchAll(/i(\d+):issue/gu)].map(([, number]) => [
+                  `i${number}`,
+                  // #2 is a pull request or gone: GitHub answers that alias null.
+                  number === "2"
+                    ? null
+                    : { title: `Issue ${number}`, state: "CLOSED", stateReason: "NOT_PLANNED" },
+                ]),
+              ),
             },
           }),
         ),
       );
       const service = yield* makeService([project("p1")], graphql);
+      const numbers = Array.from(
+        { length: GitHubIssueService.ISSUE_SUMMARIES_PER_REQUEST + 1 },
+        (_, index) => index + 1,
+      );
 
-      const summary = yield* service.summary({
-        projectId: "p1" as ProjectId,
+      const summaries = yield* service.summaries({
+        host: "github.com",
         repository: "acme/web",
-        number: 42,
+        numbers,
       });
 
+      assert.lengthOf(graphql.mock.calls, 2);
       const call = graphql.mock.calls[0]?.[0];
       assert.strictEqual(call?.host, "github.com");
-      assert.include(call?.query ?? "", "title state stateReason");
-      assert.deepStrictEqual(call?.variables, { owner: "acme", name: "web", number: 42 });
-      assert.deepStrictEqual(summary, {
-        title: "Issue 42",
+      assert.strictEqual(call?.partialNotFound, true);
+      assert.deepStrictEqual(call?.variables, { owner: "acme", name: "web" });
+      assert.strictEqual(summaries.size, numbers.length - 1);
+      assert.isFalse(summaries.has(2));
+      assert.deepStrictEqual(summaries.get(51), {
+        title: "Issue 51",
         state: "closed",
         closeReason: "not planned",
       });
