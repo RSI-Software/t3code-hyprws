@@ -25,6 +25,9 @@ export const FORK_DOMAINS = [
 
 export type ForkDomain = (typeof FORK_DOMAINS)[number];
 
+/** The trailer a tip commit carries to retire a hook the target made obsolete. */
+export const HOOK_RETIRED_TRAILER = "Fork-Hook-Retired";
+
 export const normalizeTrailerValue = (value: string): string | undefined =>
   value
     .trim()
@@ -100,7 +103,7 @@ const isTailLine = (line: string): boolean => {
   );
 };
 
-const bodyParagraphs = (body: string): Array<Array<string>> => {
+const allParagraphs = (body: string): Array<Array<string>> => {
   const paragraphs: Array<Array<string>> = [[]];
   for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
     if (line.trim().length === 0 && (paragraphs.at(-1)?.length ?? 0) > 0) {
@@ -110,6 +113,11 @@ const bodyParagraphs = (body: string): Array<Array<string>> => {
     if (line.trim().length === 0) continue;
     paragraphs.at(-1)?.push(line);
   }
+  return paragraphs;
+};
+
+const bodyParagraphs = (body: string): Array<Array<string>> => {
+  const paragraphs = allParagraphs(body);
   while (paragraphs.length > 0 && (paragraphs.at(-1) ?? []).every(isTailLine)) {
     paragraphs.pop();
   }
@@ -131,6 +139,15 @@ export const trailerBlock = (body: string): string => {
   const paragraph = bodyParagraphs(body).at(-1) ?? [];
   if (!isTrailerParagraph(paragraph)) return "";
   return paragraph.filter((line) => TRAILER_LINE.test(line)).join("\n");
+};
+
+/** Every `Key: value` line below the prose: the trailer block and the tail after it. */
+export const trailerLines = (body: string): ReadonlyArray<string> => {
+  const prose = bodyParagraphs(body).length - (trailerBlock(body) === "" ? 0 : 1);
+  return allParagraphs(body)
+    .slice(prose)
+    .flat()
+    .filter((line) => TRAILER_LINE.test(line));
 };
 
 /**
