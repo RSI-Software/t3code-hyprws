@@ -25,7 +25,13 @@ import {
   type FoldStack,
   type PlanLine,
 } from "./lib/fork-fold-rebase.ts";
-import { bodyProse, forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
+import {
+  bodyProse,
+  forkLogArguments,
+  HOOK_RETIRED_TRAILER,
+  parseForkLog,
+  trailerLines,
+} from "./lib/fork-trailers.ts";
 
 export type { FoldBlock, FoldCommit, FoldGit, FoldStack, PlanLine };
 
@@ -229,7 +235,28 @@ export const resolvePlan = (
 const TIER_RANK: Readonly<Record<string, number>> = { core: 0, qol: 1, bugfix: 2 };
 const tierRank = (tier: string | undefined) => TIER_RANK[tier ?? ""] ?? 3;
 
-/** The fold's trailer block: the first member's domain, the strongest tier. */
+const MERGED_TRAILER = /^Fork-(?:Domain|Tier|Upstreamable):/i;
+const RETIRED_TRAILER = new RegExp(`^${HOOK_RETIRED_TRAILER}:`, "i");
+
+/**
+ * Every member's other trailers in stack order, exact repeats once. `lostHooks` counts
+ * `Fork-Hook-Retired` per commit against the trunk, so each copy stays.
+ */
+const carriedTrailers = (members: ReadonlyArray<FoldCommit>): ReadonlyArray<string> => {
+  const seen = new Set<string>();
+  return members.flatMap((member) =>
+    trailerLines(member.message.replace(/\r\n/g, "\n").split("\n").slice(1).join("\n"))
+      .filter((line) => !MERGED_TRAILER.test(line))
+      .filter((line) => {
+        if (RETIRED_TRAILER.test(line)) return true;
+        if (seen.has(line)) return false;
+        seen.add(line);
+        return true;
+      }),
+  );
+};
+
+/** The fold's trailer block: the first member's domain, the strongest tier, then every carried trailer. */
 export const foldTrailers = (all: ReadonlyArray<FoldCommit>): string => {
   // A trailerless `fixup!` takes its owner's trailers; it never votes on them.
   const tagged = all.filter((member) => member.domain !== undefined);
@@ -242,7 +269,7 @@ export const foldTrailers = (all: ReadonlyArray<FoldCommit>): string => {
     const yes = members.every((member) => member.upstreamable === "yes");
     lines.push(`Fork-Upstreamable: ${yes ? "yes" : "no"}`);
   }
-  return lines.join("\n");
+  return [...lines, ...carriedTrailers(all)].join("\n");
 };
 
 /**
