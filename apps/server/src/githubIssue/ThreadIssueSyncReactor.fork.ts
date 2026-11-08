@@ -6,7 +6,6 @@ import {
   CommandId,
   ThreadIssueLink,
   type OrchestrationV2ThreadShell,
-  type ProjectId,
   type ThreadId,
   type ThreadIssueKey,
   type ThreadIssueSnapshot,
@@ -37,21 +36,21 @@ const THREAD_ISSUE_READ_CONCURRENCY = 4;
 
 interface LinkEntry {
   readonly threadId: ThreadId;
-  readonly projectId: ProjectId;
   readonly archived: boolean;
   readonly link: ThreadIssueLink;
 }
 
+interface IssueRead {
+  readonly key: ThreadIssueKey;
+  readonly recipients: ReadonlyArray<LinkEntry>;
+}
+
 const decodeLink = Schema.decodeUnknownOption(Schema.fromJsonString(ThreadIssueLink));
 
-// Requests ignore the host: setState names no host, and a cross-host twin costs one extra read.
-const requestKey = (key: Pick<ThreadIssueKey, "repository" | "number">) =>
-  `${key.repository.toLowerCase()}#${key.number}`;
-
-// Reads depend on the project's checkout and credentials, so each project reads its own.
-const groupKey = (projectId: ProjectId, key: ThreadIssueKey) => {
+// Reads use the host's credentials, never a project's, so one read serves every project.
+const issueKey = (key: ThreadIssueKey) => {
   const normalized = normalizeThreadIssueKey(key);
-  return `${projectId}\0${normalized.host}/${normalized.repository}#${normalized.number}`;
+  return `${normalized.host}/${normalized.repository}#${normalized.number}`;
 };
 
 const sameSnapshot = (
@@ -68,13 +67,11 @@ export class ThreadIssueSyncReactor extends Context.Service<
     readonly drain: Effect.Effect<void>;
     /** Queue reads for a thread's links: the stale ones, or every one. */
     readonly syncThread: (
-      thread: Pick<OrchestrationV2ThreadShell, "id" | "projectId" | "issues">,
+      thread: Pick<OrchestrationV2ThreadShell, "id" | "issues">,
       scope: ThreadIssueSyncScope,
     ) => Effect.Effect<void>;
     /** Queue a read of one issue for every thread that links it. */
-    readonly requestSync: (
-      key: Pick<ThreadIssueKey, "repository" | "number">,
-    ) => Effect.Effect<void>;
+    readonly requestSync: (key: ThreadIssueKey) => Effect.Effect<void>;
   }
 >()("t3/githubIssue/ThreadIssueSyncReactor.fork/ThreadIssueSyncReactor") {}
 
@@ -104,14 +101,9 @@ export const make = Effect.gen(function* () {
       Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.logWarning(message, fields);
 
   // Archived threads are read too, so a panel opened on one still answers its refresh.
-  const readLinks = sql<{
-    threadId: ThreadId;
-    projectId: ProjectId;
-    archived: number;
-    link: string;
-  }>`
-    SELECT t.thread_id AS "threadId", t.project_id AS "projectId",
-      t.archived_at IS NOT NULL AS archived, link.value AS link
+  const readLinks = sql<{ threadId: ThreadId; archived: number; link: string }>`
+    SELECT t.thread_id AS "threadId", t.archived_at IS NOT NULL AS archived,
+      link.value AS link
     FROM orchestration_v2_projection_threads AS t
     JOIN json_each(t.payload_json, '$.issues') AS link
     WHERE t.deleted_at IS NULL
@@ -127,32 +119,29 @@ export const make = Effect.gen(function* () {
   );
 
   const readBatch = Effect.fn("ThreadIssueSyncReactor.readBatch")(function* (
-    batch: ReadonlyArray<ReadonlyArray<LinkEntry>>,
+    batch: ReadonlyArray<IssueRead>,
   ) {
-    const first = batch[0]![0]!;
+    const first = normalizeThreadIssueKey(batch[0]!.key);
     const started = yield* DateTime.now;
-    for (const entries of batch) {
-      lastReadAt.set(groupKey(first.projectId, entries[0]!.link), DateTime.toEpochMillis(started));
-    }
+    for (const { key } of batch) lastReadAt.set(issueKey(key), DateTime.toEpochMillis(started));
     const read = yield* githubIssues
       .summaries({
-        projectId: first.projectId,
-        repository: first.link.repository,
-        numbers: batch.map((entries) => entries[0]!.link.number),
+        host: first.host,
+        repository: batch[0]!.key.repository,
+        numbers: batch.map(({ key }) => key.number),
       })
       .pipe(Effect.option);
     if (Option.isNone(read)) {
       // A failed read writes nothing: an unread link stays unknown and a known snapshot is kept.
       yield* Effect.logWarning("linked issue read failed", {
-        projectId: first.projectId,
-        repository: first.link.repository,
+        repository: `${first.host}/${first.repository}`,
       });
       return;
     }
     // The read's start time, so a link made while it was in flight rejects it as older.
     const syncedAt = DateTime.formatIso(started);
     yield* Effect.forEach(
-      batch.flat(),
+      batch.flatMap(({ recipients }) => recipients),
       ({ threadId, link }) => {
         const summary = read.value.get(link.number);
         if (summary === undefined) return Effect.void;
@@ -187,7 +176,7 @@ export const make = Effect.gen(function* () {
 
     const groups = new Map<string, Array<LinkEntry>>();
     for (const entry of entries) {
-      const key = groupKey(entry.projectId, entry.link);
+      const key = issueKey(entry.link);
       const group = groups.get(key);
       if (group === undefined) groups.set(key, [entry]);
       else group.push(entry);
@@ -195,11 +184,12 @@ export const make = Effect.gen(function* () {
     for (const key of lastReadAt.keys()) if (!groups.has(key)) lastReadAt.delete(key);
 
     // Unlike pull requests, settled threads stay in the sweep: their issues often close later.
-    const batches = new Map<string, Array<Array<LinkEntry>>>();
+    const batches = new Map<string, Array<IssueRead>>();
     for (const [key, group] of groups) {
       const links = group.map((entry) => entry.link);
+      const wanted = asked.has(key);
       const due =
-        asked.has(requestKey(links[0]!)) ||
+        wanted ||
         (scope === "all" &&
           group.some(
             (entry) =>
@@ -209,10 +199,15 @@ export const make = Effect.gen(function* () {
           nowMs - lastRead(key, links) >= THREAD_ISSUE_SYNC_INTERVAL_MS);
       if (!due) continue;
       const repository = normalizeThreadIssueKey(links[0]!);
-      const batchKey = `${group[0]!.projectId}\0${repository.host}/${repository.repository}`;
+      const batchKey = `${repository.host}/${repository.repository}`;
+      // Archived threads take a read only when one was asked for.
+      const read = {
+        key: links[0]!,
+        recipients: wanted ? group : group.filter((entry) => !entry.archived),
+      };
       const batch = batches.get(batchKey);
-      if (batch === undefined) batches.set(batchKey, [group]);
-      else batch.push(group);
+      if (batch === undefined) batches.set(batchKey, [read]);
+      else batch.push(read);
     }
     yield* Effect.forEach(batches.values(), readBatch, {
       concurrency: THREAD_ISSUE_READ_CONCURRENCY,
@@ -229,7 +224,7 @@ export const make = Effect.gen(function* () {
 
   const requestSync: ThreadIssueSyncReactor["Service"]["requestSync"] = (key) =>
     Effect.suspend(() => {
-      requested.add(requestKey(key));
+      requested.add(issueKey(key));
       if (requestedSweepQueued) return Effect.void;
       requestedSweepQueued = true;
       return worker.enqueue("requested");
@@ -243,8 +238,7 @@ export const make = Effect.gen(function* () {
       (thread.issues ?? []).filter(
         (link) =>
           scope === "all" ||
-          nowMs - lastRead(groupKey(thread.projectId, link), [link]) >=
-            THREAD_ISSUE_SYNC_INTERVAL_MS,
+          nowMs - lastRead(issueKey(link), [link]) >= THREAD_ISSUE_SYNC_INTERVAL_MS,
       ),
       requestSync,
       { discard: true },
@@ -265,6 +259,12 @@ export const make = Effect.gen(function* () {
         { discard: true },
       );
     }).pipe(Effect.catchCause(logSkipped("linked issue event stream failed", {}))),
+  );
+  yield* forkParked(
+    githubIssues.subscribeStateChanges.pipe(
+      Effect.flatMap((changes) => Stream.runForEach(changes, requestSync)),
+      Effect.catchCause(logSkipped("linked issue state change stream failed", {})),
+    ),
   );
   yield* forkParked(
     Effect.gen(function* () {

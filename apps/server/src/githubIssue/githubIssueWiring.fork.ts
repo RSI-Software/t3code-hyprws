@@ -38,17 +38,7 @@ export const gitHubIssueRpcHandlersFork = (
   "githubIssues.linkedThreads": (input: ThreadIssueKey) =>
     listLinkedIssueThreadsFork(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
   "githubIssues.reference": (input: ThreadIssueKey) => githubIssues.reference(input),
-  // Linked threads show the new state without waiting for the sweep.
-  "githubIssues.setState": (input: GitHubIssueSetStateInput) =>
-    githubIssues
-      .setState(input)
-      .pipe(
-        Effect.tap(() =>
-          Effect.flatMap(ThreadIssueSyncReactor.ThreadIssueSyncReactor, (sync) =>
-            sync.requestSync(input),
-          ),
-        ),
-      ),
+  "githubIssues.setState": (input: GitHubIssueSetStateInput) => githubIssues.setState(input),
   // An active thread only: an unknown or deleted one answers not found.
   "githubIssues.syncThreadLinks": (input: ThreadIssueSyncInput) =>
     Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>

@@ -59,8 +59,9 @@ function classify(input: {
   const meta = { status, headers };
   const errors = Option.getOrUndefined(decodeErrors(body))?.errors;
   const notFoundOnly = errors?.every((error) => error.type === "NOT_FOUND") === true;
+  // Withheld, so an app token that cannot see the repository still retries as the user.
   if (input.partialNotFound && notFoundOnly && status >= 200 && status < 300) {
-    return { _tag: "Ok", value: body, ...meta };
+    return { _tag: "Ok", value: body, withheld: true, ...meta };
   }
   if (
     GitHubRequestPolicy.isRateLimited({

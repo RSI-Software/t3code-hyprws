@@ -21,7 +21,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
@@ -209,11 +212,17 @@ export class GitHubIssueService extends Context.Service<
     readonly detail: (input: GitHubIssueRef) => Effect.Effect<GitHubIssueDetail, GitHubIssueError>;
     /** Light reads of many issues in one repository; a number with no issue is left out. */
     readonly summaries: (input: {
-      readonly projectId: GitHubIssueRef["projectId"];
+      readonly host: string;
       readonly repository: string;
       readonly numbers: ReadonlyArray<number>;
     }) => Effect.Effect<ReadonlyMap<number, GitHubIssueSummary>, GitHubIssueError>;
     readonly setState: (input: GitHubIssueSetStateInput) => Effect.Effect<void, GitHubIssueError>;
+    /** Issues `setState` changed, so linked threads reread them at once. */
+    readonly subscribeStateChanges: Effect.Effect<
+      Stream.Stream<ThreadIssueKey>,
+      never,
+      Scope.Scope
+    >;
     /**
      * Issues and pull requests share one number sequence. True only when GitHub confirms a pull
      * request; an unanswered read is false, so an offline or signed-out link still goes through.
@@ -282,6 +291,7 @@ function toRawIssue(row: GraphQlIssueRowType): Record<string, unknown> {
 
 export const make = Effect.gen(function* () {
   const api = yield* GitHubIssueGraphQl.GitHubIssueGraphQl;
+  const stateChanges = yield* PubSub.sliding<ThreadIssueKey>(64);
   const projectService = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
 
@@ -425,7 +435,7 @@ export const make = Effect.gen(function* () {
 
   /** The project an issue reference names, which is the repository the API reads. */
   const issueProject = Effect.fn("GitHubIssueService.issueProject")(function* (
-    input: Pick<GitHubIssueRef, "projectId">,
+    input: GitHubIssueRef,
     operation: string,
   ) {
     const projects = yield* workspaceProjects(input.projectId);
@@ -516,7 +526,6 @@ export const make = Effect.gen(function* () {
   const summaries: GitHubIssueService["Service"]["summaries"] = Effect.fn(
     "GitHubIssueService.summaries",
   )(function* (input) {
-    const project = yield* issueProject(input, "summaries");
     const [owner = "", name = ""] = input.repository.split("/");
     const found = new Map<number, GitHubIssueSummary>();
     const numbers = [...new Set(input.numbers)];
@@ -524,13 +533,13 @@ export const make = Effect.gen(function* () {
       const chunk = numbers.slice(start, start + ISSUE_SUMMARIES_PER_REQUEST);
       const body = yield* api
         .graphql({
-          host: project.host,
+          host: input.host,
           operation: "summaries",
           query: issueSummariesQuery(chunk),
           variables: { owner, name },
           partialNotFound: true,
         })
-        .pipe(Effect.mapError(fromApiError("summaries", project.host)));
+        .pipe(Effect.mapError(fromApiError("summaries", input.host)));
       const repository = yield* Effect.try({
         try: () => decodeSummariesEnvelope(body).data.repository,
         catch: (cause) => decodeError("summaries", cause),
@@ -607,6 +616,11 @@ export const make = Effect.gen(function* () {
         detail: `GitHub did not confirm the ${operation} of issue #${input.number}.`,
       });
     }
+    yield* PubSub.publish(stateChanges, {
+      host: project.host,
+      repository: input.repository,
+      number: input.number,
+    });
   });
 
   const isPullRequest: GitHubIssueService["Service"]["isPullRequest"] = Effect.fn(
@@ -683,7 +697,17 @@ export const make = Effect.gen(function* () {
     } satisfies GitHubReferenceSummary;
   });
 
-  return GitHubIssueService.of({ list, detail, summaries, setState, isPullRequest, reference });
+  return GitHubIssueService.of({
+    list,
+    detail,
+    summaries,
+    setState,
+    subscribeStateChanges: PubSub.subscribe(stateChanges).pipe(
+      Effect.map((subscription) => Stream.fromSubscription(subscription)),
+    ),
+    isPullRequest,
+    reference,
+  });
 });
 
 export const layer = Layer.effect(GitHubIssueService, make);

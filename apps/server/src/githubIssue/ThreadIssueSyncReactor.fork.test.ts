@@ -6,6 +6,7 @@ import {
   ThreadId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
+  type ThreadIssueKey,
   type ThreadIssueLink,
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
@@ -39,6 +40,7 @@ type SyncCommand = Extract<
   { readonly type: "thread.issue-link.sync" }
 >;
 interface Read {
+  readonly host: string;
   readonly repository: string;
   readonly numbers: ReadonlyArray<number>;
 }
@@ -50,12 +52,13 @@ function makeLink(
   number: number,
   snapshot: { readonly state: "open" | "closed"; readonly syncedAt: string } | null = null,
   repository = "acme/web",
+  host = "github.com",
 ): ThreadIssueLink {
   return {
-    host: "github.com",
+    host,
     repository,
     number,
-    url: `https://github.com/${repository}/issues/${number}`,
+    url: `https://${host}/${repository}/issues/${number}`,
     source: "manual",
     linkedAt: LONG_AGO,
     snapshot: snapshot === null ? null : { title: `Issue ${number}`, ...snapshot },
@@ -99,6 +102,7 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
   const reads = yield* Ref.make<ReadonlyArray<Read>>([]);
   const syncs = yield* Ref.make<ReadonlyArray<SyncCommand>>([]);
   const started = yield* Queue.unbounded<void>();
+  const stateChanges = yield* Queue.unbounded<ThreadIssueKey>();
 
   const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) =>
     command.type === "thread.issue-link.sync"
@@ -109,11 +113,12 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
 
   const dependencies = Layer.mergeAll(
     Layer.mock(GitHubIssueService)({
-      summaries: ({ repository, numbers }) =>
-        Ref.update(reads, (all) => [...all, { repository, numbers }]).pipe(
+      summaries: (read) =>
+        Ref.update(reads, (all) => [...all, read]).pipe(
           Effect.andThen(Queue.offer(started, undefined)),
-          Effect.andThen(summaries({ repository, numbers })),
+          Effect.andThen(summaries(read)),
         ),
+      subscribeStateChanges: Effect.succeed(Stream.fromQueue(stateChanges)),
     }),
     Layer.mock(Orchestrator.OrchestratorV2)({
       dispatch,
@@ -131,7 +136,7 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
   const syncedLinks = Ref.get(syncs).pipe(
     Effect.map((all) => all.map((sync) => `${sync.threadId}#${sync.number}`).toSorted()),
   );
-  return { activate, events, reads, syncs, syncedLinks, started, reactor };
+  return { activate, events, stateChanges, reads, syncs, syncedLinks, started, reactor };
 });
 
 const run = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient | Scope.Scope>) =>
@@ -151,7 +156,10 @@ describe("ThreadIssueSyncReactor", () => {
           ]);
           // A settled thread's issues stay in the sweep; only archived threads leave it.
           yield* insertThread("two", [makeLink(1), makeLink(7, null, "acme/api")]);
-          yield* insertThread("archived", [makeLink(4)], { archived: true });
+          // The same number on another host is another issue, read from that host.
+          yield* insertThread("enterprise", [makeLink(1, null, "acme/web", "ghe.acme.test")]);
+          // An archived twin of a live link takes no unrequested write.
+          yield* insertThread("archived", [makeLink(1), makeLink(4)], { archived: true });
           const fixture = yield* makeHarness((read) =>
             Effect.succeed(
               new Map(
@@ -170,25 +178,31 @@ describe("ThreadIssueSyncReactor", () => {
             ),
           );
           yield* fixture.activate;
-          yield* Queue.takeN(fixture.started, 2);
+          yield* Queue.takeN(fixture.started, 3);
           yield* fixture.reactor.drain;
 
           assert.sameDeepMembers(
             [...(yield* Ref.get(fixture.reads))],
             [
-              { repository: "acme/web", numbers: [1, 2] },
-              { repository: "acme/api", numbers: [7] },
+              { host: "github.com", repository: "acme/web", numbers: [1, 2] },
+              { host: "github.com", repository: "acme/api", numbers: [7] },
+              { host: "ghe.acme.test", repository: "acme/web", numbers: [1] },
             ],
           );
           // #1 is read once for both threads; #2 is unchanged, so it writes nothing.
-          assert.deepStrictEqual(yield* fixture.syncedLinks, ["one#1", "two#1", "two#7"]);
+          assert.deepStrictEqual(yield* fixture.syncedLinks, [
+            "enterprise#1",
+            "one#1",
+            "two#1",
+            "two#7",
+          ]);
           assert.strictEqual((yield* Ref.get(fixture.syncs))[0]?.snapshot.syncedAt, NOW);
 
           // Open links come due again after the sync interval, and not before.
           yield* TestClock.adjust(ThreadIssueSyncReactor.THREAD_ISSUE_SYNC_INTERVAL_MS);
-          yield* Queue.takeN(fixture.started, 2);
+          yield* Queue.takeN(fixture.started, 3);
           yield* fixture.reactor.drain;
-          assert.lengthOf(yield* Ref.get(fixture.reads), 4);
+          assert.lengthOf(yield* Ref.get(fixture.reads), 6);
         }),
       ),
   );
@@ -232,7 +246,7 @@ describe("ThreadIssueSyncReactor", () => {
     ),
   );
 
-  it.effect("reads a live link at once", () =>
+  it.effect("reads a live link and an in-app state change at once", () =>
     run(
       Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse(NOW));
@@ -254,6 +268,16 @@ describe("ThreadIssueSyncReactor", () => {
         yield* fixture.reactor.drain;
 
         assert.deepStrictEqual(yield* fixture.syncedLinks, ["linked#5"]);
+
+        // An archived thread still takes a requested read; the key matches case-insensitively.
+        yield* Queue.offer(fixture.stateChanges, {
+          host: "GitHub.com",
+          repository: "ACME/Web",
+          number: 5,
+        });
+        yield* Queue.take(fixture.started);
+        yield* fixture.reactor.drain;
+        assert.lengthOf(yield* Ref.get(fixture.reads), 2);
       }),
     ),
   );

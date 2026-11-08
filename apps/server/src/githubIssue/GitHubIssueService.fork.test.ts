@@ -90,7 +90,7 @@ describe("GitHubIssueService summaries", () => {
       );
 
       const summaries = yield* service.summaries({
-        projectId: "p1" as ProjectId,
+        host: "github.com",
         repository: "acme/web",
         numbers,
       });
