@@ -168,7 +168,7 @@ A partial marker's issue names the commits left; the next `vp run fork:sync <tag
 
 ### Decision issue
 
-A job decides every seam alone, so its calls must outlive the attention issue the land closes.
+A job decides every seam alone, so each call that changes user-visible behaviour must outlive the attention issue the land closes.
 The marker's `Fork-Sync-Decision` trailers come from `.t3/fork-sync/<tag>.decisions.md` ([skill](../../../.agents/skills/fork-sync/SKILL.md#decisions)).
 
 - **Items:** one `hyprws sync landed <tag>` issue
