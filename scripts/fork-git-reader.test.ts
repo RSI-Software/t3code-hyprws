@@ -150,16 +150,16 @@ it("matches every squashed member by sha prefix, else its subject, and leaves th
       "8888bbbbbbb",
     ],
   );
-  // Subject fallback takes only counterparts no sha or plain match already claimed.
+  // Subject matches follow stack order and skip counterparts a later sha cites.
   assert.deepStrictEqual(
     [...matches],
     [
       ["squash", ["aaaa1111111", "bbbb2222222"]],
       ["plain", ["aaaa1111111"]],
       ["unlisted", ["cccc3333333"]],
-      ["rebased", ["eeee5555555", "7777aaaaaaa", "8888bbbbbbb"]],
+      ["rebased", ["dddd4444444", "eeee5555555", "8888bbbbbbb"]],
       ["trunk-cited", ["ffff6666666"]],
-      ["plain-twin", ["dddd4444444"]],
+      ["plain-twin", ["7777aaaaaaa"]],
     ],
   );
 });

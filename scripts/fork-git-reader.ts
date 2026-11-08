@@ -147,25 +147,6 @@ export const squashedMembers = (body: string): ReadonlyArray<SquashedMember> => 
 
 const APPENDED_FORK_REF = / \(RSI-Software\/t3code-hyprws#\d+\)$/;
 
-// A fold run before the land run cites the rebased shas, which the trunk never
-// had; its member subject still names the trunk commit.
-const memberBySubject = (
-  line: string,
-  counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
-  claimed: Set<string>,
-): string | undefined => {
-  for (let subject = line; ;) {
-    const sha = counterparts.get(subject)?.find((candidate) => !claimed.has(candidate));
-    if (sha !== undefined) {
-      claimed.add(sha);
-      return sha;
-    }
-    const stripped = subject.replace(APPENDED_FORK_REF, "");
-    if (stripped === subject) return undefined;
-    subject = stripped;
-  }
-};
-
 const readSquashedMembers = (
   git: GitReader,
   shas: ReadonlyArray<string>,
@@ -187,10 +168,10 @@ export interface ReplayedCommit extends Pick<ForkCommit, "sha" | "subject"> {
   readonly squashes?: ReadonlyArray<SquashedMember> | undefined;
 }
 
-// A squash resolves members by sha prefix, consuming no subject ordinal; anything
-// else matches its subject, oldest first. Unresolved members then take, by listed
-// subject, a counterpart nothing claimed. Each `fixup! <subject>` the sync folds
-// joins its owner's first match.
+// A squash resolves members by sha prefix first, consuming no subject ordinal.
+// Then, in stack order, a member no sha resolves (a pre-land fold cites rebased
+// shas) and any other commit take the next subject ordinal; members skip sha-claimed
+// counterparts. Each `fixup! <subject>` the sync folds joins its owner's first match.
 export const matchReplayCounterparts = (
   commits: ReadonlyArray<ReplayedCommit>,
   counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
@@ -203,50 +184,40 @@ export const matchReplayCounterparts = (
     if (named !== undefined)
       fixupsByOwner.set(named, [...(fixupsByOwner.get(named) ?? []), ...shas]);
   }
+  const bySha = (member: SquashedMember) => replayShas.filter((sha) => sha.startsWith(member.sha));
+  const claimed = new Set(commits.flatMap((commit) => (commit.squashes ?? []).flatMap(bySha)));
   const ordinalBySubject = new Map<string, number>();
-  const claimed = new Set<string>();
-  const members = new Map<string, Array<string>>();
-  const fixupsOf = new Map<string, ReadonlyArray<string>>();
-  const unresolved: Array<{ readonly commit: string; readonly line: string }> = [];
-  const matchSubject = (commit: ReplayedCommit) => {
-    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
-    ordinalBySubject.set(commit.subject, ordinal + 1);
-    const counterpart = counterparts.get(commit.subject)?.[ordinal];
-    if (counterpart === undefined) return;
-    claimed.add(counterpart);
-    members.set(commit.sha, [counterpart]);
-    fixupsOf.set(commit.sha, ordinal === 0 ? (fixupsByOwner.get(commit.subject) ?? []) : []);
+  const bySubject = (line: string): string | undefined => {
+    for (let subject = line; ;) {
+      const shas = counterparts.get(subject);
+      if (shas !== undefined) {
+        let ordinal = ordinalBySubject.get(subject) ?? 0;
+        while (ordinal < shas.length && claimed.has(shas[ordinal] ?? "")) ordinal += 1;
+        if (ordinal < shas.length) {
+          ordinalBySubject.set(subject, ordinal + 1);
+          return shas[ordinal];
+        }
+      }
+      const stripped = subject.replace(APPENDED_FORK_REF, "");
+      if (stripped === subject) return undefined;
+      subject = stripped;
+    }
   };
-  for (const commit of commits) {
-    if (commit.squashes === undefined || commit.squashes.length === 0) {
-      matchSubject(commit);
-      continue;
-    }
-    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
-    fixupsOf.set(commit.sha, ordinal === 0 ? (fixupsByOwner.get(commit.subject) ?? []) : []);
-    const resolved: Array<string> = [];
-    for (const member of commit.squashes) {
-      const bySha = replayShas.filter((sha) => sha.startsWith(member.sha));
-      if (bySha.length === 0) unresolved.push({ commit: commit.sha, line: member.line });
-      for (const sha of bySha) claimed.add(sha);
-      resolved.push(...bySha);
-    }
-    members.set(commit.sha, resolved);
-  }
-  for (const { commit, line } of unresolved) {
-    const sha = memberBySubject(line, counterparts, claimed);
-    if (sha !== undefined) members.get(commit)?.push(sha);
-  }
-  for (const commit of commits) {
-    if (commit.squashes !== undefined && members.get(commit.sha)?.length === 0) {
-      members.delete(commit.sha);
-      matchSubject(commit);
-    }
-  }
   const matched = new Map<string, ReadonlyArray<string>>();
   for (const commit of commits) {
-    const shas = members.get(commit.sha);
-    if (shas !== undefined) matched.set(commit.sha, [...shas, ...(fixupsOf.get(commit.sha) ?? [])]);
+    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
+    const fixups = ordinal === 0 ? (fixupsByOwner.get(commit.subject) ?? []) : [];
+    const squashed = (commit.squashes ?? []).flatMap((member) => {
+      const shas = bySha(member);
+      return shas.length > 0 ? shas : (bySubject(member.line) ?? []);
+    });
+    if (squashed.length > 0) {
+      matched.set(commit.sha, [...squashed, ...fixups]);
+      continue;
+    }
+    ordinalBySubject.set(commit.subject, ordinal + 1);
+    const counterpart = counterparts.get(commit.subject)?.[ordinal];
+    if (counterpart !== undefined) matched.set(commit.sha, [counterpart, ...fixups]);
   }
   return matched;
 };
