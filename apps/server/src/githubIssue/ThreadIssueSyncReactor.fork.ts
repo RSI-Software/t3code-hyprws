@@ -84,6 +84,9 @@ export const make = Effect.gen(function* () {
 
   // When each group was last asked for, answered or not, so a failing read waits its turn.
   const lastReadAt = new Map<string, number>();
+  // The same per thread, for a panel opening: an archived twin the sweep skipped is not fresh.
+  const threadReadAt = new Map<string, number>();
+  const threadKey = (threadId: ThreadId, key: ThreadIssueKey) => `${threadId}\0${issueKey(key)}`;
   const requested = new Set<string>();
   let requestedSweepQueued = false;
 
@@ -123,7 +126,11 @@ export const make = Effect.gen(function* () {
   ) {
     const first = normalizeThreadIssueKey(batch[0]!.key);
     const started = yield* DateTime.now;
-    for (const { key } of batch) lastReadAt.set(issueKey(key), DateTime.toEpochMillis(started));
+    const startedMs = DateTime.toEpochMillis(started);
+    for (const { key, recipients } of batch) {
+      lastReadAt.set(issueKey(key), startedMs);
+      for (const { threadId } of recipients) threadReadAt.set(threadKey(threadId, key), startedMs);
+    }
     const read = yield* githubIssues
       .summaries({
         host: first.host,
@@ -182,6 +189,8 @@ export const make = Effect.gen(function* () {
       else group.push(entry);
     }
     for (const key of lastReadAt.keys()) if (!groups.has(key)) lastReadAt.delete(key);
+    const linked = new Set(entries.map((entry) => threadKey(entry.threadId, entry.link)));
+    for (const key of threadReadAt.keys()) if (!linked.has(key)) threadReadAt.delete(key);
 
     // Unlike pull requests, settled threads stay in the sweep: their issues often close later.
     const batches = new Map<string, Array<IssueRead>>();
@@ -238,7 +247,12 @@ export const make = Effect.gen(function* () {
       (thread.issues ?? []).filter(
         (link) =>
           scope === "all" ||
-          nowMs - lastRead(issueKey(link), [link]) >= THREAD_ISSUE_SYNC_INTERVAL_MS,
+          nowMs -
+            (threadReadAt.get(threadKey(thread.id, link)) ??
+              (link.snapshot === null
+                ? Number.NEGATIVE_INFINITY
+                : Date.parse(link.snapshot.syncedAt))) >=
+            THREAD_ISSUE_SYNC_INTERVAL_MS,
       ),
       requestSync,
       { discard: true },
