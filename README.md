@@ -32,43 +32,41 @@ The fork encodes none of that policy.
 | `mod+alt+f`   | Choose this window's projects                  |
 | `mod+alt+o`   | Reuse a window showing this project, else open |
 
-Choose **Only selected** to show specific projects, or **All except selected** to hide selected projects and include new ones automatically.
-With no selection, both modes show all projects.
-The filter narrows lists without closing open threads.
+- **Only selected** shows chosen projects
+- **All except selected** also picks up new ones
+- **No selection** shows every project
+- **Open threads stay** when the filter narrows
+- **Both windows stay live** on one thread
+- **Windows return** to their workspaces on update
+- **Old `#/project/...` links** still open
 
-- **Same thread:** **Open in New Window**, both live
-- **Update:** back on their Hyprland workspaces
-- **Old links:** `#/project/...` links still open
+**One window per project, one backend**
 
-https://github.com/user-attachments/assets/13204279-65d2-4599-b111-9c5043ca98fd
+https://github.com/user-attachments/assets/33164357-eb9c-4778-b0b7-6a0a2c9a04d6
 
 <details>
 <summary>More clips</summary>
 
 **Choose projects, exclude them, or reset to all**
 
-https://github.com/user-attachments/assets/0c52e249-b643-4798-9829-7c1fd61ea41f
+https://github.com/user-attachments/assets/b5bee2e8-1432-4a9d-8e3b-c9eddd3f2b5c
 
 **One thread in two windows, streaming in both**
 
-https://github.com/user-attachments/assets/61675d70-4b33-4337-b322-d7c86a20c2c7
-
-**Relaunch: windows return to their workspaces**
-
-https://github.com/user-attachments/assets/426db6b1-9a38-4719-9911-6d3bcb4a017b
+https://github.com/user-attachments/assets/4295662d-e021-4296-9ee4-7c0c4c736987
 
 </details>
 
 ## What else the fork adds
 
 Every fork commit belongs to one domain, and each domain retires when upstream covers it.
-The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and boundaries.
+The [fork delta](docs/fork/internals/fork-delta.md) owns the full list.
 
 ### Custom agents
 
-- **Discover:** native Claude and Codex agents
-- **Select:** one as the main thread
-- **Persist:** across new and resumed sessions
+- **Discovers** native Claude and Codex agents
+- **One runs** as the main thread
+- **Persists** across new and resumed sessions
 
 https://github.com/user-attachments/assets/29c94d1c-cbf2-477f-b4ea-52193ccc5b5a
 
@@ -83,13 +81,13 @@ https://github.com/user-attachments/assets/78f1f4b6-1162-4498-b5ca-95542e40f15f
 
 ### Desktop dictation
 
-- **Speak:** record into an editable draft
-- **Live:** words appear while you speak
-- **Services:** Meta or any OpenAI Realtime endpoint
-- **Terms:** per-project names and spelling fixes
-- **Cleanup:** optional cleanup and formatting
-- **Finish:** commit, review, then send
-- **Cancel:** keep the original draft
+- **Speak** into an editable draft
+- **Words appear live** while you speak
+- **Meta** or any **OpenAI Realtime** endpoint
+- **Per-project terms** fix names and spelling
+- **Optional cleanup** and formatting
+- **Commit, review**, then send
+- **Cancel** keeps the original draft
 - [Guide](docs/fork/user/dictation.md)
 
 https://github.com/user-attachments/assets/7e122ae4-4e82-42ec-9782-6026f34d1ba7
@@ -105,9 +103,9 @@ https://github.com/user-attachments/assets/7e122ae4-4e82-42ec-9782-6026f34d1ba7
 
 ### Rich Markdown editing
 
-- **Modes:** Rich and Source for Markdown files
-- **Save:** CommonMark, GFM, frontmatter intact
-- **MDX:** stays a read-only preview
+- **Rich and Source** modes for Markdown files
+- **Saves CommonMark**, GFM, frontmatter intact
+- **MDX** stays a read-only preview
 - [Guide](docs/fork/user/markdown-editing.md)
 
 https://github.com/user-attachments/assets/f3b4c546-8c33-4f11-97bc-1c2eff67d195
@@ -123,10 +121,10 @@ https://github.com/user-attachments/assets/4dc25fb0-3ed7-4cc2-9eee-d5b34eb3cd57
 
 ### Managed `zmux` terminals
 
-- **Attach:** terminals join the checkout session
-- **Worktrees:** new ones join the same session
-- **Shared:** visible from T3 Code and the CLI
-- **Default:** zmux or plain, in Settings → Terminal
+- **Terminals join** the checkout's session
+- **New worktrees join** the same session
+- **Shared** between T3 Code and the CLI
+- **Pick zmux or plain** in Settings → Terminal
 - [Guide](docs/fork/user/managed-terminals.md)
 
 https://github.com/user-attachments/assets/3fa4a68f-a189-4ca8-98d5-416e8c9eb4fd
@@ -142,10 +140,10 @@ https://github.com/user-attachments/assets/283f3ee9-a2f5-4f8a-821f-7d67d0994064
 
 ### Worktrunk worktrees
 
-- **Mode:** **New worktrunk** for a thread
-- **Hooks:** `wt` hooks on create and remove
-- **Proof:** `pre-start` writes `.env.local`
-- **Fallback:** plain worktrees without `wt`
+- **New worktrunk** mode for a thread
+- **`wt` hooks run** on create and remove
+- **`pre-start` writes** `.env.local` in the clip
+- **Plain worktrees** without `wt`
 
 https://github.com/user-attachments/assets/1758bb95-19f6-4ed1-a8d8-56366444f62f
 
@@ -160,10 +158,10 @@ https://github.com/user-attachments/assets/0dfb8ebb-2145-4a81-92b5-d9c3b3a02a16
 
 ### GitHub issues
 
-- **Browse:** issues on web and desktop
-- **Detail:** filters, comments, and tabs
-- **Hand off:** one issue to a new thread as a draft
-- **Link:** issues and threads in both directions
+- **Browse issues** on web and desktop
+- **Filters, comments**, and tabs in detail
+- **Hand off** an issue to a new thread as a draft
+- **Issues and threads link** both ways
 
 https://github.com/user-attachments/assets/9d21df4b-8a5f-425e-9a59-2de67b2e7520
 
@@ -176,13 +174,13 @@ https://github.com/user-attachments/assets/9d21df4b-8a5f-425e-9a59-2de67b2e7520
 
 ### Threads
 
-- **Group:** drag a thread under another
-- **Title:** each group names its shared subject
-- **Parent:** leads the group; its title is a tab
-- **Working:** a working parent carries the group
-- **Projects:** one group spans several
-- **Agents:** group threads through MCP tools
-- **Fork:** continue a copy on the same provider
+- **Drag a thread** under another to group
+- **Each group names** its shared subject
+- **The parent leads**; its title is a tab
+- **A working parent** carries the group
+- **One group spans** several projects
+- **Agents group threads** through MCP tools
+- **Fork a thread** on the same provider
 
 https://github.com/user-attachments/assets/dfb1fa2f-1d93-4bfa-bc83-c1d36261a9f1
 
@@ -197,9 +195,9 @@ https://github.com/user-attachments/assets/93618826-3a1d-4c86-bc89-3202b406af39
 
 ### Delegated follow-up rounds
 
-- **Continue:** the same child keeps its context
-- **Return:** each round wakes the parent
-- **Control:** track or cancel the current round
+- **The same child** keeps its context
+- **Each round wakes** the parent
+- **Track or cancel** the current round
 
 **Two rounds, one child: typing 8×, work 6×**
 
@@ -207,48 +205,61 @@ https://github.com/user-attachments/assets/ac99f00f-f561-4b8e-b1c6-403708464b54
 
 ### Browser bookmarks
 
-- **Collections:** global and per project
-- **Star:** save, move, or remove a page
-- **New tab:** bookmarks listed first
+- **Global and per-project** collections
+- **Star** to save, move, or remove a page
+- **New tabs list** bookmarks first
 - [Guide](docs/fork/user/browser.md)
 
 https://github.com/user-attachments/assets/0992bf8a-37c7-425b-992c-5d08c61cc22e
 
 ### Workspace files
 
-- **Reveal:** gitignored agent artifacts on demand
-- **Default:** hidden, remembered per device
-- **Safety:** containment holds unless trusted
+- **Reveal** gitignored agent artifacts on demand
+- **Hidden by default**, remembered per device
+- **Containment holds** unless trusted
 - [Guide](docs/fork/user/workspace-files.md)
 
 https://github.com/user-attachments/assets/46931a1e-d0f3-41d2-bf61-8fb79db19713
 
 ### Thread artifacts
 
-- **Link:** agents link trackers, plans, and notes
-- **Live:** previews follow each edit
-- **Anywhere:** any host path, scratch included
-- **Hands off:** T3 never creates or deletes files
+- **Agents link** trackers, plans, and notes
+- **Previews follow** each edit
+- **Any host path**, scratch included
+- **T3 never creates** or deletes the files
 - [Guide](docs/fork/user/thread-artifacts.md)
+
+https://github.com/user-attachments/assets/39efca0a-eeed-45c0-8f4a-8076da05dfc5
+
+<details>
+<summary>More clips</summary>
+
+**A linked HTML tracker open beside its thread**
 
 ![A linked HTML tracker open beside its thread](https://github.com/user-attachments/assets/82265826-4ea8-42d6-a6bb-611c787c9e38)
 
+</details>
+
 ### Collaborator sharing
 
-- **Share:** a thread to a collaborator's own app
-- **Own server:** a pairing link, no T3 Connect
-- **Live:** more shares and stops, no new link
-- **Attributed:** messages carry their name
-- **Approval:** optionally, you send each message
+- **Share a thread** to a collaborator's own app
+- **Pairs with your server**, no T3 Connect
+- **Change access live**, no new link
+- **Messages carry** their name
+- **You approve** each message by default
 - [Guide](docs/fork/user/collaborator-sharing.md)
+
+**Host left, collaborator on a separate VM right**
+
+https://github.com/user-attachments/assets/a1746504-9151-470c-90e2-80a01e617e70
 
 ### Device approval and external agents
 
-- **Grant:** RFC 8628-style device flow
-- **Approve:** on the host, `t3 auth device approve`
-- **Token:** never passes through a person
-- **MCP:** outside agents create and steer threads
-- **Limit:** selected projects, revocable access
+- **RFC 8628-style** device flow
+- **The host approves** with `t3 auth device approve`
+- **The token never passes** through a person
+- **Outside agents** create and steer threads over MCP
+- **Limited** to selected projects; revocable
 
 **A client on another machine starts a T3 thread**
 
@@ -265,9 +276,9 @@ https://github.com/user-attachments/assets/442458b8-dfc8-4bb4-8f99-40207fab03f1
 
 ### Releases and upstream fixes
 
-- **Builds:** Linux AppImage releases
-- **Nightly:** cut on every trunk push
-- **Fixes:** focused, dropped once upstream lands
+- **Linux AppImage** releases
+- **Nightly** on every trunk push
+- **Focused fixes**, dropped once upstream lands
 - [Guide](docs/fork/user/install-and-update.md)
 
 ## Why a fork?
@@ -278,11 +289,9 @@ At parity, the window domains retire; the others stand on their own.
 
 ## Fork development
 
-| Doc                                                         | Read it for                            |
-| ----------------------------------------------------------- | -------------------------------------- |
-| [Fork development](docs/fork/internals/fork-development.md) | Changing fork behavior or Git topology |
-| [Fork delta](docs/fork/internals/fork-delta.md)             | Every fork change and why              |
-| [Fork sync](docs/fork/operations/fork-sync.md)              | Rebase, verify, publish, release       |
+**Change fork code** with [Fork development](docs/fork/internals/fork-development.md).
+**Every domain** and its retirement live in the [Fork delta](docs/fork/internals/fork-delta.md).
+**Rebase and release** follow [Fork sync](docs/fork/operations/fork-sync.md).
 
 <p align="center">
   <a href="https://t3.codes">
