@@ -1,9 +1,7 @@
 # Fork delta
 
-> Fork-only inventory for `RSI-Software/t3code-hyprws`.
-
-[Fork development](./fork-development.md) owns discipline; this document owns the inventory.
-Read it before deciding whether a change belongs in the fork.
+Each fork domain's need, shape, retirement condition, and rebase scan.
+[Fork development](./fork-development.md) owns the discipline.
 
 ```bash
 vp run fork:delta           # ledger grouped by domain and tier
@@ -12,36 +10,22 @@ vp run fork:delta --json    # the same ledger for tooling
 vp run fork:delta --inventory --upstream vX.Y.Z # overlap stats per domain
 ```
 
-Commit lists are generated, because hashes rot on every rebase.
-The default range is `upstream/main..HEAD`; `--base` and `--head` override it.
-
 ## Rebase scans
 
-Each domain's **Rebase scan** table lists the upstream paths its commits touch.
+Each domain's **Rebase scan** table lists the **upstream paths** its commits touch.
 
 ```bash
 vp run fork:scan                    # every domain against live upstream/main
 vp run fork:scan --target vX.Y.Z    # the same walk pinned to a tag
 ```
 
-`fork:scan` fails when a domain's own commits change a file its table omits and upstream also changed.
-Every code span in a Path cell is one pattern: `*` stays inside a segment, `**` spans them.
+`fork:scan` **fails** when a domain's commits change a file its table omits and **upstream also changed** it.
+Every code span in a Path cell is **one pattern**: `*` stays inside a segment, `**` spans them.
 
-| Where                       | Mode                    | Against                 |
-| --------------------------- | ----------------------- | ----------------------- |
-| Fork CI                     | Blocking, every push    | its upstream merge base |
-| Fork CI on `sync/candidate` | Blocking, before a sync | the target tag          |
+Fork CI runs it as a **blocking** check:
 
-## Why the fork exists
-
-The fork carries independent domains upstream does not provide, each with its own need, patch boundary, and retirement condition.
-Multiple desktop windows were the first: upstream's desktop app is single-window by construction, and a second launch forwards to the first window.
-
-### The upstream-supported alternative
-
-Point a browser at a self-hosted backend and open one tab per window, sharing sessions, auth, providers, and state.
-Browser mode still trails Electron for terminals and nested in-app browser windows: `apps/web/src/components/preview/previewBridge.ts` resolves to `null` without an Electron host.
-At parity, plain browser windows or a small Electron shell suffice, which retires `multi-window`, not the fork.
+- **Every push**, against its upstream merge base
+- On `sync/candidate`, against the **target tag**
 
 ## Tiers
 
@@ -51,52 +35,49 @@ At parity, plain browser windows or a small Electron shell suffice, which retire
 | `qol`    | Polish; the domain works without it      | Reassess individually               |
 | `bugfix` | A defect fix; note upstream reproduction | Dropped once upstream supersedes it |
 
-A `bugfix` upstream reproduces is a retire candidate: wait for upstream's fix, then drop the commit at the next rebase.
-Every signalled commit gets one retirement outcome during the rebase.
-A retirement is recorded by the retire commit itself, not a ledger.
+A `bugfix` upstream reproduces is a **retire candidate**: wait for upstream's fix, then drop it at the next rebase.
+Every signalled commit gets **one retirement outcome** during the rebase.
+The **retire commit itself** records a retirement; no ledger does.
 
 ## Trailers
 
-| Trailer             | Values                        | Required on       |
-| ------------------- | ----------------------------- | ----------------- |
-| `Fork-Domain`       | A domain from the index below | Every fork commit |
-| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit |
-| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`    |
+| Trailer             | Values                  | Required on       |
+| ------------------- | ----------------------- | ----------------- |
+| `Fork-Domain`       | A `FORK_DOMAINS` value  | Every fork commit |
+| `Fork-Tier`         | `core`, `qol`, `bugfix` | Every fork commit |
+| `Fork-Upstreamable` | `yes`, `no`             | Every `bugfix`    |
 
-`Fork-Upstreamable: yes` is a tracking tag, never authorization to post upstream; `AGENTS.md` owns that rule.
-`vp run fork:delta --check` enforces the table on every push, and a rebase preserves trailers.
+`FORK_DOMAINS` lives in [`scripts/lib/fork-trailers.ts`](../../../scripts/lib/fork-trailers.ts).
+`Fork-Upstreamable: yes` is a **tracking tag**, never authorization to post upstream; `AGENTS.md` owns that rule.
+`vp run fork:delta --check` **enforces** the table on every push; a rebase preserves trailers.
 
-**Squash-body mode.** The advisory `hyprws Body` workflow runs `--check --squash-body <file>`; it is not a required check.
-It validates the body's final trailer paragraph, which becomes the squash trailers.
-A trailer carried only by a branch commit cannot satisfy it.
+The advisory `hyprws Body` workflow runs `--check --squash-body <file>` on the **PR body's final trailer paragraph**, which becomes the squash trailers.
+A trailer carried **only by a branch commit** cannot satisfy it.
 
 ## Carry cost
 
-Decided per commit by the levers retire, reshape, automate, or accept; no gate carries a numeric cap.
-**Accept is never "as-is".** A kept commit needs a mechanical seam: fork code in fork-only files, and upstream files carrying only marked hook lines the walk re-applies.
+Each commit is **retired, reshaped, automated, or accepted**; no gate carries a numeric cap.
+**Accept is never "as-is"**: fork code sits in **fork-only files**, and upstream files carry only **marked hook lines** the walk re-applies.
 
 ### Marking a hook
 
-| Case           | Marker                                                                    |
-| -------------- | ------------------------------------------------------------------------- |
-| Statement      | trailing `// fork-hook: <domain>/<name>` or `/* fork-hook: … */`          |
-| Multi-line JSX | the pair `{/* fork-hook: <domain>/<name> */}` and `{/* fork-hook-end */}` |
+A statement takes a **trailing marker**: `// fork-hook: <domain>/<name>` or `/* fork-hook: … */`.
+Multi-line JSX takes a **marker pair**: `{/* fork-hook: <domain>/<name> */}` and `{/* fork-hook-end */}`.
 
-**A hook is exactly one construct:** one import, one call, one `const` from a single fork call, one JSX element, one fork-named property or spread, or one re-export.
-**A hook never removes or modifies an upstream line**, not even to re-indent or substitute one.
-Hook re-apply (`reapplyHooks` in `scripts/fork-sync.ts`) accepts only a pure insertion: the fork side minus its marked spans equals the base minus the earlier hooks this commit leaves unchanged.
-Any other shape stops every sync that touches the file, and the hook guard misses it because it checks only added lines.
-Move the logic into a `*.fork.ts` sibling and leave one marked call; precedent `222ac20a66` for `DesktopClerk.ts`.
+A hook is **exactly one construct**: one import, one call, one `const` from a single fork call, one JSX element, one fork-named property or spread, or one re-export.
+A hook **never removes or modifies an upstream line**, not even to re-indent or substitute one.
+`reapplyHooks` in `scripts/fork-sync.ts` accepts **only a pure insertion**: the fork side minus its marked spans equals the base minus the earlier hooks this commit leaves unchanged.
+Any other shape **stops every sync** touching the file, and the hook guard misses it because it checks only added lines.
+Move such logic into a **`*.fork.ts` sibling** and leave one marked call.
 
-**A trailing marker covers the whole statement it closes.** `statementStartLine` in `scripts/lib/fork-hooks.ts` walks back from the marker line.
+A trailing marker **covers the whole statement** it closes.
+`statementStartLine` in `scripts/lib/fork-hooks.ts` walks back from the marker; at the statement's own depth, the line above:
 
-| Line above, at the statement's own depth | Walk      |
-| ---------------------------------------- | --------- |
-| Inside an open bracket or literal        | continues |
-| Ends in `;`, `{`, `,`, or a closing `}`  | stops     |
-| Blank or comment-only                    | stops     |
+- **Continues** it inside an open bracket or literal
+- **Stops** it ending in `;`, `{`, `,`, or `}`
+- **Stops** it when blank or comment-only
 
-The hook guard, `scripts/lib/fork-hook-guard.ts`, refuses every added line outside the span, so comment placement decides the outcome.
+The hook guard, `scripts/lib/fork-hook-guard.ts`, **refuses every added line** outside the span, so comment placement decides:
 
 | Comment                   | Span                      | Guard   |
 | ------------------------- | ------------------------- | ------- |
@@ -104,84 +85,61 @@ The hook guard, `scripts/lib/fork-hook-guard.ts`, refuses every added line outsi
 | Between `=>` and the body | starts at the body        | refuses |
 | Inside the call arguments | open bracket: walk passes | accepts |
 
-Refused: the comment stops the walk, leaving the `const` line and the comment unmarked.
-
-```ts
-const trackInstaller = (install: (session: Session) => void) =>
-  // Each window installs its download handler on every browser session.
-  Effect.acquireRelease(
-    Effect.sync(() => installers.add(install)),
-    () => Effect.sync(() => installers.delete(install)),
-  ); // fork-hook: multi-window/download-track
-```
-
-Accepted: the comment sits inside the open call.
-
-```ts
-const trackInstaller = (install: (session: Session) => void) =>
-  Effect.acquireRelease(
-    // Each window installs its download handler on every browser session.
-    Effect.sync(() => installers.add(install)),
-    () => Effect.sync(() => installers.delete(install)),
-  ); // fork-hook: multi-window/download-track
-```
-
 ## Domain index
 
-| Domain                                  | Status  | Tiers present     | Retires when                              |
-| --------------------------------------- | ------- | ----------------- | ----------------------------------------- |
-| [multi-window](#multi-window)           | Active  | core, qol, bugfix | Upstream ships multi-window support       |
-| [workspaces](#workspaces)               | Active  | core, qol         | Upstream ships per-window project filters |
-| [browser-bookmarks](#browser-bookmarks) | Active  | core              | Upstream ships durable bookmarks          |
-| [backend-attach](#backend-attach)       | Retired | core              | Retired; a fold drops its commits         |
-| [github-issues](#github-issues)         | Active  | core, bugfix      | Upstream ships multi-environment Issues   |
-| [thread-artifacts](#thread-artifacts)   | Active  | core              | Upstream links agent documents to threads |
-| [custom-agents](#custom-agents)         | Active  | core              | Upstream main-thread agent selection      |
-| [device-auth](#device-auth)             | Active  | core              | Upstream ships native client approval     |
-| [markdown-editing](#markdown-editing)   | Active  | core              | Upstream ships rich Markdown editing      |
-| [workspace-files](#workspace-files)     | Active  | core              | Upstream supports linked artifacts        |
-| [fork-meta](#fork-meta)                 | Active  | core, qol, bugfix | Never; it documents the fork              |
-| [distribution](#distribution)           | Active  | core              | Never, while the fork ships builds        |
-| [upstream-fixes](#upstream-fixes)       | Active  | bugfix            | Per commit, on the upstream fix           |
-| [thread-ordering](#thread-ordering)     | Active  | qol               | Upstream ships named groups               |
-| [thread-fork](#thread-fork)             | Active  | core              | Upstream ships a thread-menu fork entry   |
-| [zmux-estate](#zmux-estate)             | Active  | core              | Upstream terminals attach externally      |
-| [worktrunk-hooks](#worktrunk-hooks)     | Active  | core, bugfix      | Upstream exposes worktree lifecycle hooks |
-| [delegated-rounds](#delegated-rounds)   | Active  | core              | Upstream ships delegated follow-ups       |
-| [voice-input](#voice-input)             | Active  | core              | Upstream supports external desktop STT    |
-| [colleague-collab](#colleague-collab)   | Active  | core              | Upstream ships per-thread sharing         |
+A domain is **a reason the fork exists**, not a feature area; each section states its **retirement condition**.
 
-A domain is a reason the fork exists, not a feature area.
+- [multi-window](#multi-window)
+- [workspaces](#workspaces)
+- [browser-bookmarks](#browser-bookmarks)
+- [backend-attach](#backend-attach)
+- [github-issues](#github-issues)
+- [thread-artifacts](#thread-artifacts)
+- [custom-agents](#custom-agents)
+- [device-auth](#device-auth)
+- [markdown-editing](#markdown-editing)
+- [workspace-files](#workspace-files)
+- [fork-meta](#fork-meta)
+- [distribution](#distribution)
+- [upstream-fixes](#upstream-fixes)
+- [thread-ordering](#thread-ordering)
+- [thread-fork](#thread-fork)
+- [zmux-estate](#zmux-estate)
+- [worktrunk-hooks](#worktrunk-hooks)
+- [delegated-rounds](#delegated-rounds)
+- [voice-input](#voice-input)
+- [colleague-collab](#colleague-collab)
 
 ## multi-window
 
 ### Need
 
-- **Windows:** many windows, one shared backend
-- **Identity:** an opaque id, stable across restore
+- **Many windows**, one shared backend
+- An **opaque window id**, stable across restore
 
 ### Shape
 
-A window registry keyed by an opaque `WindowId`, sender-owned dispatch, and a manifest restore with one entry per window.
+A **window registry** keyed by an opaque `WindowId`, with sender-owned dispatch and a per-window manifest restore.
 
-| Seam     | Fork boundary                                                                                |
-| -------- | -------------------------------------------------------------------------------------------- |
-| Identity | `WindowId` minted in main at create, carried as a preload argument                           |
-| Dispatch | `main`-window consumers resolve to the sender or most recent window                          |
-| Requests | One table in `WindowDispatch.fork.ts` maps each window request to create, reuse, or focus    |
-| Startup  | A bounded intent queue drained once the renderer can load                                    |
-| Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace                      |
-| Scope    | Sidebar project scope per `WindowId`; a preload argument seeds it                            |
-| Legacy   | Old `#/project/…` links and routes decode to ordinary ones (`legacyProjectLink.fork.ts`)     |
-| Drafts   | Project-route drafts fold into route-free buckets once (`projectDraftMigration.fork.ts`)     |
-| Provider | `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID` name the work, never a window                     |
-| Projects | `$XDG_RUNTIME_DIR/t3code/windows-<pid>.json` maps each Hyprland address to its project scope |
+| Seam     | Fork boundary                                   |
+| -------- | ----------------------------------------------- |
+| Identity | `WindowId` minted in main, a preload argument   |
+| Dispatch | `main` consumers resolve to sender or latest    |
+| Requests | `WindowDispatch.fork.ts`: create, reuse, focus  |
+| Startup  | Bounded intent queue, drained at renderer load  |
+| Restore  | Manifest v2: id, route, bounds, workspace       |
+| Scope    | Sidebar project scope per `WindowId`            |
+| Legacy   | `legacyProjectLink.fork.ts` decodes old links   |
+| Drafts   | `projectDraftMigration.fork.ts` folds them once |
+| Provider | Env names the project and thread, never window  |
 
-Hyprland places windows; update restore only puts each back on its recorded workspace, and is a no-op off Hyprland.
+`$XDG_RUNTIME_DIR/t3code/windows-<pid>.json` **maps each Hyprland address** to its project scope.
+**Hyprland places windows**; update restore only returns each to its recorded workspace, a no-op off Hyprland.
 
 ### Retirement condition
 
 Upstream ships its own multi-window support.
+Browser-mode parity with Electron also retires it: plain browser windows or a small Electron shell then suffice.
 
 ### Rebase scan
 
@@ -201,21 +159,17 @@ Upstream ships its own multi-window support.
 
 ### Need
 
-- **Filter:** each window shows its own project set
-- **Chooser:** picks the window's projects
-- **Scope:** narrows lists, never hides work
+- Each window shows **its own project set**
+- A **chooser** picks the window's projects
+- Scope **narrows lists**, never hides work
 
 ### Shape
 
-A fork-owned per-window project filter projecting selected refs into upstream's `scopedProjectKeys`.
-
-| Seam    | Fork boundary                                                              |
-| ------- | -------------------------------------------------------------------------- |
-| Filter  | `useWindowProjectFilter()`, client-local; no wire change                   |
-| Storage | Desktop per `WindowId`, web tab `sessionStorage`, mobile device preference |
-| Adapter | A small fork-owned adapter around the single-select scope combobox         |
-| Chooser | Sidebar header Projects chooser, project rows, palette, scope labels       |
-| Scope   | Palette search, new-thread target, outside-thread add, window title        |
+A **per-window project filter**, `useWindowProjectFilter()`, projects selected refs into upstream's `scopedProjectKeys`.
+It is **client-local**, with no wire change.
+It is stored per `WindowId` on desktop, per tab in `sessionStorage` on web, and as a device preference on mobile.
+A **small adapter** wraps upstream's single-select scope combobox.
+The scope **governs** palette search, the new-thread target, outside-thread add, and the window title.
 
 ### Retirement condition
 
@@ -236,16 +190,16 @@ Upstream ships per-window project filters with equivalent chooser controls.
 
 ### Need
 
-- **Need:** durable browser shortcuts
-- **Scope:** per project, per profile
+- **Durable** browser **shortcuts**
+- Scoped **per project** and **per profile**
 
 ### Shape
 
-- **Storage:** one global, per-project collections
-- **Star:** saves, moves, or removes a page
-- **New tab:** Project and Global before recents
-- **Store:** normalizes, dedupes, caps, watches
-- **Wire:** no server contract, no IPC
+- **One global** and **per-project** collections
+- **Star** saves, moves, or removes a page
+- **New tab** lists Project, Global, then recents
+- **Store** normalizes, dedupes, caps, watches
+- **No server** contract and **no IPC**
 
 ### Retirement condition
 
@@ -263,34 +217,30 @@ Upstream ships durable bookmarks in both scopes, with equivalent address-field c
 
 ### Need
 
-- **Browse:** issues on web and desktop
-- **Hand off:** one issue, window-scoped
+- **Browse issues** on web and desktop
+- **Hand off** one issue, window-scoped
 
 ### Shape
 
-- **Server:** list, detail, close, and reopen
-- **Lists:** degrade per project, keep identity
-- **Web:** routes, filters, comments, tabs
-- **Hand-off:** unsent draft from a template
-- **Palette:** Issues only, no PR twin
-- **Search:** `githubIssueSettingsSearch.ts`
+- **Server** lists, details, closes, reopens
+- **Lists degrade** per project, keep identity
+- **Web** routes, filters, comments, tabs
+- **Hand-off** opens an unsent templated draft
+- **Palette** gains Issues, with no PR twin
 
-The `github-issue-settings-search` guard rejects adding that item back into the upstream registry.
+The settings search item **stays in `githubIssueSettingsSearch.ts`**, never in the upstream registry.
 
 ### Thread links
 
-- **Links:** threads persist linked issues
-- **MCP:** agents link, unlink, and list issues
-- **Table:** `ForkSchema.ts` pass, never a migration
-- **Live:** shell refetch carries the links
-- **Detail:** no issue events, old-client safe
-- **Sync:** an older snapshot never wins
-- **Downgrade:** older servers reject link events
-- **UI:** mirrors linked pull requests, client-only
-  - `github-issue-links` right-panel tab
-  - Sidebar row and branch toolbar badges
-  - Thread-details rows and hover-card list
-  - Proactive open on a new link
+- Threads **persist** linked issues
+- Agents **link, unlink, list** over MCP
+- A **`ForkSchema.ts` pass**, never a migration
+- **Shell refetch** carries the links live
+- **No issue events** in detail; old-client safe
+- An **older snapshot** never wins
+- **Older servers reject** link events
+
+The client-only UI **mirrors linked pull requests** on each of their surfaces.
 
 ### Retirement condition
 
@@ -314,22 +264,17 @@ The `github-issue-settings-search` guard rejects adding that item back into the 
 
 ### Need
 
-- **Keep:** documents an agent writes, beside the thread
-- **Current:** edits show without a new chat message
-- **Anywhere:** any host path, scratch folders included
+- **Keep** agent-written documents by the thread
+- Edits show **without a new message**
+- **Any host path**, scratch folders included
 
 ### Shape
 
-| Aspect   | Rule                                                                                               |
-| -------- | -------------------------------------------------------------------------------------------------- |
-| Storage  | Links on the thread shell; T3 never creates or deletes the files                                   |
-| Wire     | Rides `thread.metadata-updated`; `artifacts` is omitted when empty, so stock clients see no change |
-| Commands | `thread.artifact.link` and `unlink` from clients, `observe` from the server only                   |
-| Decider  | `ThreadArtifacts.fork.ts`; observe never bumps the thread's `updatedAt`                            |
-| Watcher  | `ArtifactWatchReactor.fork.ts` watches parent directories, so rename-on-save still reports         |
-| MCP      | `link_artifact`, `unlink_artifact`, `list_thread_artifacts`, plus one runtime instruction line     |
-| Web      | Artifacts tab, badges, thread-details rows; previews reuse the file panel                          |
-| HTML     | Served raw like any workspace file; no `html_render` theme bootstrap                               |
+Links live **on the thread shell**; T3 **never creates or deletes** the files.
+They ride `thread.metadata-updated`; `artifacts` is **omitted when empty**, so stock clients see no change.
+Clients send `thread.artifact.link` and `unlink`; **only the server** sends `observe`, which never bumps the thread's `updatedAt`.
+`ArtifactWatchReactor.fork.ts` **watches parent directories**, so rename-on-save still reports.
+Previews **reuse the file panel**; HTML is **served raw**, with no `html_render` theme bootstrap.
 
 ### Retirement condition
 
@@ -350,27 +295,24 @@ A tagged upstream release links agent-written documents to threads and keeps the
 
 ### Need
 
-- **Need:** a custom agent as main thread
-- **Gap:** upstream exposes models only
+- A **custom agent** as the main thread
+- Upstream **exposes models only**
 
 ### Shape
 
-Provider model capabilities carry an `agent` select descriptor, rendered in the web composer picker and in the compact provider-options menus.
+Provider model capabilities carry an **`agent` select descriptor**, declared in the two `*AgentOptions.fork.ts`.
 
 | Provider | Inventory                       | Applied as                                     |
 | -------- | ------------------------------- | ---------------------------------------------- |
 | Claude   | Agent SDK initialization result | the `--agent` launch argument                  |
 | Codex    | `<CODEX_HOME>/agents/*.toml`    | `thread/start` or `thread/resume` config layer |
 
-- **Override:** project beats personal by name
-- **Persist:** in `modelSelection.options`
-- **Change:** restarts the provider session
-- **Descriptors:** the two `*AgentOptions.fork.ts`
-- **Panel:** one roster of child work
-- **Selection:** `AgentSpawnNavigation.ts`
+- **Project** beats personal **by name**
+- **Persists** in `modelSelection.options`
+- A **change restarts** the provider session
+- The panel shows **one roster** of child work
 
-The `provider-agent-boundary` and `agent-spawn-navigation` guards keep those declarations out of the upstream provider and timeline files.
-An unsupported provider reports child detail as unavailable instead of presenting an inert row.
+An **unsupported provider** reports child detail as unavailable, never an inert row.
 
 ### Retirement condition
 
@@ -391,22 +333,21 @@ Upstream discovers and selects provider-native main-thread agents for Claude and
 
 ### Need
 
-- **Gap:** preview and source, never rich
-- **Need:** edit rendered, save Markdown
+- Upstream has **preview and source**, never rich
+- **Edit rendered**, save Markdown
 
 ### Shape
 
-- **Modes:** Rich and Source for `.md`
-- **Rich:** lazy Milkdown, GFM, frontmatter
-- **Save:** the existing cache and shared per-file save sessions
-- **Excluded:** MDX and truncated files
-- **Raw HTML:** sanitized, `@scope`d, paint-contained
-- **Manifest:** granular `@milkdown/*` only
-- **Pin:** `richMarkdownDependencies.fork.test.ts`
+- **Rich and Source** modes for `.md`
+- **Lazy Milkdown** with GFM and frontmatter
+- **Saves** through the cache and save sessions
+- **Excludes** MDX and truncated files
+- Raw HTML **sanitized**, `@scope`d, contained
+- **Granular `@milkdown/*`** packages only
 
-The `rich-markdown-boundary` guard rejects editor imports and inline rich surfaces in `FilePreviewPanel`.
-`@milkdown/react` depends on `@milkdown/crepe`, which drags a Vue runtime and CodeMirror into a React-only app.
-During historical repair, derive the lockfile from the accepted manifests with `vp i`.
+`richMarkdownDependencies.fork.test.ts` **pins the manifest**; never `@milkdown/react`, which pulls `@milkdown/crepe`, a Vue runtime, and CodeMirror.
+Editor imports and inline rich surfaces **stay out of `FilePreviewPanel`**.
+In a historical repair, **derive the lockfile** from the accepted manifests with `vp i`.
 
 ### Retirement condition
 
@@ -426,23 +367,17 @@ Upstream ships rich Markdown editing with safe frontmatter and MDX boundaries, o
 
 ### Need
 
-- **Holds:** fork docs, conventions, tooling
-- **Why:** keeps meta out of a domain
+- **Fork docs**, conventions, and tooling
+- Keeps **meta out of** a domain
 
 ### Shape
 
-| Item                                                                                              | Role                                                                       |
-| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                                          |
-| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                                         |
-| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork tooling; hand-run ones get an alias                               |
-| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | The sync driver's run and unblock procedure                                |
-| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The sync workflow and its fork-local issue upserts                         |
-| `.github/workflows/hyprws-sync-resolution.yml`                                                    | On a push to `sync/resolution`, dispatches the trunk's sync                |
-| `.github/pull_request_template.md` trailer block                                                  | Points to `FORK_DOMAINS` for the domain list                               |
-| `.rsi-agent/workflows/*.md`                                                                       | rsi-pr-agent copies of `.macroscope/check-run-agents/`, source SHA in each |
-
-Every fork workflow checkout that runs rebased code scrubs its persisted credential first; `hyprws-upstream-sync.yml`'s scrub step is the pattern.
+It owns the **fork sections** of `README.md`, `AGENTS.md`, and `docs/README.md`, plus this document, [Fork development](./fork-development.md), and [Fork sync](../operations/fork-sync.md).
+It owns `scripts/fork-*.ts`; each **hand-run one gets** a `fork:*` alias.
+It owns the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill and the `hyprws-upstream-sync.yml` and `hyprws-sync-resolution.yml` workflows.
+The PR template's trailer block **points to `FORK_DOMAINS`** for the domain list.
+`.rsi-agent/workflows/*.md` are rsi-pr-agent **copies** of `.macroscope/check-run-agents/`, each **naming its source SHA**.
+Every fork workflow checkout that runs rebased code **scrubs its persisted credential** first, as `hyprws-upstream-sync.yml` does.
 
 ### Retirement condition
 
@@ -466,54 +401,54 @@ Retired with the fork.
 
 ### Need
 
-- **Client:** a headless native client needs a token
-- **Gap:** upstream hands tokens out by copy-paste
-- **Rule:** the token never passes through a person
+- A **headless native client** needs a token
+- Upstream hands tokens out **by copy-paste**
+- The token **never passes through a person**
 
 ### Shape
 
-An RFC 8628-style device grant, approved by the owner on the host.
+An **RFC 8628-style device grant**, approved by the owner on the host:
 
-1. Client: `POST /oauth/device_authorization`, optional DPoP proof
-2. Owner: `t3 auth device list`, then `approve <user-code>`
-3. Client: polls `POST /oauth/device_token`, receives the token
+1. Client **requests** a grant, optionally DPoP
+2. Owner **approves** with `t3 auth device`
+3. Client **polls** for the token
 
-| Aspect      | Rule                                                                     |
-| ----------- | ------------------------------------------------------------------------ |
-| Approval    | Host CLI only; no HTTP route can approve                                 |
-| Storage     | `auth_device_authorizations` through `ForkSchema.ts`                     |
-| Device code | Stored as a SHA-256 digest; single use                                   |
-| Key         | A DPoP start binds the request and the session to that key               |
-| Scopes      | Requested, else standard; owner `--scope` narrows only                   |
-| Browsers    | Refused: CORS answers every origin, and no credential gates these routes |
-| Lifetime    | `--ttl`, default 30 days; renewal is a new grant                         |
-| Revocation  | The issued session, through `t3 auth session revoke`                     |
-| Abuse cap   | 20 open requests; 10-minute expiry                                       |
+The client uses `POST /oauth/device_authorization`, then `POST /oauth/device_token`; the owner runs `t3 auth device list`, then `approve <user-code>`.
+**Only the host CLI approves**; no HTTP route can.
+Grants live in `auth_device_authorizations` through **`ForkSchema.ts`**.
+The device code is **stored as a SHA-256 digest** and is single use.
+A **DPoP start binds** the request and the session to that key.
+Scopes are the **requested ones, else standard**; owner `--scope` only narrows.
+**Browsers are refused**: CORS answers every origin, and no credential gates these routes.
+`--ttl` sets the session lifetime; **renewal is a new grant**.
+Revoke the **issued session** with `t3 auth session revoke`.
+Open requests are **capped and expire**.
 
 ### External MCP clients
 
-`approve --mcp-project <id>` or `--mcp-all-projects` grants an MCP policy instead of scopes.
-The client then calls `/api/mcp/external`, a second MCP server with its own `t3_external_*` catalog.
+`approve --mcp-project <id>` or `--mcp-all-projects` grants an **MCP policy instead of scopes**.
+The client calls `/api/mcp/external`, a **second MCP server** with its own `t3_external_*` catalog.
 
-| Aspect      | Rule                                                                                                    |
-| ----------- | ------------------------------------------------------------------------------------------------------- |
-| Credential  | DPoP device session only; scopes `[]`, so scope-checked routes and RPCs refuse it                       |
-| WebSocket   | `/api/auth/websocket-ticket` needs only authentication; each socket RPC refuses it                      |
-| Policy      | `auth_external_mcp_grants`, keyed by session                                                            |
-| Reads       | Projects, threads, timelines, waits in granted projects                                                 |
-| Work        | Reads add `work`: background work and native subagent turns that run status misses; `/mcp` reads too    |
-| Work wait   | `until=work` waits for that work on both servers; a pinned `runId` wait keeps its run outcome           |
-| Mutations   | Create, send, interrupt, settle/unsettle, answer; `--mcp-coordinate` only                               |
-| Requests    | Pending questions and approvals by request ID; approvals stay owner-only                                |
-| Ceilings    | Runtime and interaction modes; defaults `approval-required` and `plan`                                  |
-| Retries     | `auth_external_mcp_requests` binds each key to its request and result                                   |
-| Lost result | Replays the delivered message, pinned interrupt, or original settlement event                           |
-| Steering    | A capped grant joins or live-answers only an attempt it vetted; message answers queue                   |
-| Dispatch    | Refuses a capped send, create prompt, or message answer once its vetted attempt or thread modes changed |
-| Boundary    | Ceilings hold at dispatch commit; later owner mode changes govern later turns                           |
-| Failures    | MCP `isError: true`, text led by the failure code; upstream's read-only refusal keeps its own text      |
-| Provenance  | `createdBy: agent`, `creationSource: mcp`, plus an audit log line                                       |
-| Isolation   | Built in one `Layer.fresh`, so `/mcp` never lists these tools                                           |
+- **DPoP device session** only, with scopes `[]`
+- Scope-checked **routes and RPCs refuse** it
+- Each **socket RPC refuses** it
+- Policy in **`auth_external_mcp_grants`**, per session
+
+`/api/auth/websocket-ticket` needs only authentication, so the session can still open a socket.
+Reads **cover granted projects**: projects, threads, timelines, and waits.
+Reads add **`work`**: background work and native subagent turns that run status misses; `/mcp` reads include it too.
+`until=work` **waits for that work** on both servers; a pinned `runId` wait keeps its run outcome.
+**Mutations** are create, send, interrupt, settle/unsettle, and answer, behind `--mcp-coordinate` only.
+Pending questions and approvals are addressed **by request ID**; **approvals stay owner-only**.
+Grants carry **runtime and interaction mode ceilings**, defaulting to `approval-required` and `plan`.
+`auth_external_mcp_requests` **binds each retry key** to its request and result.
+A **lost result replays** the delivered message, pinned interrupt, or original settlement event.
+A capped grant **joins or live-answers only an attempt it vetted**; message answers queue.
+Dispatch **refuses a capped send**, create prompt, or message answer once its vetted attempt or thread modes changed.
+Ceilings **hold at dispatch commit**; later owner mode changes govern later turns.
+Failures return MCP **`isError: true`**, text led by the failure code; upstream's read-only refusal keeps its own text.
+Provenance is **`createdBy: agent`**, `creationSource: mcp`, plus an audit log line.
+The server is built in **one `Layer.fresh`**, so `/mcp` never lists these tools.
 
 ### Retirement condition
 
@@ -540,27 +475,29 @@ When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#1522
 
 ### Need
 
-- **Releases:** upstream ships upstream code
-- **Need:** a fork build and update feed
-- **Runners:** the fork lacks upstream's
+- Upstream **releases ship upstream code**
+- A **fork build** and update feed
+- The fork **lacks upstream's runners**
 
 ### Shape
 
-| Item                                                | Role                                                             |
-| --------------------------------------------------- | ---------------------------------------------------------------- |
-| `.github/workflows/hyprws-ci.yml`                   | Checks, tests, trailer check, desktop build                      |
-| `.github/workflows/hyprws-body.yml`                 | Advisory body checks: citations, squash trailers                 |
-| `.github/workflows/hyprws-release.yml`              | Human-cut stable releases plus a prerelease per `hyprws` landing |
-| `.github/workflows/hyprws-agent-context-budget.yml` | Upstream's budget check, compared against the PR base            |
-| `scripts/fork-release-version.ts`                   | Resolves channel metadata and the previous tag in that channel   |
-| `scripts/build-desktop-artifact.ts`                 | Derives the update feed from `GITHUB_REPOSITORY`                 |
-| `apps/desktop/src/updates/updateChannels.fork.ts`   | Maps a nightly tag to the `hyprws-nightly` updater channel       |
+```text
+.github/workflows/
+├── hyprws-ci.yml                     checks, tests, trailers, desktop build
+├── hyprws-body.yml                   advisory citation and squash-trailer checks
+├── hyprws-release.yml                stable and per-landing prerelease builds
+└── hyprws-agent-context-budget.yml   upstream's budget check against the PR base
+scripts/
+├── fork-release-version.ts           channel metadata and previous tag
+└── build-desktop-artifact.ts         update feed from GITHUB_REPOSITORY
+apps/desktop/src/updates/
+└── updateChannels.fork.ts            nightly tag to the hyprws-nightly channel
+```
 
-Stable tags are `vX.Y.Z-hyprws.N`; nightlies are `vX.Y.Z-hyprws-nightly.YYYYMMDD.N`, with a six-hour changed-head check as fallback.
-`hyprws-release.yml` omits upstream's `concurrency.queue: max`, because one pending slot supersedes builds the newest commit already contains.
-It drops upstream's release test jobs: the gate already requires a green `hyprws CI` push run on the release commit.
-Upstream workflows stay in the tree untouched and disabled, because editing or deleting them is a standing rebase conflict.
-[Fork sync](../operations/fork-sync.md) owns the disable step.
+Stable tags are **`vX.Y.Z-hyprws.N`**; nightlies are **`vX.Y.Z-hyprws-nightly.YYYYMMDD.N`**.
+A six-hourly **changed-head check** backs up the per-landing nightly.
+`hyprws-release.yml` **omits** upstream's `concurrency.queue: max` and its **release test jobs**; its gate requires a green `hyprws CI` push run on the release commit.
+Upstream workflows stay in the tree **untouched and disabled**; [Fork sync](../operations/fork-sync.md) owns the disable step.
 
 ### Retirement condition
 
@@ -579,24 +516,20 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 ## backend-attach
 
 Retired: run a `t3 service` and turn the desktop's **Local environment** off.
-The revert sits on top of the domain's commits; a fold drops them together.
+The revert sits **on top of the domain's commits**; a fold drops them together.
 
 ## workspace-files
 
 ### Need
 
-- **Artifacts:** in ignored or shared scratch
-- **Rule:** hidden by default, revealed on demand
+- Artifacts in **ignored or shared scratch**
+- **Hidden by default**, revealed on demand
 
 ### Shape
 
-| Aspect      | Rule                                                                                                       |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| Preference  | A client-local preference includes gitignored paths on demand                                              |
-| Surfaces    | The file-tree toolbar and General settings expose the same preference                                      |
-| Mobile      | `ignoredWorkspaceFileListing.ts` keeps device state and reveal/reset policy behind one fork-owned boundary |
-| Guard       | `mobile-ignored-file-listing` rejects inline preference or request policy in the two mobile surfaces       |
-| Containment | Listing ignored paths never changes ignore rules or weakens file-read containment                          |
+A **client-local preference** includes gitignored paths on demand, exposed in the file-tree toolbar and General settings.
+On mobile, `ignoredWorkspaceFileListing.ts` keeps device state and reveal/reset policy **behind one fork-owned boundary**, never inline in the surfaces.
+Listing ignored paths **never changes ignore rules** or weakens file-read containment.
 
 ### Retirement condition
 
@@ -618,28 +551,19 @@ Upstream reveals ignored workspace paths on demand and safely reads explicitly t
 
 ### Need
 
-- **Groups:** related active threads together
-- **Return:** back to automatic order
-- **Gap:** `activeOrderKey` has no groups
+- **Group** related active threads
+- **Return** to automatic order
+- Upstream's `activeOrderKey` **has no groups**
 
 ### Shape
 
-| Aspect       | Rule                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| Grouping     | Sortable-tree depth: a sideways step nests under the row above, joining its group or starting one                               |
-| Storage      | Each environment's `fork_thread_groups` table, served by `ThreadGroupsServiceFork`; clients follow `threadGroups.subscribeFork` |
-| Client state | Collapsed state stays per client; pre-server local groups import once per environment                                           |
-| Removal      | A member stepped back to depth 0 leaves, and a one-member group dissolves                                                       |
-| Parent drop  | Depth 0 directly under a header makes that row the parent; stepping the parent right demotes it                                 |
-| Collapsed    | The header replaces the anchor row; with a parent, the parent stays and the title tab shows each child's status                 |
-| Names        | Server thread-title generation names groups; headers rename inline and dissolve                                                 |
-| Scope        | Active, unpinned threads of one environment, from any project                                                                   |
-| Agents       | `t3_thread_group_list` and `t3_thread_group_update`; launches join the caller's group unless `group` says otherwise             |
-| Clients      | Only servers advertising `threadGroupsFork` show groups; upstream clients never call the fork RPCs                              |
-| Parent       | An optional member renders flush under the header, the rest one indent deeper; visual only                                      |
-| Order marker | A marker below the project filter returns to automatic order; unbuilt (RSI-Software/t3code-hyprws#907)                          |
-
-The fork's own manual ordering retired at `v0.0.41-nightly.20260908.1414`; what remains is grouping plus the order-mode control.
+Grouping uses **sortable-tree depth**; a group may have **one parent row**, which is visual only.
+Each environment's `fork_thread_groups` table is **served by `ThreadGroupsServiceFork`**; clients follow `threadGroups.subscribeFork`.
+**Collapsed state stays per client**; pre-server local groups import once per environment.
+Server thread-title generation **names groups**; a one-member group **dissolves**.
+Scope is **active, unpinned threads** of one environment, from any project.
+Agents use **`t3_thread_group_list` and `t3_thread_group_update`**; launches join the caller's group unless `group` says otherwise.
+Only servers **advertising `threadGroupsFork`** show groups; upstream clients never call the fork RPCs.
 
 ### Retirement condition
 
@@ -661,22 +585,17 @@ Upstream ships named, server-side thread groups that agents can read and edit, p
 
 ### Need
 
-- **Fork:** a thread continues as a copy
-- **Same:** provider instance and native session
+- A thread **continues as a copy**
+- Same **provider instance and native session**
 
 ### Shape
 
 **Fork thread** in the sidebar and header menus dispatches V2 `thread.fork` from `latest_stable`, then navigates to the child.
-Upstream forks only from an assistant message; the fork adds the thread-level entry.
-
-| Aspect    | Rule                                                                                      |
-| --------- | ----------------------------------------------------------------------------------------- |
-| Native    | The orchestrator picks native or portable fork (`CommandPolicy.ts` `decideForkExecution`) |
-| Providers | Any configured provider with a finished run                                               |
-| Busy      | Disabled while running, waiting, or holding a pending request or queued turn              |
-| Title     | `X (fork)`; forking a fork does not stack the suffix                                      |
-
-Tracked by RSI-Software/t3code-hyprws#1310.
+Upstream forks **only from an assistant message**; the fork adds the thread-level entry.
+`decideForkExecution` in `CommandPolicy.ts` **picks native or portable** fork.
+It works for **any configured provider** with a finished run.
+It is **disabled while busy**: running, waiting, or holding a pending request or queued turn.
+The child is titled **`X (fork)`**; forking a fork does not stack the suffix.
 
 ### Retirement condition
 
@@ -694,30 +613,29 @@ A tagged upstream release ships a thread-level fork entry in the thread menu.
 
 ### Need
 
-- **Scope:** fixes belonging to no domain
-- **Place:** stack bottom, each drops alone
-- **Exit:** upstream fixes it, the commit goes
+- Fixes **belonging to no domain**
+- At the **stack bottom**, each drops alone
+- Upstream fixes it, **the commit goes**
 
 ### Shape
 
-| Aspect  | Rule                                                                              |
-| ------- | --------------------------------------------------------------------------------- |
-| Commit  | One upstream-native commit per fix, `Fork-Tier: bugfix`, `Fork-Upstreamable: yes` |
-| Lane    | Created from `upstream/main`, so the fix carries no fork dependency               |
-| Helpers | None shared across fixes; each must drop alone                                    |
+- **One upstream-native commit** per fix
+- Tagged **`bugfix`**, `Fork-Upstreamable: yes`
+- **Branched from `upstream/main`**, no fork deps
+- **No helpers** shared across fixes
 
 ### Terminal focus contract
 
-Three commits share one behavior contract while each still drops alone, so a rebase that drops one re-checks the other two.
+Three commits **share one behavior contract** while each still drops alone, so a rebase that drops one **re-checks the other two**:
 
-| Aspect         | Contract                                                                                  |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| Keys           | Jump, previous/next, and palette keys switch threads from a focused terminal; others stay |
-| Navigation     | Thread navigation always lands in the composer                                            |
-| Terminal focus | Taken only on explicit request; returning and closing both land in the composer           |
-| Focus ring     | The focused pane shows a static ring, never an animation                                  |
+- **Jump, previous/next, palette** keys leave a terminal
+- Other keys **stay in the terminal**
+- Thread navigation **lands in the composer**
+- Terminal focus **only on explicit request**
+- **Return and close** land in the composer
+- The focused pane shows a **static ring**
 
-Proof: `apps/web/src/components/ThreadTerminalDrawer.test.ts`, `ChatView.logic.test.ts`, and a Chrome pass on each landing.
+Proof is `apps/web/src/components/ThreadTerminalDrawer.test.ts`, `ChatView.logic.test.ts`, and a **Chrome pass** on each landing.
 
 ### Retirement condition
 
@@ -737,36 +655,38 @@ The domain retires when it is empty.
 
 ### Need
 
-- **Estate:** terminal and worktree in zmux
-- **Gap:** upstream owns no session manager
+- Terminal and worktree **in zmux**
+- Upstream owns **no session manager**
 
 ### Shape
 
-| Aspect    | Rule                                                                                                 |
-| --------- | ---------------------------------------------------------------------------------------------------- |
-| Switch    | `terminalSessionMode` is the default launch; a terminal's `sessionModeFork` overrides it             |
-| Automatic | `zmuxAutoSessions` (null follows the launch mode) gates worktree adoption and unsettle restore       |
-| Ownership | The physical checkout owns its managed session; threads are consumers                                |
-| Cleanup   | T3 snapshots a session identity and hands it back for conditional removal                            |
-| Teardown  | Settle/delete kills the checkout session and every tab; viewers and busy commands do not preserve it |
-| Restore   | `thread.unsettled` re-ensures a linked worktree's session through the automatic gate                 |
-| Fallback  | Each plain-shell fallback prints its reason; a missing binary degrades silently                      |
-| Legacy    | `zmuxSessions` folds into `terminalSessionMode` on load                                              |
-| Binder    | `apps/server/src/zmux/`, called through `ProcessRunner` with tmux variables stripped                 |
+`terminalSessionMode` is the **default launch**; a terminal's `sessionModeFork` overrides it.
+`zmuxAutoSessions` (null follows the launch mode) **gates worktree adoption** and unsettle restore.
+The **physical checkout owns** its managed session; threads are consumers.
+T3 **snapshots a session identity** and hands it back for conditional removal.
+Settle or delete **kills the checkout session** and every tab; viewers and busy commands do not preserve it.
+`thread.unsettled` **re-ensures** a linked worktree's session through the automatic gate.
+Each plain-shell fallback **prints its reason**; a missing binary degrades silently.
+Legacy `zmuxSessions` **folds into `terminalSessionMode`** on load.
+The binder, `apps/server/src/zmux/`, runs **through `ProcessRunner`** with tmux variables stripped.
 
-**Demand leases.** Visible terminal surfaces hold them: web on document visibility, Electron on each shown, non-minimized window, deliberately excluding focus.
-Electron cannot observe Hyprland workspace occlusion, so a shown window on an inactive workspace still holds demand.
-Client streams release immediately, then a server-owned grace timer detaches only the `zmux open` PTY.
-Resume re-resolves the thread's persisted checkout, so renames follow the verified target.
+### Demand leases
 
-**Checkout moves.** A thread moves between existing checkouts through a durable requested and effective transition, queued behind active turns and serialized by ordered checkout leases.
-A move relocates a provider only when that thread already has a live runtime; a dormant thread moves metadata and records a null effective checkout.
-Partial failures retain provider availability and the observed effective checkout.
-A turn start on a thread whose worktree is gone runs a recovery move to the project root inline, bypassing only that thread's own pending turn.
-Terminal follow and pin stay client-owned, and move state carries no attachment identities.
+**Visible terminal surfaces** hold demand: web on document visibility, Electron on each shown, non-minimized window, **never on focus**.
+Electron **cannot see Hyprland workspace occlusion**, so a shown window on an inactive workspace still holds demand.
+Client streams **release immediately**; a server-owned grace timer then detaches only the `zmux open` PTY.
+Resume **re-resolves the persisted checkout**, so renames follow the verified target.
 
-**Persistence.** Checkout move state rides on the V2 thread payload through `thread.metadata.update`, so it needs no fork column; `apps/server/src/persistence/ForkSchema.ts` only clears the stale migration record a V1 build left behind.
-Managed suspension stays internal, and released clients decode it through the optional `attachmentStatus` sibling.
+### Checkout moves
+
+A thread moves between existing checkouts through a **durable requested and effective transition**, queued behind active turns and serialized by ordered checkout leases.
+A move **relocates a provider only** when that thread has a live runtime; a dormant thread moves metadata and records a null effective checkout.
+**Partial failures retain** provider availability and the observed effective checkout.
+A turn start on a thread whose **worktree is gone** runs a recovery move to the project root inline, bypassing only that thread's own pending turn.
+Terminal follow and pin **stay client-owned**; move state carries no attachment identities.
+Move state **rides the V2 thread payload** through `thread.metadata.update`, so it needs no fork column.
+`ForkSchema.ts` only **clears the stale migration record** a V1 build left behind.
+Managed suspension **stays internal**; released clients decode it through the optional `attachmentStatus` sibling.
 
 ### Retirement condition
 
@@ -789,28 +709,24 @@ Upstream terminals attach to an operator-chosen external session manager, and wo
 
 ### Need
 
-- **Parity:** with `wt switch --create`
-- **Hooks:** `.config/wt.toml` on create and remove
-- **Gap:** upstream calls Git directly
+- **Parity** with `wt switch --create`
+- `.config/wt.toml` hooks on **create and remove**
+- Upstream **calls Git directly**
 
 ### Shape
 
-| Aspect          | Rule                                                                                                 |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| Mode            | `ThreadEnvMode` gains `worktrunk`, labelled "New worktrunk"; upstream's `worktree` is untouched      |
-| Wire            | `worktrunk` never crosses the wire; an optional `defaultThreadEnvModeFork` sibling carries it        |
-| Storage         | Events, projection, and `t3.json` keep the wide mode; `settings.json` migrates on read               |
-| Marker          | The first turn drops a `t3-worktrunk` marker in the worktree gitdir                                  |
-| Hooks           | `pre-start` and `post-start` run before the setup script; `post-remove` runs in the primary checkout |
-| Marker lifetime | `git worktree remove` deletes it, so no thread or project state records the mode                     |
-| Hook execution  | Headless through `wt hook <type> --yes`; a failed create hook lands as error activity                |
-| Gating          | `.config/wt.toml` and `wt` on PATH; without either the mode degrades to `worktree`                   |
-| Unsupported     | Pull-request threads, and mobile, which maps a `worktrunk` default to a worktree                     |
-| Paths           | Worktree paths stay T3 Code's; the fork never delegates to `wt switch` or `wt remove`                |
-| Runner          | `apps/server/src/worktrunk/`, called through `ProcessRunner` with tmux variables stripped            |
-| Persistence     | No column. A future one needs the idempotent `ForkSchema.ts` pattern                                 |
-
-Local VCS status reports `worktrunk: true` while the marker exists, which is how a started thread's composer reads "Worktrunk".
+`ThreadEnvMode` **gains `worktrunk`**, labelled "New worktrunk"; upstream's `worktree` is untouched.
+`worktrunk` **never crosses the wire**; an optional `defaultThreadEnvModeFork` sibling carries it.
+Events, projection, and `t3.json` **keep the wide mode**; `settings.json` migrates on read.
+The first turn **drops a `t3-worktrunk` marker** in the worktree gitdir; `git worktree remove` deletes it, so no thread or project state records the mode.
+Local VCS status **reports `worktrunk: true`** while the marker exists, which the started thread's composer reads.
+`pre-start` and `post-start` run **before the setup script**; `post-remove` runs in the primary checkout.
+Hooks run **headless** through `wt hook <type> --yes`; a failed create hook lands as error activity.
+The mode **needs `.config/wt.toml` and `wt` on PATH**; without either it degrades to `worktree`.
+Pull-request threads and mobile are **unsupported**; mobile maps a `worktrunk` default to a worktree.
+Worktree **paths stay T3 Code's**; the fork never delegates to `wt switch` or `wt remove`.
+The runner, `apps/server/src/worktrunk/`, runs **through `ProcessRunner`** with tmux variables stripped.
+It has **no column**; a future one uses the idempotent `ForkSchema.ts` pattern.
 
 ### Retirement condition
 
@@ -831,28 +747,22 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 
 ### Need
 
-- **Need:** one delegated child across rounds
-- **Rounds:** brief, findings, reply, ruling
-- **Context:** the child keeps its own
-- **Tracking:** RSI-Software/t3code-hyprws#1652
+- **One delegated child** across rounds
+- Rounds: **brief, findings, reply, ruling**
+- The child **keeps its own context**
 
 ### Shape
 
-| Piece    | Behavior                                                     |
-| -------- | ------------------------------------------------------------ |
-| Continue | `delegate_task` with `continueTaskId`                        |
-| Wire     | optional `continueTaskId` on `delegated_task.request`        |
-| Reopen   | same `taskId`, current parent run, delivery reset to pending |
-| Result   | one `subagent_result` per child run while the task runs      |
-| Wake     | each round opens on the current parent run's cohort          |
-| Status   | `task_status` reads the current round's transfer             |
-| Cancel   | upstream `task_cancel` interrupts the active round           |
-| Release  | archive the child thread; unarchive retains it again         |
-| Refusals | busy task or child, released child, foreign task             |
-| Policy   | one instruction bullet; tool descriptions stay upstream      |
-
-Later rounds leave the original timeline node and turn item as round 1 left them.
-A round whose child run ends before it starts still counts as that round's result.
+`delegate_task` with **`continueTaskId`** continues a task; the wire carries it as an optional field on `delegated_task.request`.
+Reopening keeps the **same `taskId`** on the current parent run, with delivery reset to pending.
+Each child run yields **one `subagent_result`** while the task runs.
+Each round **opens on the current parent run's cohort**.
+`task_status` reads **the current round's** transfer; upstream `task_cancel` interrupts the active round.
+**Archiving the child releases** it; unarchiving retains it again.
+It **refuses** a busy task or child, a released child, and a foreign task.
+Policy is **one instruction bullet**; tool descriptions stay upstream.
+Later rounds **leave the original timeline node** and turn item as round 1 left them.
+A round whose child run ends before it starts **still counts as that round's result**.
 
 ### Retirement condition
 
@@ -871,21 +781,19 @@ Retention and release stay fork scope until upstream keeps one task across round
 
 ### Need
 
-- **Dictation:** client audio to editable text
-- **Cleanup:** editable prompts, separate model
-- **Engines:** external HTTP services
+- Client audio to **editable text**
+- **Cleanup** prompts on a separate model
+- **External HTTP** engines
 
 ### Shape
 
-Fork-owned contracts, services, adapters, and web/desktop controls.
-Marked imports and mounts are the only upstream seams.
-Settings and API keys use the server secret store; audio is never persisted by T3.
-Cleanup and formatting reuse text generation runners; automatic processing follows transcription completion only.
-One base URL per service derives both paths: Meta's ASR wire, or OpenAI's multipart transcription and Realtime for everything else.
-Live preview relays one PCM capture through a shared server core with per-wire adapters: Meta's realtime socket, or OpenAI Realtime transcription for everything else.
-The same capture builds the WAV, so a failed stream falls back to batch upload.
-Project speech terms resolve on the server from the request's project and go out only as the standard `prompt`; the server applies spelling rules itself, so any OpenAI-compatible service works.
-Mobile remains upstream-owned.
+**Fork-owned** contracts, services, adapters, and web and desktop controls; **marked imports and mounts** are the only upstream seams.
+Settings and API keys use the **server secret store**; T3 **never persists audio**.
+Cleanup and formatting **reuse text generation runners**; automatic processing follows transcription completion only.
+One **base URL per service** derives both paths: Meta's ASR wire, or OpenAI's multipart transcription and Realtime for everything else.
+Live preview **relays one PCM capture** over the same two wires; that capture also builds the WAV, so a **failed stream falls back** to batch upload.
+Project speech terms **resolve on the server** and go out only as the standard `prompt`; the server applies spelling rules itself, so any OpenAI-compatible service works.
+**Mobile stays upstream-owned.**
 
 ### Retirement condition
 
@@ -920,29 +828,27 @@ Upstream desktop dictation supports configurable external transcription services
 
 ### Need
 
-- **Share:** one thread with a collaborator's own app
-- **Own server:** no T3 Connect; a pairing link
-- **Live:** shares and stops reach their sidebar
-- **Attributed:** the agent sees who wrote each message
-- **Approval:** per share, the host sends each message
+- **Share one thread** with a collaborator's app
+- **Own server** via a pairing link, no T3 Connect
+- Shares and stops **reach their sidebar live**
+- The agent sees **who wrote each message**
+- Per share, **the host can approve** each message
 
 ### Shape
 
-| Aspect  | Rule                                                                                               |
-| ------- | -------------------------------------------------------------------------------------------------- |
-| Pairing | A pairing link for subject `colleague:<slug>`, with only the orchestration read and operate scopes |
-| Names   | Code says collaborator; the subject prefix, tables, and this domain id keep `colleague`            |
-| Storage | `fork_colleague_shares`, one row per subject and thread, with its `access`                         |
-| Socket  | `CollaboratorSharesFork.wrapHandlers` narrows dispatch, shell, and thread subscriptions in `ws.ts` |
-| Access  | Shell items carry `collaboratorFork`: `send`, `approve`, or `frozen`                               |
-| Queue   | `approve` refuses dispatch; messages wait in `fork_collaborator_messages` until the host sends     |
-| Scope   | `send` dispatches conversation commands only; managing the thread stays the host's                 |
-| Author  | The server alone sets `context.collaboratorFork`; the agent text names the collaborator            |
-| Stop    | Unsharing re-snapshots the shell, drops waiting messages, and pauses an open thread stream         |
-| HTTP    | Collaborator subjects are refused the unfiltered HTTP shell snapshot                               |
-| Guard   | `guardRpc` allows a closed RPC set; thread reads and asset URLs only for live shares               |
-| Address | Behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is recorded                       |
-| Link    | The thread id rides the pairing URL query, which pairing ignores; the desktop opens it once paired |
+Code says **collaborator**; the subject prefix, tables, and this domain id **keep `colleague`**.
+A pairing link for subject **`colleague:<slug>`** carries only the orchestration read and operate scopes.
+`fork_colleague_shares` holds **one row per subject and thread**, with its `access`.
+`CollaboratorSharesFork.wrapHandlers` **narrows dispatch**, shell, and thread subscriptions in `ws.ts`.
+Shell items carry **`collaboratorFork`**: `send`, `approve`, or `frozen`.
+`approve` **refuses dispatch**; messages wait in `fork_collaborator_messages` until the host sends.
+`send` dispatches **conversation commands only**; managing the thread stays the host's.
+**Only the server sets** `context.collaboratorFork`; the agent text names the collaborator.
+Unsharing **re-snapshots the shell**, drops waiting messages, and pauses an open thread stream.
+Collaborator subjects are **refused the unfiltered HTTP** shell snapshot.
+`guardRpc` **allows a closed RPC set**; thread reads and asset URLs only for live shares.
+Behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is **recorded as the address**.
+The thread id **rides the pairing URL query**, which pairing ignores; the desktop opens it once paired.
 
 ### Retirement condition
 
@@ -972,13 +878,12 @@ A tagged upstream release shares a single thread with another person's client an
 
 ## Adding a domain
 
-A new domain needs a section with the same four headings, a row in the domain index, and a name to carry as `Fork-Domain`.
+A new domain needs a section with the **same four headings**, a **domain index row**, and a **`FORK_DOMAINS` entry** to carry as `Fork-Domain`.
+Answer:
 
-| #   | Question                                                |
-| --- | ------------------------------------------------------- |
-| 1   | What does upstream not do, stated as behavior?          |
-| 2   | What would upstream ship for this domain to be deleted? |
-| 3   | Which upstream paths does it touch?                     |
+1. What does **upstream not do**, as behavior?
+2. What would upstream **ship to delete it**?
+3. Which **upstream paths** does it touch?
 
-If the third answer is "many files across unrelated systems", it is probably a bugfix under `upstream-fixes`.
-Keep its new code in its own files, and follow [Extracting a domain](./fork-development.md#extracting-a-domain).
+If the third answer is "many files across unrelated systems", it is **probably a bugfix** under `upstream-fixes`.
+Keep its new code **in its own files**, and follow [Extracting a domain](./fork-development.md#extracting-a-domain).

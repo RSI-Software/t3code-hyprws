@@ -1,39 +1,22 @@
 # Thread artifacts
 
-Agents link the documents they write to the thread: HTML visualizations, plans, trackers, notes.
-A linked file stays one click away and shows each edit without a new chat message.
+Agents link the files they write to the thread, such as HTML visualizations, plans, and notes.
+A linked file stays **one click away** and its open preview **reloads on each edit**.
 
 ## Find them
 
-- **Badge:** sidebar row and branch toolbar
-- **Hover:** the badge lists each artifact
-- **Thread details:** one row per artifact
-- **Artifacts tab:** right panel, **+ → Artifacts**
-
-Opening an artifact shows it in the file panel.
-The open preview reloads when the file changes.
+- **Badge** on the sidebar row and branch toolbar
+- **Thread details**, one row per artifact
+- **Artifacts tab** under **+** in the right panel
 
 ## Link and unlink
 
-Agents call `link_artifact` after writing a file.
-Any local path on the host works, inside or outside the project, such as a scratch folder.
-Network share paths are refused.
+Ask the agent to **link a file**; any local path on the host works, but **not network shares**.
+To unlink, use **Unlink from thread** in the row's menu on the Artifacts tab.
 
-To unlink, open the Artifacts tab, then the row's menu, then **Unlink from thread**.
-Unlinking never touches the file.
-
-## Files stay yours
-
-T3 Code never creates, moves, or deletes artifact files.
-
-- **File gone:** the row shows **Missing**
-- **Restored file:** the row clears itself
-- **Deleted thread:** only its links go
-
-Whoever wrote a file cleans it up.
+T3 Code **never creates, moves, or deletes** artifact files: a deleted file shows as **Missing**, and deleting a thread removes only its links.
 
 ## HTML artifacts
 
-HTML artifacts render like any HTML file in the file panel.
-Unlike chat HTML renders, they get no T3 Code theme variables.
+HTML artifacts get **no T3 Code theme variables**, unlike chat HTML renders.
 Give each file its own CSS, with fallbacks such as `var(--foreground, #171717)`.

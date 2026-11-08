@@ -2,26 +2,32 @@
 
 > Runbook for `RSI-Software/t3code-hyprws`. Using T3 Code? See [docs/user](../user/).
 
-`hyprws upstream sync` is the normal operator; a maintainer intervenes only to resolve a block or cut a release by hand.
-Discipline lives in [Fork development](../internals/fork-development.md); the procedure lives in the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill.
+The `hyprws upstream sync` workflow is the **normal operator**; a maintainer steps in only to **unblock a run** or **cut a release**.
+This runbook owns the **driver, its report, and the land run**.
+The [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill owns the **session procedure**: target, start order, resolving, tip work, hand-off.
+[Fork development](../internals/fork-development.md) owns stack discipline.
 
 ## Model
 
-`hyprws` is the single fork trunk.
-The sync driver runs one upstream release tag end to end: one run, one exit code, one report.
+`hyprws` is the **single fork trunk**; `scripts/fork-sync.ts` runs **one upstream release tag** per run, with one exit code and one report.
 
-- **Session:** `fork:sync [<tag>]`; rebases only
-- **Land:** `fork:sync --land`; the workflow only
+- `fork:sync [<tag>]`: a **session**; rebases only
+- `fork:sync --land`: the **land run**; workflow only
 
-A session writes no trunk, candidate, or issue.
-`--land` refuses to run unless `GITHUB_ACTIONS=true`.
+A session **writes no trunk**, candidate, or issue; `--land` **refuses to run** unless `GITHUB_ACTIONS=true`.
+The **lease** is the `origin/hyprws` sha the stack replays; the trunk push is **`--force-with-lease=hyprws:<lease>`**.
 
-It never merges upstream in, nor drops a commit; only a `fixup!` moves, beneath its owner.
-Without a named tag it targets a valid [marker](#resolution-marker)'s tag the trunk lacks while the marker is under 24 hours old, else the newest stable or nightly tag; `-preview.` tags are skipped on purpose.
-It folds each `fixup! <subject>` landing into the one fork commit it names, a squash landing's trailing ` (#N)` included, and refuses a fixup naming none or several.
-It rewords only an owner that absorbs a squash-landed fixup: the fixup's PR link joins its `Squashes:` list, rendered the way fork:fold renders one.
-The rebase refuses a rebased tip that dropped any PR link, except from a commit the target carries: patch-for-patch, or superseded with every path it touched identical to the target.
-Typecheck and tests miss a dropped hook, so the `hooks` step counts marked lines per key; a tip commit's `Fork-Hook-Retired: domain/name` trailer retires a hook the target made obsolete.
+The rebase **never merges** upstream and **never drops** a commit:
+
+- Only a **`fixup!` moves**, beneath its owner
+- A fixup **names exactly one** fork commit
+- A squash's ` (#N)` **counts** in that name
+- Its owner **gains the fixup's PR link**
+- A tip that **drops a PR link** is refused
+
+The owner's new link joins its `Squashes:` list.
+The link guard exempts a commit **the target carries**: patch-identical, or superseded with every path it touched identical to the target.
+Typecheck and tests miss a dropped hook, so the `hooks` step **counts marked lines per key**; a tip commit's **`Fork-Hook-Retired: domain/name`** trailer retires one the target made obsolete.
 
 | Step    | Does                                           | Fails when               |
 | ------- | ---------------------------------------------- | ------------------------ |
@@ -32,210 +38,185 @@ Typecheck and tests miss a dropped hook, so the `hooks` step counts marked lines
 | hooks   | each trunk hook keeps its marked lines         | a hook lost lines        |
 | check   | session: `vp run fork:ci` on the tip           | the battery is red       |
 | ci      | land: [candidate CI](#candidate-ci) on the tip | the run is not green     |
-| push    | land: `--force-with-lease=hyprws:<lease>`      | lease refused            |
-| blocked | land: one attention issue per red run          | `gh` refuses the write   |
+| push    | land: the leased trunk push                    | lease refused            |
+| blocked | land: the [attention issue](#attention-issue)  | `gh` refuses the write   |
 | report  | `.t3/fork-sync/<tag>.json`, before any post    |                          |
 
-An applied run cuts the nightly by itself: `hyprws-ci.yml` completion triggers `hyprws-release.yml` through `workflow_run`.
-The release gate needs the current `origin/hyprws` tip with a green `hyprws CI` (RSI-Software/t3code-hyprws#1181).
+An applied run **cuts the nightly** by itself: `hyprws-release.yml` runs on `hyprws CI` completion and needs a **green run on the current trunk tip**.
 
 ## Candidate CI
 
-The land run pushes the trunk directly, so no pull request runs `hyprws CI` before the push; the candidate branch does.
+The land run pushes the trunk directly, so **`sync/candidate` runs `hyprws CI`** in place of a pull request.
 
-- **Branch:** `sync/candidate`, force-pushed
-- **Ruleset:** none
-- **Run:** the full `hyprws CI` push run on that sha
-- **Reuse:** a sha with a run reuses it
-- **Gate:** new sha passes `vp run fork:ci` first
-- **Wait:** the whole run, so every red job shows
-- **Red:** no run in 5 minutes, or none in an hour
-- **Push:** only the sha the run passed, leased
-- **On red:** `hyprws` stays; `ci.jobs` names each
-- **Scope:** `fork:ci` scans from the new base
-- **Skipped:** stale-delete
+1. A sha with a candidate run **reuses it**
+2. A new sha **passes `vp run fork:ci`** first
+3. It **force-pushes** to `sync/candidate`
+4. The driver **waits out the whole run**
+5. Only **that green sha** reaches the trunk
 
-A candidate replays every fork commit, so stale-delete has nothing new to judge.
+`sync/candidate` has **no ruleset**; waiting out the run makes **every red job show**.
+A run that **never starts or never finishes** inside its deadline is red; `candidateCi` in `scripts/fork-sync.ts` owns the deadlines.
+On red, **`hyprws` stays** and `ci.jobs` names each red job.
+`fork:ci` **skips stale-delete** on a candidate: every commit is a replay.
+A `hyprws` push of a sha **already green on `sync/candidate`** skips every `hyprws CI` job.
 
-A `fork-fold` fold lands through the same marker and gate, so the land run stays the only trunk writer.
+The land run is the **only trunk writer**; a [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) fold lands through the **same marker and gate**.
 
 ### Workflow copies
 
-Each `hyprws-*.yml` copy of an upstream workflow pins the upstream file and commit it last matched: `# fork-mirror: <path>@<full sha>`.
-On a candidate, `fork:scan --mirror-pins` fails a copy whose upstream file changed since its pin, and names those commits; a copy with no pin fails too.
-Review each commit at the tip: **adapt** the copy, or **record a one-line no-change reason** in the commit that **moves the pin** to the target's commit.
+Each `hyprws-*.yml` copy of an upstream workflow **pins** the upstream file and commit it last matched: `# fork-mirror: <path>@<full sha>`.
+On a candidate, **`fork:scan --mirror-pins` fails** a copy whose upstream file changed since its pin, naming those commits, and a copy with **no pin**.
+Review each commit at the tip: **adapt the copy**, or **record a one-line no-change reason** in the commit that **moves the pin** to the target's commit.
 
 ## Local trunk
 
-The land run force-pushes `origin/hyprws` under a lease, so `git pull --ff-only` cannot follow it.
-Reset local `hyprws` in the canonical checkout, then rerun whatever refused:
+The land run **force-pushes** `origin/hyprws`, so `git pull --ff-only` cannot follow it.
+**Reset local `hyprws`** in the canonical checkout, then rerun whatever refused:
 
 ```bash
 git fetch origin hyprws
 git reset --hard origin/hyprws
 ```
 
-Worktree setup refuses a branch cut from the stale history.
+Worktree setup **refuses a branch** cut from the stale history.
 
 ## The report
 
-The typed report (`fork.sync-report.v3`) is the only run authority; the Markdown a run prints is output and never read back.
-Issue comments are projections of it: never parse one, and never treat an edit to one as a decision.
+The typed report is the **only run authority**; the printed Markdown is output and **never read back**.
+`ForkSyncReport` in `scripts/fork-sync.ts` **owns its fields**.
+Issue comments are **projections**: never parse one, and **never treat an edit** to one as a decision.
 
-| Outcome           | Exit | Run     | Means                                  |
-| ----------------- | ---- | ------- | -------------------------------------- |
-| `already-applied` | 0    | both    | the trunk contains the tag             |
-| `rebased`         | 0    | session | finished marker; tip passes `fork:ci`  |
-| `applied`         | 0    | land    | trunk moved to a green candidate       |
-| `blocked`         | 1    | both    | manual seam; partial marker written    |
-| `failed`          | 1    | both    | `fetch` through `blocked`; see `error` |
+| Outcome           | Exit | Run     | Means                                 |
+| ----------------- | ---- | ------- | ------------------------------------- |
+| `already-applied` | 0    | both    | the trunk contains the tag            |
+| `rebased`         | 0    | session | finished marker; tip passes `fork:ci` |
+| `applied`         | 0    | land    | trunk moved to a green candidate      |
+| `blocked`         | 1    | both    | manual seam; partial marker written   |
+| `failed`          | 1    | both    | any other red step; see `error`       |
 
-| Field         | Meaning                                   |
-| ------------- | ----------------------------------------- |
-| `land`        | Whether this was a land run               |
-| `target`      | The tag and its sha                       |
-| `lease`       | The `origin/hyprws` sha the stack replays |
-| `trunk`       | Trunk before and after                    |
-| `conflicts[]` | Every stop's path, commits, resolution    |
-| `ci`          | The candidate's `hyprws CI` run and jobs  |
-| `marker`      | Marker written or read; left, decisions   |
-| `decision`    | Worktree, manual paths, resume, hand-off  |
-
-Decisions persist to the report before any comment posts.
-Never edit a report; a rerun supersedes it.
+The report **persists before any comment** posts.
+**Never edit** a report; a rerun supersedes it.
 
 ## Automatic resolution
 
-Conflict resolution is machine-owned, in this order.
+Conflict resolution is **machine-owned**, in this order:
 
-1. Rerere replays this checkout's earlier resolutions
-2. Hook re-apply re-inserts marked hooks
-3. A net-zero fork edit takes upstream's delete
-4. [Regenerable files](#regenerable-files) regenerate
-5. Anything left is `manual` and stops the run
+1. **Rerere** replays this checkout's earlier resolutions
+2. **Hook re-apply** moves marked hooks onto upstream
+3. A **net-zero fork edit** takes upstream's delete
+4. [Regenerable files](#regenerable-files) **regenerate**
+5. Anything left is **`manual`** and stops the run
 
-Rerere data stays in the checkout that recorded it; nothing exports it.
-Hook re-apply moves the fork side's marked hooks onto the upstream text.
-A net-zero fork edit is a path whose fork trunk blob still equals the base blob; the driver accepts its delete with `git rm`.
-A regenerable file waits until every other path in the stop resolves.
+- **Rerere data** never leaves its checkout
+- A **hook goes back verbatim**, shifted for re-indent
+- **Net-zero** means trunk blob equals base blob
+- A **regenerable file waits** for the other paths
 
-Only upstream moved: upstream's text stands.
-A marked fork hook goes back in verbatim, shifted only when upstream re-indented its anchor.
-There is no "upstream superseded this" rule: retirement is a traced verdict written in [fork-delta](../internals/fork-delta.md), never a merge rule.
-
-## Resolution marker
-
-A session hands its tip to the land run as one marker commit, `refs/fork-sync/resolution`, pushed to the `sync/resolution` branch.
-
-- **Parent:** the rebased tip
-- **Tree:** the lease's; a push runs trunk workflows
-- **Subject:** `fork-sync finished <tag>`
-- **Or:** `fork-sync partial <tag>: N commits left`
-- **Partial body:** the remaining rebase todo
-- **Trailers:** `Fork-Sync-Tag`, `Fork-Sync-Lease`
-- **Before them:** a `Fork-Sync-Decision` per item
-- **Written:** every rebased or blocked run
-- **Unchanged rerun:** reuses the same commit
-
-A marker is ignored, with a printed note and a fresh rebase, when:
-
-- its tag is not the target
-- its lease is not in `origin/hyprws`
-- its tree is not its lease's
-- its tip lacks the target
-- its todo names commits outside the stack
-
-Anything else on the branch, such as the old parentless resolution data, is ignored with a note.
-
-**Rerun:** a push to `sync/resolution` runs `hyprws-sync-resolution.yml`, which dispatches `hyprws-upstream-sync.yml` on `hyprws`.
-A session pushes it with `git push --force origin refs/fork-sync/resolution:refs/heads/sync/resolution`; rsi-pr-agent pushes the job's `HEAD`.
-A job that settles without a push reruns it too: its rsi-pr-agent sticky settling at anything but `pushed` fires the same workflow.
-A pod killed mid-job leaves the sticky at `running`; the schedule covers that.
-
-### The land run
-
-1. Fetch, read the marker, pick the target
-2. Trunk has the tag: close stale sync issues
-3. Partial marker: issue rewritten as blocked; exit 1
-4. Finished marker: worktree at its tip
-5. No marker: fresh rebase; a stop is blocked
-6. Carry new trunk commits; link guard
-7. [Candidate CI](#candidate-ci), then the lease push
-8. Close the attention issues
-9. File the [decision issue](#decision-issue)
-
-A partial marker's issue names the commits left; the next `vp run fork:sync <tag>` resumes.
-
-### Decision issue
-
-A job decides every seam alone, so each call that changes user-visible behaviour must outlive the attention issue the land closes.
-The marker's `Fork-Sync-Decision` trailers come from `.t3/fork-sync/<tag>.decisions.md` ([skill](../../../.agents/skills/fork-sync/SKILL.md#decisions)).
-
-- **Items:** one `hyprws sync landed <tag>` issue
-- **Body:** a task per item
-- **No items:** nothing posted
-- **Closed by:** a human, never a sync run
-- **An answer:** a normal follow-up fix
-- **Refused post:** the applied report's `error`
-
-## Attention issue lifecycle
-
-Every red land run (blocked or failed) rewrites one standing sync attention issue through plain `gh`, after writing its report.
-Its title names the step and target, so reruns never rename it; its body carries conflict and resume details or the failure and red jobs, plus the open-since date, target count, and last five runs.
-
-The newest open `ci` issue matching `hyprws sync blocked` or `hyprws sync failed` is adopted, including legacy issues.
-Older matches close with a one-line pointer to the kept issue; only no match files a new one.
-A blocked run, or one failed at `carry`, `hooks`, or `ci`, also adds `rsi:fork-sync` on create or on a new key line (`sync-failure` step and target, or `blocking-sha`), which starts rsi-pr-agent's `fork-sync` workflow; any other failure never does.
-A rerun on the same key, even with a new candidate sha, relabels once, 75 minutes after its last label (the 45-minute job plus its push), so a job that failed or made no progress gets one retry; a second miss waits for a human.
-While the issue carries `rsi:agent-halted`, the driver adds no label and the body says a human must act.
-A clean run (applied or already-applied) closes open matches with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`.
-A refused publication or close lands in the report and fails the run.
-A land run also keeps one driver comment, marked `<!-- hyprws:sync-driver -->`, on the open issue: it shows the run's state (rebasing or adopting, ci, landing, then landed, blocked, or failed) and is edited in place at each step.
-It never starts a job: `hyprws-sync-resolution.yml` reacts only to rsi-pr-agent's comments.
-Sessions never publish or close issues.
-
-Never post a sync issue to `pingdotgg/t3code`.
-
-## Unblocking by hand
-
-The [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill owns the procedure: resolve each path in the kept worktree, `git add`, rerun, hand off.
-Never continue the rebase by hand: the rerun continues it, so each later stop still gets every [automatic resolution](#automatic-resolution).
-
-Rerere records nothing for a delete/modify: the fix is a driver rule or a pre-adopt commit on `hyprws` (precedent `72666ffe19`, RSI-Software/t3code-hyprws#1227).
+There is **no "upstream superseded this" rule**: retirement is a traced verdict in [fork-delta](../internals/fork-delta.md), never a merge rule.
+**Rerere records nothing** for a delete/modify conflict: the fix is a driver rule or a pre-adopt commit on `hyprws`.
 
 ### Reshape
 
-Resolve minimally in the rebase: upstream's text plus marked hooks verbatim.
-Adaptation never lands inside a replayed commit; the hook guard (`scripts/lib/fork-hook-guard.ts`, run by `fork:ci`) refuses it.
-Commit it at the tip of the kept sync worktree, then rerun so the marker covers it.
+Resolve **minimally** in the rebase: upstream's text plus **marked hooks verbatim**.
+Adaptation **never lands inside a replayed commit**; the hook guard (`scripts/lib/fork-hook-guard.ts`, run by `fork:ci`) refuses it.
+Commit it at the **tip of the kept sync worktree**, then rerun so the marker covers it.
 
-- **Owner adaptation:** `fixup! <owner subject>`
-- **Its trailers:** the owner's
-- **Owner:** newest fork commit on those lines
-- **No single owner:** one `upstream-fixes` commit
-- **Retirement:** its own commit, never a fixup
+- Adapt an owner in **`fixup! <owner subject>`**
+- The fixup **copies the owner's trailers**
+- The **owner** is the newest fork commit on the lines
+- With **no single owner**, one `upstream-fixes` commit
+- A **retirement** is its own commit, never a fixup
 
-The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it folds there, naming the owner when the fixup names the wrong one.
-Autosquash discards a fixup's body, so a reason worth keeping goes in its own commit.
+The next sync **folds each fixup** into its owner; `fork:ci` proves it folds there and **names the right owner** when the fixup names the wrong one.
+Autosquash **discards a fixup's body**, so a reason worth keeping goes in its own commit.
 
 ### Kept sync worktree
 
-It lives in the main checkout's `.t3/fork-sync/`, as `worktree/` and `worktree.json`, whichever checkout runs the sync.
-`vp run fork:sync` first waits for the invoking checkout's own setup, so a fresh lane never races its install.
-Created through the `t3.json` setup step, so a stop has dependencies installed; the local gate reinstalls the frozen lockfile first, since the rebase can move it.
-It carries every stop's rows between runs, so the report keeps them.
+It lives in the **main checkout's `.t3/fork-sync/`**, as `worktree/` and `worktree.json`, whichever checkout runs the sync.
 
-A run starts from the kept worktree, a valid marker, or a fresh rebase, in the skill's [order](../../../.agents/skills/fork-sync/SKILL.md#run).
-A moved trunk keeps the lease: the run cherry-picks the new trunk commits onto the finished tip.
-A conflicting pick stays stopped in the worktree: resolve, `git add`, rerun.
-Delete `worktree.json` to drop the kept worktree and adopt a marker or start fresh.
+- `fork:sync` **waits for the caller's setup**
+- **`t3.json` setup** installs its dependencies
+- The gate **reinstalls the frozen lockfile**
+- It **keeps every stop's rows** between runs
+
+## Resolution marker
+
+A session hands its tip to the land run as **one marker commit**, `refs/fork-sync/resolution`, pushed to the **`sync/resolution` branch**.
+
+- Its **parent** is the rebased tip
+- Its **tree is the lease's**: a push runs trunk files
+- Finished subject: **`fork-sync finished <tag>`**
+- Partial: **`fork-sync partial <tag>: N commits left`**
+- A **partial body** holds the remaining todo
+- **`Fork-Sync-Tag`, `Fork-Sync-Lease`** trailers
+- A **`Fork-Sync-Decision`** per item before them
+- **Every rebased or blocked run** writes one
+- An **unchanged rerun reuses** the commit
+
+A marker is **ignored**, with a printed note and a fresh rebase, when:
+
+- its **tag** is not the target
+- its **lease** is not in `origin/hyprws`
+- its **tree** is not its lease's
+- its **tip** lacks the target
+- its **todo** names commits outside the stack
+
+**Anything else** on the branch is ignored with a note.
+
+A push to `sync/resolution` runs `hyprws-sync-resolution.yml`, which **dispatches `hyprws-upstream-sync.yml`** on `hyprws`.
+An rsi-pr-agent **sticky that settles without a push** fires the same workflow; a pod killed mid-job leaves it `running`, and the **sync schedule** covers that.
+
+### The land run
+
+1. **Fetch**, read the marker, pick the target
+2. Trunk has the tag: **close stale sync issues**
+3. A **partial marker** marks the issue blocked; exit 1
+4. A **finished marker** opens a worktree at its tip
+5. With **no marker**, a fresh rebase; a stop blocks
+6. **Carry** new trunk commits; link guard
+7. [Candidate CI](#candidate-ci), then the **lease push**
+8. **Close** the attention issues
+9. **File** the [decision issue](#decision-issue)
+
+A partial marker's issue **names the commits left**; the next `vp run fork:sync <tag>` resumes.
+
+### Decision issue
+
+A job decides every seam alone, so each **user-visible call** must outlive the attention issue the land closes.
+The marker's `Fork-Sync-Decision` trailers come from the skill's [decisions](../../../.agents/skills/fork-sync/SKILL.md#decisions) file.
+The land run files them as **one `hyprws sync landed <tag>` issue**, a task per item.
+
+- **No items**, no issue
+- **A human closes it**, never a sync run
+- **An answer** is a normal follow-up fix
+- **A refused post** fails into the report's `error`
+
+## Attention issue
+
+Every **red land run** rewrites **one standing attention issue** through plain `gh`, after writing its report.
+Its title names the **step and target**, so reruns never rename it; its body carries the conflict or failure details and recent runs.
+The run **adopts the newest open `ci` issue** titled `hyprws sync blocked` or `hyprws sync failed`.
+
+- **Older matches close**, pointing at the kept one
+- A **new one files** only when none match
+- A **clean run closes** every match
+- A **refused write** or close **fails the run**
+- **Sessions never** publish or close issues
+- **Never post** a sync issue to `pingdotgg/t3code`
+
+A blocked run, or one failed at **`carry`, `hooks`, or `ci`**, adds **`rsi:fork-sync`**, which starts rsi-pr-agent's `fork-sync` job; it labels on create or on a **new key line** (`sync-failure` or `blocking-sha`).
+A rerun on the **same key relabels once**, after the job budget (`AGENT_RETRY_AFTER_MS` in `scripts/fork-sync.ts`); a **second miss waits for a human**.
+While the issue carries **`rsi:agent-halted`**, the driver adds no label and the body says a human must act.
+
+The land run also keeps **one driver comment**, `<!-- hyprws:sync-driver -->`, edited in place at each step.
+It **never starts a job**: `hyprws-sync-resolution.yml` reacts only to rsi-pr-agent's comments.
 
 ## Regenerable files
 
-On a conflict, the driver resolves each path and stages the result, in table order.
-A generator reruns over the resolved sources, from the path's `HEAD` copy.
-The package-name merge keeps both sides' entries: upstream's order, then the fork's additions.
-A failed resolver leaves a `manual` row naming the failure.
+On a conflict, the driver **resolves each path** and stages it, in table order.
+A **generator reruns** over the resolved sources, from the path's `HEAD` copy.
+The **package-name merge keeps both sides**: upstream's order, then the fork's additions.
+A **failed resolver** leaves a `manual` row naming the failure.
 
 | Path                               | Resolver                            | Runs from                    |
 | ---------------------------------- | ----------------------------------- | ---------------------------- |
@@ -243,9 +224,8 @@ A failed resolver leaves a `manual` row naming the failure.
 | `third-party-licenses.config.json` | merge by package name               | The driver, then `vp fmt`    |
 | `apps/web/src/routeTree.gen.ts`    | `vp run fork:regenerate-route-tree` | The trunk checkout's install |
 
-`REGENERATION_ROUTES` in `scripts/fork-sync.ts` owns the rows; a test fails when this table drifts from it, or when the fork carries a generated path neither routes.
-
-On a branch that changes a package manifest, regenerate the lockfile before pushing, so a hand-merged lockfile fails there instead of costing a sync run.
+`REGENERATION_ROUTES` in `scripts/fork-sync.ts` **owns the rows**; a test fails when this table drifts, or when the fork carries a **generated path neither routes**.
+On a branch that changes a package manifest, **regenerate the lockfile before pushing**.
 
 ## Reading a bot run
 
@@ -254,35 +234,29 @@ gh run list --workflow hyprws-upstream-sync.yml --limit 1 -R RSI-Software/t3code
 gh run view <run-id> [--log-failed] -R RSI-Software/t3code-hyprws
 ```
 
-The **Sync** job summary carries the run's rendered report.
-Conflict tables live in the attention issue.
+The **Sync job summary** carries the rendered report; **conflict tables** live in the attention issue.
 
 ## One-time repository setup
 
 ### Bot token
 
-Create a fine-grained token owned by the automation actor, scoped to this repository, with read-and-write **Contents** and **Workflows**.
-Store it as the `HYPRWS_MIRROR_TOKEN` secret of the `hyprws-sync` environment, which only `hyprws` can deploy to.
-A push to `sync/resolution` runs only the marker's tree, the lease's trunk files, so a resolver never reaches the token.
-Only its push of `sync/candidate` starts `hyprws CI`; a `GITHUB_TOKEN` push starts no workflow.
-The workflow uses its own `GITHUB_TOKEN` with `actions: read` and `issues: write`; never widen the token.
+Create a **fine-grained token** owned by the automation actor, scoped to this repository, with read-and-write **Contents** and **Workflows**.
+Store it as the **`HYPRWS_MIRROR_TOKEN` secret** of the `hyprws-sync` environment, which **only `hyprws` can deploy** to.
+**Only its `sync/candidate` push starts `hyprws CI`**; a `GITHUB_TOKEN` push starts no workflow.
+A `sync/resolution` push **runs only trunk files**, so a resolver never reaches the token.
+**Never widen** the job's own `GITHUB_TOKEN`.
 
-### Which events run the fork matrix
+### Required checks
 
-The `hyprws` ruleset requires two `hyprws-ci.yml` contexts: `CI` and `merge-tree`.
-`CI` fails unless every other job passed, or skipped because `Changes` found it unaffected.
-Pushes run every job, except a `hyprws` push of a commit whose `sync/candidate` run passed: it skips them all.
-`hyprws-body.yml` stays advisory: no ruleset requires its `Body` context.
-It runs on a pull request opened, pushed to, or reopened, on a push to a fork trunk, release branch, or `sync/candidate`, and on `merge_group`.
-
-It skips `ready_for_review`, already covered on that draft head.
-Add the `merge_group` trigger before requiring a queue in the ruleset.
+The `hyprws` ruleset requires **two `hyprws-ci.yml` contexts**: `CI` and `merge-tree`.
+`CI` **fails unless every other job passed**, or skipped because `Changes` found it unaffected.
+`hyprws-body.yml` stays **advisory**: no ruleset requires its `Body` context.
+Each workflow's `on:` block and comments **own its triggers**.
 
 ### Upstream workflows and merge settings
 
-Keep only the `hyprws-*.yml` workflows enabled.
-Disable every other workflow with `gh workflow disable`; they expect upstream secrets and runners.
-A sync can add an upstream workflow, which arrives enabled: disable it, or adapt it as a `hyprws-*.yml` copy.
+**Keep only the `hyprws-*.yml` workflows enabled**; disable every other with `gh workflow disable`, since they expect upstream secrets and runners.
+A sync can add an upstream workflow, which **arrives enabled**: disable it, or adapt it as a `hyprws-*.yml` copy.
 
 ```bash
 gh repo edit RSI-Software/t3code-hyprws \
@@ -295,56 +269,39 @@ gh api -X PATCH repos/RSI-Software/t3code-hyprws \
 
 ### Applied rulesets
 
-Applied by hand in **Settings > Rules > Rulesets**, all `active`; nothing changes them unattended.
+Applied **by hand** in **Settings > Rules > Rulesets**, all `active`; **nothing changes them unattended**.
 
-- **`hyprws`:** pull request, 0 approvals
-- **Its checks:** `CI` and `merge-tree`
-- **Its bypass:** admin; no force-push rule
-- **`main`:** pull request, same admin bypass
-- **`main` writer:** only the mirror
-- **`no trunk deletion`:** `hyprws` and `main`
-- **Its bypass actors:** none
-- **`stable tags`:** `refs/tags/v*-hyprws.*`
-- **Excludes:** nightlies
-- **Blocks:** tag delete and update
+- `hyprws`: **pull request**, 0 approvals, both checks
+- `main`: **pull request**; only the **mirror job** writes
+- Both trunks: **admin bypass**, no force-push rule
+- `no trunk deletion`: both trunks, **no bypass**
+- `stable tags`: **`v*-hyprws.*`** minus nightlies
+- `stable tags`: **blocks delete and update**
 
-### Runners
+### Release workflow
 
-Every fork workflow runs on `ubuntu-latest`.
-`hyprws-release.yml` publishes a nightly on every trunk landing that passes the release gate (trunk tip plus green `hyprws CI`), with a six-hour fallback schedule.
-It keeps the newest 7 nightlies and deletes older ones with their tags; stable is never pruned.
-Stable fork releases are tagged by hand; `hyprws-release.yml` owns the build either way.
-
-| Tool             | Source                                       |
-| ---------------- | -------------------------------------------- |
-| Node and `vp`    | `voidzero-dev/setup-vp@v1`, workspace cache  |
-| Rust and `cargo` | `dtolnay/rust-toolchain@stable`, runner home |
-| ImageMagick      | On the hosted image; `apt-get` when missing  |
-
-A missing tool is a workflow task, never a reason to patch the build script.
+`hyprws-release.yml` **publishes a nightly** on every trunk landing that passes the release gate, with a **scheduled fallback**.
+It **prunes old nightlies** with their tags; **stable is never pruned**.
+Stable fork releases are **tagged by hand**; `hyprws-release.yml` **owns the build** either way.
+A missing runner tool is a **workflow task**, never a reason to patch the build script.
 
 ### Optional T3 Connect config
 
-T3 Connect stays dark unless all four repository variables exist:
-
-- **`T3CODE_RELAY_URL`**
-- **`T3CODE_CLERK_PUBLISHABLE_KEY`**
-- **`T3CODE_CLERK_JWT_TEMPLATE`**
-- **`T3CODE_CLERK_CLI_OAUTH_CLIENT_ID`**
+T3 Connect **stays dark** unless every `T3CODE_RELAY_URL` and `T3CODE_CLERK_*` **repository variable** `hyprws-release.yml` reads exists.
 
 ## Failure handling
 
-- **Mirror fails:** recreate the token
-- **Mirror refused:** someone wrote `main`
-- **Lease refused:** rerun; it carries new commits
-- **Never:** `--force` the trunk or `main`
-- **Issue remains:** resolve its stop
-- **Candidate red:** fix at the tip in a session
-- **Flake:** `gh run rerun --failed`, rerun the sync
-- **Stable release fails:** fix and rerun
-- **Published tag:** never moved
+- **Recreate the token** when the mirror fails
+- A **refused mirror** means someone wrote `main`
+- A **refused lease**: rerun; it carries new commits
+- **Never `--force`** the trunk or `main`
+- An **open issue**: resolve its stop
+- A **red candidate**: fix at the tip in a session
+- A **flake**: `gh run rerun --failed`, then rerun
+- A **failed stable release**: fix and rerun
+- **Never move** a published tag
 
 ## Version ordering caveat
 
-Semver precedence is global even though the updater separates channels: `0.0.36-hyprws-nightly.20260828.1208` sorts above `0.0.35-hyprws.2` and promotes nothing.
-Never infer channel or recency from a mixed sort; filter by the `-hyprws-nightly.` or `-hyprws.<n>` shape first.
+**Semver precedence is global** even though the updater separates channels: `0.0.36-hyprws-nightly.20260828.1208` sorts above `0.0.35-hyprws.2` and promotes nothing.
+**Never infer channel or recency** from a mixed sort; filter by the `-hyprws-nightly.` or `-hyprws.<n>` shape first.
