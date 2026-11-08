@@ -38,8 +38,7 @@ it.effect("syncs a known thread's links and answers not found for any other thre
       Layer.mock(Orchestrator.OrchestratorV2)({
         getThreadShell: (threadId) => Effect.succeed(threadId === known ? shell : null),
       }),
-      Layer.succeed(ThreadIssueSyncReactor.ThreadIssueSyncReactor, {
-        drain: Effect.void,
+      Layer.mock(ThreadIssueSyncReactor.ThreadIssueSyncReactor)({
         syncThread: (thread, scope) =>
           Ref.update(requested, (all) => [...all, [thread.id, scope] as const]),
       }),
