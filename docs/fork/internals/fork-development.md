@@ -82,7 +82,7 @@ That holds only while each domain keeps these:
 A generic fix in no product domain is **`upstream-fixes`**.
 New commits **land on top** and stay there; sync moves only a `fixup!`, beneath its owner.
 **Reorder only on a clean stack**; publish with a lease.
-A squash lists its members under **`Squashes:`**, one `- <sha> <subject>` line each plus **every PR reference** the member carried, so the rebase scan reads every member as a replay counterpart.
+A squash lists its members under **`Squashes:`**, one `- <sha> <subject>` line each plus **every PR reference** the member carried, so the rebase scan reads every member as a replay counterpart, by sha or else by subject.
 A refold **keeps every link** an earlier fold gathered, bare `(#N)` markers included; `prove` refuses a fold that drops one.
 
 ### Branch bases

@@ -26,6 +26,8 @@ import { squashedMembers } from "./fork-git-reader.ts";
 import { runCommand } from "./lib/fork-command.ts";
 import { parseForkTrailers } from "./lib/fork-trailers.ts";
 
+const memberShas = (body: string) => squashedMembers(body).map(({ sha }) => sha);
+
 const forkFoldScript = NodePath.join(import.meta.dirname, "fork-fold.ts");
 
 const commit = (short: string, overrides: Partial<FoldCommit> = {}): FoldCommit => ({
@@ -128,11 +130,25 @@ it("keeps one member verbatim and gives a fold the lead's prose, its members, an
     "Fork-Domain: fork-meta",
     "Fork-Tier: bugfix",
     "Fork-Upstreamable: no",
+    "Fork-Hook-Retired: fork-meta/gone",
     "Co-authored-by: donjor <donjor@example.com>",
     "",
   ].join("\n");
   const lead = commit("aaaa1111", { tier: "bugfix", upstreamable: "no", message: leadMessage });
-  const tail = commit("bbbb2222");
+  const tail = commit("bbbb2222", {
+    message: [
+      "feat: bbbb2222",
+      "",
+      "Fork-Domain: fork-meta",
+      "Fork-Tier: qol",
+      "fork-hook-retired: fork-meta/gone",
+      "Co-authored-by: donjor <donjor@example.com>",
+      "",
+      // GitHub's squash layout: co-authors in their own closing paragraph.
+      "Co-authored-by: peer <peer@example.com>",
+      "",
+    ].join("\n"),
+  });
   assert.strictEqual(foldMessage({ members: [lead] }), leadMessage.trimEnd());
   assert.strictEqual(
     foldMessage({ members: [lead], subject: "fix: reworded" }).split("\n")[0],
@@ -155,10 +171,15 @@ it("keeps one member verbatim and gives a fold the lead's prose, its members, an
       "Fork-Domain: fork-meta",
       "Fork-Tier: qol",
       "Fork-Upstreamable: no",
+      // lostHooks counts each retirement; plain repeats fold to one.
+      "Fork-Hook-Retired: fork-meta/gone",
+      "Co-authored-by: donjor <donjor@example.com>",
+      "fork-hook-retired: fork-meta/gone",
+      "Co-authored-by: peer <peer@example.com>",
     ].join("\n"),
   );
   // fork:scan reads exactly this fold's members as replay counterparts.
-  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "bbbb2222"]);
+  assert.deepStrictEqual(memberShas(folded), ["aaaa1111", "bbbb2222"]);
   assert.deepStrictEqual(parseForkTrailers(folded), {
     domain: "fork-meta",
     tier: "qol",
@@ -178,7 +199,7 @@ it("appends every member fork PR link, and squashedMembers still reads the sha p
   const folded = foldMessage({ members: [first, second] });
   assert.include(folded, "- aaaa1111 feat(web): first (#1355) (RSI-Software/t3code-hyprws#1355)");
   assert.include(folded, "- bbbb2222 fix(web): second (RSI-Software/t3code-hyprws#1361)");
-  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "bbbb2222"]);
+  assert.deepStrictEqual(memberShas(folded), ["aaaa1111", "bbbb2222"]);
 });
 
 it("lists a sync's plain fixup as an ordinary member, beside a squash-landed one", () => {
@@ -196,7 +217,7 @@ it("lists a sync's plain fixup as an ordinary member, beside a squash-landed one
   });
   const folded = foldMessage({ members: [owner, plain, landed] });
   assert.include(folded, "- bbbb2222 fixup! feat: alpha feature (#31)");
-  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "bbbb2222", "cccc3333"]);
+  assert.deepStrictEqual(memberShas(folded), ["aaaa1111", "bbbb2222", "cccc3333"]);
   assert.deepStrictEqual(forkPullRequests(folded), [
     "RSI-Software/t3code-hyprws#31",
     "RSI-Software/t3code-hyprws#1567",
@@ -214,7 +235,7 @@ it("lists a squash-landed fixup as a member, keeping its pull request link", () 
   });
   const folded = foldMessage({ members: [owner, landed] });
   assert.include(folded, "- cccc2222 fixup! feat: alpha feature (#31) (#1567)");
-  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "cccc2222"]);
+  assert.deepStrictEqual(memberShas(folded), ["aaaa1111", "cccc2222"]);
   assert.deepStrictEqual(forkPullRequests(folded), [
     "RSI-Software/t3code-hyprws#31",
     "RSI-Software/t3code-hyprws#1567",
@@ -249,7 +270,7 @@ it("carries an earlier fold's links into the next fold", () => {
   );
   assert.include(folded, "- dddd4444 fix(web): third (#1370) (RSI-Software/t3code-hyprws#1370)");
   // The old members are gone; only this fold's members are replay counterparts.
-  assert.deepStrictEqual(squashedMembers(folded), ["cccc3333", "dddd4444"]);
+  assert.deepStrictEqual(memberShas(folded), ["cccc3333", "dddd4444"]);
 });
 
 it("keeps the bare (#N) links an older fold's member lines carry", () => {
@@ -301,7 +322,7 @@ it("attaches plan links to the lead line, re-rendering a single member as a fold
       "Fork-Tier: qol",
     ].join("\n"),
   );
-  assert.deepStrictEqual(squashedMembers(linked), ["aaaa1111"]);
+  assert.deepStrictEqual(memberShas(linked), ["aaaa1111"]);
   // A link a member line already names is not repeated.
   const tail = commit("bbbb2222", { subject: "fix: b (#29)", message: "fix: b (#29)\n" });
   const folded = foldMessage({ members: [lead, tail], links: ["RSI-Software/t3code-hyprws#29"] });
@@ -996,7 +1017,7 @@ it("folds tip fixups into their owners, every member listed and proven", () =>
     const alphaBody = git(root, ["log", "-1", "--format=%B", `${tip}~2`]);
     assert.include(alphaBody, `- ${alphaFixup.slice(0, 7)} fixup! feat: alpha feature (#31)`);
     assert.include(alphaBody, "Fork-Domain: fold-a\nFork-Tier: core");
-    assert.deepStrictEqual(squashedMembers(alphaBody), [alpha.slice(0, 7), alphaFixup.slice(0, 7)]);
+    assert.deepStrictEqual(memberShas(alphaBody), [alpha.slice(0, 7), alphaFixup.slice(0, 7)]);
     // The remainder is a singleton: its message survives verbatim.
     assert.notInclude(git(root, ["log", "-1", "--format=%B", tip]), "Squashes:");
 
