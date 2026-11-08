@@ -187,10 +187,10 @@ export interface ReplayedCommit extends Pick<ForkCommit, "sha" | "subject"> {
   readonly squashes?: ReadonlyArray<SquashedMember> | undefined;
 }
 
-// A squash resolves each listed member by sha prefix, else its listed subject,
-// and consumes no subject ordinal; anything else matches its subject, oldest
-// first. The sync folds each `fixup! <subject>` into the one commit it names,
-// so those fixups join that owner's first match.
+// A squash resolves members by sha prefix, consuming no subject ordinal; anything
+// else matches its subject, oldest first. Unresolved members then take, by listed
+// subject, a counterpart nothing claimed. Each `fixup! <subject>` the sync folds
+// joins its owner's first match.
 export const matchReplayCounterparts = (
   commits: ReadonlyArray<ReplayedCommit>,
   counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
@@ -204,23 +204,49 @@ export const matchReplayCounterparts = (
       fixupsByOwner.set(named, [...(fixupsByOwner.get(named) ?? []), ...shas]);
   }
   const ordinalBySubject = new Map<string, number>();
-  const matched = new Map<string, ReadonlyArray<string>>();
   const claimed = new Set<string>();
-  for (const commit of commits) {
+  const members = new Map<string, Array<string>>();
+  const fixupsOf = new Map<string, ReadonlyArray<string>>();
+  const unresolved: Array<{ readonly commit: string; readonly line: string }> = [];
+  const matchSubject = (commit: ReplayedCommit) => {
     const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
-    const fixups = ordinal === 0 ? (fixupsByOwner.get(commit.subject) ?? []) : [];
-    const squashed = (commit.squashes ?? []).flatMap((member) => {
-      const bySha = replayShas.filter((sha) => sha.startsWith(member.sha));
-      if (bySha.length > 0) return bySha;
-      return memberBySubject(member.line, counterparts, claimed) ?? [];
-    });
-    if (squashed.length > 0) {
-      matched.set(commit.sha, [...squashed, ...fixups]);
-      continue;
-    }
     ordinalBySubject.set(commit.subject, ordinal + 1);
     const counterpart = counterparts.get(commit.subject)?.[ordinal];
-    if (counterpart !== undefined) matched.set(commit.sha, [counterpart, ...fixups]);
+    if (counterpart === undefined) return;
+    claimed.add(counterpart);
+    members.set(commit.sha, [counterpart]);
+    fixupsOf.set(commit.sha, ordinal === 0 ? (fixupsByOwner.get(commit.subject) ?? []) : []);
+  };
+  for (const commit of commits) {
+    if (commit.squashes === undefined || commit.squashes.length === 0) {
+      matchSubject(commit);
+      continue;
+    }
+    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
+    fixupsOf.set(commit.sha, ordinal === 0 ? (fixupsByOwner.get(commit.subject) ?? []) : []);
+    const resolved: Array<string> = [];
+    for (const member of commit.squashes) {
+      const bySha = replayShas.filter((sha) => sha.startsWith(member.sha));
+      if (bySha.length === 0) unresolved.push({ commit: commit.sha, line: member.line });
+      for (const sha of bySha) claimed.add(sha);
+      resolved.push(...bySha);
+    }
+    members.set(commit.sha, resolved);
+  }
+  for (const { commit, line } of unresolved) {
+    const sha = memberBySubject(line, counterparts, claimed);
+    if (sha !== undefined) members.get(commit)?.push(sha);
+  }
+  for (const commit of commits) {
+    if (commit.squashes !== undefined && members.get(commit.sha)?.length === 0) {
+      members.delete(commit.sha);
+      matchSubject(commit);
+    }
+  }
+  const matched = new Map<string, ReadonlyArray<string>>();
+  for (const commit of commits) {
+    const shas = members.get(commit.sha);
+    if (shas !== undefined) matched.set(commit.sha, [...shas, ...(fixupsOf.get(commit.sha) ?? [])]);
   }
   return matched;
 };

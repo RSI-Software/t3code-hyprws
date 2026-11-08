@@ -30,7 +30,7 @@ import {
   forkLogArguments,
   HOOK_RETIRED_TRAILER,
   parseForkLog,
-  trailerBlock,
+  trailerLines,
 } from "./lib/fork-trailers.ts";
 
 export type { FoldBlock, FoldCommit, FoldGit, FoldStack, PlanLine };
@@ -236,6 +236,7 @@ const TIER_RANK: Readonly<Record<string, number>> = { core: 0, qol: 1, bugfix: 2
 const tierRank = (tier: string | undefined) => TIER_RANK[tier ?? ""] ?? 3;
 
 const MERGED_TRAILER = /^Fork-(?:Domain|Tier|Upstreamable):/i;
+const RETIRED_TRAILER = new RegExp(`^${HOOK_RETIRED_TRAILER}:`, "i");
 
 /**
  * Every member's other trailers in stack order, exact repeats once. `lostHooks` counts
@@ -244,11 +245,10 @@ const MERGED_TRAILER = /^Fork-(?:Domain|Tier|Upstreamable):/i;
 const carriedTrailers = (members: ReadonlyArray<FoldCommit>): ReadonlyArray<string> => {
   const seen = new Set<string>();
   return members.flatMap((member) =>
-    trailerBlock(member.message.replace(/\r\n/g, "\n").split("\n").slice(1).join("\n"))
-      .split("\n")
-      .filter((line) => line.length > 0 && !MERGED_TRAILER.test(line))
+    trailerLines(member.message.replace(/\r\n/g, "\n").split("\n").slice(1).join("\n"))
+      .filter((line) => !MERGED_TRAILER.test(line))
       .filter((line) => {
-        if (line.startsWith(`${HOOK_RETIRED_TRAILER}:`)) return true;
+        if (RETIRED_TRAILER.test(line)) return true;
         if (seen.has(line)) return false;
         seen.add(line);
         return true;

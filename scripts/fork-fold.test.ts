@@ -141,8 +141,11 @@ it("keeps one member verbatim and gives a fold the lead's prose, its members, an
       "",
       "Fork-Domain: fork-meta",
       "Fork-Tier: qol",
-      "Fork-Hook-Retired: fork-meta/gone",
+      "fork-hook-retired: fork-meta/gone",
       "Co-authored-by: donjor <donjor@example.com>",
+      "",
+      // GitHub's squash layout: co-authors in their own closing paragraph.
+      "Co-authored-by: peer <peer@example.com>",
       "",
     ].join("\n"),
   });
@@ -171,7 +174,8 @@ it("keeps one member verbatim and gives a fold the lead's prose, its members, an
       // lostHooks counts each retirement; plain repeats fold to one.
       "Fork-Hook-Retired: fork-meta/gone",
       "Co-authored-by: donjor <donjor@example.com>",
-      "Fork-Hook-Retired: fork-meta/gone",
+      "fork-hook-retired: fork-meta/gone",
+      "Co-authored-by: peer <peer@example.com>",
     ].join("\n"),
   );
   // fork:scan reads exactly this fold's members as replay counterparts.

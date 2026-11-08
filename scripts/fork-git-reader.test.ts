@@ -130,22 +130,36 @@ it("matches every squashed member by sha prefix, else its subject, and leaves th
           member("3333ccc", "feat: linked (RSI-Software/t3code-hyprws#7)"),
         ],
       },
+      { sha: "trunk-cited", subject: "feat: other fold", squashes: [member("ffff666")] },
+      { sha: "plain-twin", subject: "fix: twin" },
     ],
     new Map([
       ["duplicate", ["aaaa1111111", "bbbb2222222"]],
       ["other", ["cccc3333333"]],
-      ["fix: twin", ["dddd4444444", "eeee5555555"]],
-      ["feat: linked", ["ffff6666666"]],
+      ["fix: twin", ["dddd4444444", "eeee5555555", "7777aaaaaaa"]],
+      ["feat: linked", ["ffff6666666", "8888bbbbbbb"]],
     ]),
-    ["aaaa1111111", "bbbb2222222", "cccc3333333", "dddd4444444", "eeee5555555", "ffff6666666"],
+    [
+      "aaaa1111111",
+      "bbbb2222222",
+      "cccc3333333",
+      "dddd4444444",
+      "eeee5555555",
+      "7777aaaaaaa",
+      "ffff6666666",
+      "8888bbbbbbb",
+    ],
   );
+  // Subject fallback takes only counterparts no sha or plain match already claimed.
   assert.deepStrictEqual(
     [...matches],
     [
       ["squash", ["aaaa1111111", "bbbb2222222"]],
       ["plain", ["aaaa1111111"]],
       ["unlisted", ["cccc3333333"]],
-      ["rebased", ["dddd4444444", "eeee5555555", "ffff6666666"]],
+      ["rebased", ["eeee5555555", "7777aaaaaaa", "8888bbbbbbb"]],
+      ["trunk-cited", ["ffff6666666"]],
+      ["plain-twin", ["dddd4444444"]],
     ],
   );
 });
