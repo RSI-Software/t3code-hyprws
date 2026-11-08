@@ -163,7 +163,12 @@ vp run fork:sync [<tag>]
 ## Decisions
 
 **Land, then ask:** a product call never stalls the sync; it lands on the default, and a human answers after.
-Record each **Reshape, Retire, and call made alone** as one line in `.t3/fork-sync/<tag>.decisions.md` in the main checkout.
+Record a call **only when user-visible behaviour changes**, as one line in `.t3/fork-sync/<tag>.decisions.md` in the main checkout:
+
+- **A fork feature** retired, or its behaviour changed
+- **An upstream feature** the fork drops or alters
+
+**Never record** behaviour-preserving work: fixture and test adaptation, kept upstream code, or a Reshape that keeps behaviour.
 
 - **One line:** the feature, the call, the alternative
 - **References:** full fork form; upstream in code spans
@@ -236,7 +241,7 @@ A live one holds the job open and can rewrite the marker after the bundle.
 
 - **Default:** upstream stands; port at the tip
 - **Port fails its checks:** Retire it
-- **Reshape, Retire, or call:** one [decision](#decisions)
+- **Behaviour changed:** one [decision](#decisions)
 - **Blocked:** only a driver or setup failure
 
 **Lost hooks first.** Clear every lost hook in one batch before any type or test work:
