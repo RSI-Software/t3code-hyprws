@@ -104,31 +104,50 @@ it("reads the squashed members a rewrite lists, ignoring surrounding prose", () 
     squashedMembers(
       "Squashes:\n\n- 9f318b69a9 fix(fork): one\n- ea63ce4dae fix(fork): two\n\nFork-Domain: distribution\n",
     ),
-    ["9f318b69a9", "ea63ce4dae"],
+    [
+      { sha: "9f318b69a9", line: "fix(fork): one" },
+      { sha: "ea63ce4dae", line: "fix(fork): two" },
+    ],
   );
   assert.deepStrictEqual(squashedMembers("Squashes: none listed\n\nFork-Domain: x\n"), []);
   assert.deepStrictEqual(squashedMembers("Fork-Domain: x\n"), []);
 });
 
-it("matches every squashed member by sha prefix and leaves the subject ordinal alone", () => {
+const member = (sha: string, line = "unlisted") => ({ sha, line });
+
+it("matches every squashed member by sha prefix, else its subject, and leaves the subject ordinal alone", () => {
   const matches = matchReplayCounterparts(
     [
-      { sha: "squash", subject: "duplicate", squashes: ["aaaa111", "bbbb222"] },
+      { sha: "squash", subject: "duplicate", squashes: [member("aaaa111"), member("bbbb222")] },
       { sha: "plain", subject: "duplicate" },
-      { sha: "unlisted", subject: "other", squashes: ["ffff999"] },
+      { sha: "unlisted", subject: "other", squashes: [member("ffff999")] },
+      {
+        sha: "folded",
+        subject: "feat: lead",
+        squashes: [
+          member("1111aaa", "feat: lead"),
+          member("2222bbb", "fix: follow-up (RSI-Software/t3code-hyprws#7)"),
+        ],
+      },
+      { sha: "later", subject: "fix: follow-up" },
     ],
     new Map([
       ["duplicate", ["aaaa1111111", "bbbb2222222"]],
       ["other", ["cccc3333333"]],
+      ["feat: lead", ["dddd4444444"]],
+      ["fix: follow-up", ["eeee5555555"]],
     ]),
-    ["aaaa1111111", "bbbb2222222", "cccc3333333"],
+    ["aaaa1111111", "bbbb2222222", "cccc3333333", "dddd4444444", "eeee5555555"],
   );
+  // A member's subject twin never takes a later commit's own ordinal.
   assert.deepStrictEqual(
     [...matches],
     [
       ["squash", ["aaaa1111111", "bbbb2222222"]],
       ["plain", ["aaaa1111111"]],
       ["unlisted", ["cccc3333333"]],
+      ["folded", ["dddd4444444", "eeee5555555"]],
+      ["later", ["eeee5555555"]],
     ],
   );
 });
@@ -137,7 +156,7 @@ it("adds the fixups the sync folds into an owner to its replay match", () => {
   const matches = matchReplayCounterparts(
     [
       { sha: "replayed-owner", subject: "fix: owner" },
-      { sha: "replayed-squash", subject: "fix: squash", squashes: ["aaaa111"] },
+      { sha: "replayed-squash", subject: "fix: squash", squashes: [member("aaaa111")] },
     ],
     new Map([
       ["fix: owner", ["original-owner"]],
