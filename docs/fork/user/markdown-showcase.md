@@ -5,40 +5,37 @@ status: ready to edit
 
 # Rich Markdown showcase
 
-Open this file in T3 Code and switch it to Rich mode.
-Edit the document you see while keeping ordinary Markdown on disk.
+Open this file in Rich mode and edit it; the file stays plain Markdown.
 
-Open [README.md](../../README.md) as a workspace file chip, or visit [Milkdown](https://milkdown.dev/).
+Open [README.md](../../README.md) as a file chip, or visit [Milkdown](https://milkdown.dev/).
 
 ## Task-list controls
 
-- [ ] Toggle this checkbox in Rich mode.
-- [ ] Confirm the change remains after switching to Source mode.
-- [ ] Edit this task label directly.
+- [ ] Toggle this checkbox
+- [ ] Check it in Source mode
+- [ ] Edit this label
 
 ## Text and structure
 
-Use **bold**, _emphasis_, ~~strikethrough~~, and `inline code` in the same paragraph.
+Use **bold**, _emphasis_, ~~strikethrough~~, and `inline code` together.
 
-> The rich editor changes the view, not the file format.
+> The view changes, not the file format.
 
-Nested content works too:
-
-1. Write naturally.
-2. Keep the source portable.
-   - Add unordered items beneath an ordered step.
-   - Follow a [workspace link](../../README.md) without leaving T3 Code.
+1. Write naturally
+2. Keep the source portable
+   - Nest a bullet under a step
+   - Follow a [workspace link](../../README.md)
 
 ---
 
 ## Table
 
-| Markdown feature      | Rich-mode behavior                   |
-| --------------------- | ------------------------------------ |
-| Headings and emphasis | Editable in place                    |
-| Task lists            | Interactive checkboxes               |
-| Workspace links       | File chips that open in T3 Code      |
-| Fenced code           | Shared theme and syntax highlighting |
+| Feature         | Rich mode           |
+| --------------- | ------------------- |
+| Headings        | Editable in place   |
+| Task lists      | Checkboxes          |
+| Workspace links | File chips          |
+| Fenced code     | Syntax highlighting |
 
 ## Highlighted TypeScript
 
@@ -63,5 +60,3 @@ console.log(`${editor.engine}: ${editor.mode}`);
   "format": "CommonMark + GFM"
 }
 ```
-
-That is the MVP: a useful editing surface without a second document format.

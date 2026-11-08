@@ -1,58 +1,55 @@
 # Dictation
 
-Open **Settings > Dictation** and select an environment.
-Recording works in the desktop app and browsers on HTTPS or localhost.
-Choose your microphone; allow microphone access to show device names.
-On the Linux desktop, enable **Speaker ducking** to lower selected outputs while recording (PipeWire or PulseAudio).
-Check one or more outputs; **System default** selects the default at recording start.
-**Target volume** is a percentage of each output’s starting volume; set separate fade-down and fade-back-up times in milliseconds (`0` is instant, `1000` is one second).
-These preferences save automatically on this desktop.
-Stop, cancel, or closing the recording window restores volume; manual volume adjustments and mute state are preserved.
-Choose a speech service, enter its base URL, model, and API key if required, enable dictation, then save.
+Speak into the composer with a speech service you choose.
+Recording works in the desktop app and in browsers on HTTPS or localhost.
 
-In chat, click the mic, speak, then click the check to finish.
-Review or edit the transcript before sending.
-Click X or press Escape to cancel.
+## Set up
 
-After finishing recording, you can switch threads or open Settings while transcription continues.
-The text returns to the original draft; the background control lets you return or cancel.
-If that draft changes, use **Copy transcript** to recover the text.
-Leaving the chat while the microphone is still recording cancels dictation.
+1. Open **Settings → Dictation**, pick an environment
+2. Choose your microphone
+3. Pick a speech service, base URL, and model
+4. Enter an API key if the service needs one
+5. Enable dictation and save
 
-The mic stays disabled until the saved speech configuration is complete.
+Services:
 
-- **Meta:** the defaults with your Meta API key
-- **OpenAI-compatible:** any service with OpenAI's transcription API, such as `https://api.openai.com/v1`
+- **Meta** needs only your Meta API key
+- **OpenAI-compatible** fits OpenAI transcription APIs
 
-T3 adds the upload and realtime paths to the base URL.
-Saved Local HTTP settings, or URLs with query parameters, stay off until you save a base URL.
+The base URL resolves on that environment's server, so `localhost` means that machine.
+Changing the service or base URL **clears the saved key**.
 
-**Live preview:** shows words while you speak.
-Meta uses its realtime socket; every other service uses OpenAI Realtime transcription, so turn it off for services without it.
-If the live stream fails, finishing uploads the recording instead.
+## Dictate
 
-**Speech terms:** list names the speech service should recognize under **Text processing**, one per line, per project.
-Add `heard, misheard -> Term` to fix a spelling.
-Terms go out as the standard `prompt` hint, which Meta ignores; a term over four words is left out.
-Spelling fixes apply to every service's transcript.
+1. Click the mic and speak
+2. Click the check to finish; X or Escape cancels
+3. Review the transcript, then send
 
-Base URLs resolve from the selected environment's server: `localhost` means that server's machine.
-Audio stays in memory and is limited to five minutes.
-Keys are stored on that environment; changing the service or base URL clears a saved key.
+Recordings are **capped at five minutes**.
+After finishing, you can switch threads while transcription continues; the text returns to the original draft.
+If that draft changed meanwhile, use **Copy transcript**.
+
+**Live preview** shows words as you speak; turn it off for services without OpenAI Realtime transcription.
+
+## Speech terms
+
+List names the service should recognize under **Speech terms**, one per line, per project.
+Add `heard, misheard -> Term` to **fix a spelling** in every transcript.
+Meta **ignores terms**, and terms over four words are left out.
 
 ## Cleanup and formatting
 
-In **Settings > Dictation**, choose the independent generation model and set cleanup and formatting to **Off**, **Manual**, or **Automatic**.
-Save text processing settings separately from the speech service.
-The composer actions also work on typed or pasted drafts in the web app.
-Cleanup uses selected text when present; formatting uses the whole draft.
-Undo restores the text before processing.
+Set each to **Off**, **Manual**, or **Automatic**, and choose the model that runs them.
 
-Automatic processing runs only after built-in transcription completes: cleanup first, then formatting when the draft meets the word threshold (50 by default).
-It never runs while typing or when sending.
-Failures preserve the transcript or draft.
+- **Cleanup** uses the selection or draft
+- **Formatting** uses the whole draft
+- **Automatic** runs only after dictation
+- **Undo** restores the text before processing
 
-Select a project in Settings to customize its model, modes, prompts, and context.
-**Generate / Refresh context** extracts vocabulary from that project's README, AGENTS, and package metadata; review and save the result.
-Every prompt is editable and supports the fields listed beside it.
-Recent messages default to 0; 2 includes the latest user and assistant messages, labeled by role.
+Select a project to customize its prompts, and use **Generate / Refresh context** to pull vocabulary from the project; review it before saving.
+
+## Speaker ducking
+
+On the Linux desktop, **Speaker ducking** lowers chosen outputs while you record (PipeWire or PulseAudio).
+**Target volume** is a share of each output's starting volume.
+Stopping or cancelling restores the volume.
