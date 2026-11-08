@@ -66,6 +66,7 @@ One line per output commit: member shas, tab-separated, in stack order.
 - **Order:** line order is the new stack order
 - **One member:** message kept verbatim
 - **Fold:** lead prose, merged trailers
+- **Every other member trailer** kept
 - **`Squashes:`** each member's PR references
 
 A `RSI-Software/t3code-hyprws#N` field attaches that PR link to the lead's `Squashes:` line; a lone member then renders as a fold.

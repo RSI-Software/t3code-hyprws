@@ -69,7 +69,7 @@ import {
   sequenceEditor,
   shellQuote,
 } from "./lib/fork-sync-todo.ts";
-import { splitTrailerBlock } from "./lib/fork-trailers.ts";
+import { HOOK_RETIRED_TRAILER, splitTrailerBlock } from "./lib/fork-trailers.ts";
 
 const WORKTREE_DIR = "worktree";
 /** The attention issue keeps the governed label and outcome-shaped legacy titles. */
@@ -1149,9 +1149,6 @@ export const finishRebase = (
   refuseDroppedLinks(root, target, lease, tip);
   return writeMarker(runner, root, { tip, tag: target.tag, lease, todo: null });
 };
-
-/** The trailer a tip commit carries to retire a hook the target made obsolete. */
-export const HOOK_RETIRED_TRAILER = "Fork-Hook-Retired";
 
 /** Marked lines per hook key in `ref`'s tree. */
 const hookLineCounts = (

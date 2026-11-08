@@ -25,6 +25,9 @@ export const FORK_DOMAINS = [
 
 export type ForkDomain = (typeof FORK_DOMAINS)[number];
 
+/** The trailer a tip commit carries to retire a hook the target made obsolete. */
+export const HOOK_RETIRED_TRAILER = "Fork-Hook-Retired";
+
 export const normalizeTrailerValue = (value: string): string | undefined =>
   value
     .trim()
