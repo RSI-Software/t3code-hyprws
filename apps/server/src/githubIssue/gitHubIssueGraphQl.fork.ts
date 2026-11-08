@@ -21,6 +21,8 @@ export interface GitHubIssueGraphQlInput {
   readonly operation: string;
   readonly query: string;
   readonly variables?: Readonly<Record<string, unknown>>;
+  /** An aliased batch: fields GitHub could not find answer null and the rest still decode. */
+  readonly partialNotFound?: boolean;
 }
 
 export class GitHubIssueGraphQl extends Context.Service<
@@ -51,10 +53,16 @@ function classify(input: {
   readonly status: number;
   readonly headers: Readonly<Record<string, string | undefined>>;
   readonly body: string;
+  readonly partialNotFound: boolean;
 }): GitHubRequestPolicy.GitHubAnswer<string> {
   const { status, headers, body } = input;
   const meta = { status, headers };
   const errors = Option.getOrUndefined(decodeErrors(body))?.errors;
+  const notFoundOnly = errors?.every((error) => error.type === "NOT_FOUND") === true;
+  // Withheld, so an app token that cannot see the repository still retries as the user.
+  if (input.partialNotFound && notFoundOnly && status >= 200 && status < 300) {
+    return { _tag: "Ok", value: body, withheld: true, ...meta };
+  }
   if (
     GitHubRequestPolicy.isRateLimited({
       status,
@@ -66,7 +74,7 @@ function classify(input: {
     return { _tag: "RateLimited", ...meta };
   }
   if (status === 401) return { _tag: "Unauthorized", ...meta };
-  if (status === 404 || errors?.every((error) => error.type === "NOT_FOUND") === true) {
+  if (status === 404 || notFoundOnly) {
     return { _tag: "NotFound", ...meta };
   }
   if (errors !== undefined) {
@@ -109,6 +117,7 @@ const make = Effect.gen(function* () {
             status: response.status,
             headers: response.headers,
             body: collected.text,
+            partialNotFound: input.partialNotFound === true,
           });
         }).pipe(
           Effect.mapError(
