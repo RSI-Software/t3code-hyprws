@@ -238,6 +238,7 @@ The settings search item **stays in `githubIssueSettingsSearch.ts`**, never in t
 - **Shell refetch** carries the links live
 - **No issue events** in detail; old-client safe
 - An **older snapshot** never wins
+- Snapshots carry **sub-issues, parent, type, and labels**
 - **Older servers reject** link events
 
 The client-only UI **mirrors linked pull requests** on each of their surfaces.
