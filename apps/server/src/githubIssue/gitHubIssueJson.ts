@@ -42,9 +42,7 @@ const RawSubIssue = Schema.Struct({
   title: Schema.String,
   url: Schema.String,
   state: Schema.String,
-  // A close reason in GitHub's GraphQL words. `gh issue view --json subIssues` omits the key on
-  // every child (gh 2.98.0), so a detail read attaches reasons with its own GraphQL call and an
-  // absent key here must survive.
+  // A close reason in GitHub's GraphQL words; a read that does not select it leaves it absent.
   stateReason: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
@@ -111,8 +109,6 @@ const NormalizedIssueDetail = Schema.Struct({
   closedAt: Schema.NullOr(IsoDateTime),
 });
 
-const decodeIssueList = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(RawIssue)));
-const decodeIssueDetail = Schema.decodeEffect(Schema.fromJsonString(RawIssue));
 const decodeUnknownIssueList = Schema.decodeUnknownEffect(Schema.Array(RawIssue));
 const decodeUnknownIssueDetail = Schema.decodeUnknownEffect(RawIssue);
 const decodeNormalizedIssueList = Schema.decodeUnknownEffect(Schema.Array(NormalizedIssue));
@@ -249,16 +245,6 @@ class GitHubIssueNormalizeError extends Schema.TaggedError<GitHubIssueNormalizeE
   { cause: Schema.Defect() },
 ) {}
 
-export const decodeGitHubIssueList = Effect.fn("decodeGitHubIssueList")(function* (raw: string) {
-  const decoded = yield* decodeIssueList(raw);
-  const normalized = yield* Effect.try({
-    try: () => decoded.map(normalizeGitHubIssue),
-    catch: (cause) => new GitHubIssueNormalizeError({ cause }),
-  });
-  return yield* decodeNormalizedIssueList(normalized);
-});
-
-/** The same read for rows that were never a JSON string, such as GraphQL answers reshaped in memory. */
 export const decodeParsedGitHubIssueList = Effect.fn("decodeParsedGitHubIssueList")(function* (
   rows: ReadonlyArray<unknown>,
 ) {
@@ -270,14 +256,6 @@ export const decodeParsedGitHubIssueList = Effect.fn("decodeParsedGitHubIssueLis
   return yield* decodeNormalizedIssueList(normalized);
 });
 
-export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(function* (
-  raw: string,
-) {
-  const decoded = yield* decodeIssueDetail(raw);
-  return yield* decodeNormalizedIssueDetail(normalizeIssueDetail(decoded));
-});
-
-/** The same read for one row that was never a JSON string. */
 export const decodeParsedGitHubIssueDetail = Effect.fn("decodeParsedGitHubIssueDetail")(function* (
   row: unknown,
 ) {
@@ -291,60 +269,42 @@ const IssueSummary = Schema.Struct({
   title: TrimmedNonEmptyString,
   state: GitHubIssueState,
   closeReason: Schema.NullOr(GitHubIssueCloseReason),
+  subIssues: Schema.optionalKey(Schema.Array(GitHubSubIssue)),
+  parent: Schema.optionalKey(GitHubSubIssue),
+  labels: Schema.optionalKey(Schema.Array(GitHubIssueLabel)),
+  issueType: Schema.optionalKey(GitHubIssueType),
 });
 export type GitHubIssueSummary = typeof IssueSummary.Type;
 
+const RawIssueSummary = Schema.Struct({
+  title: Schema.String,
+  state: Schema.String,
+  stateReason: Schema.NullOr(Schema.String),
+  subIssues: Schema.optional(Schema.NullOr(Schema.Struct({ nodes: Schema.Array(RawSubIssue) }))),
+  parent: Schema.optional(Schema.NullOr(RawSubIssue)),
+  labels: Schema.optional(Schema.NullOr(Schema.Struct({ nodes: Schema.Array(RawLabel) }))),
+  issueType: Schema.optional(Schema.NullOr(RawIssueType)),
+});
+
+const decodeUnknownIssueSummary = Schema.decodeUnknownEffect(RawIssueSummary);
 const decodeNormalizedIssueSummary = Schema.decodeUnknownEffect(IssueSummary);
 
-/** A linked issue's summary, read from a row the caller already parsed. */
+/** A linked issue's summary, read from a row the caller already parsed. Empty keys are left out,
+ * so a bare issue's snapshot keeps its earlier shape. */
 export const decodeParsedGitHubIssueSummary = Effect.fn("decodeParsedGitHubIssueSummary")(
-  function* (row: {
-    readonly title: string;
-    readonly state: string;
-    readonly stateReason: string | null;
-  }) {
+  function* (row: unknown) {
+    const raw = yield* decodeUnknownIssueSummary(row);
+    const subIssues = (raw.subIssues?.nodes ?? []).map(subIssue);
+    const labels = (raw.labels?.nodes ?? []).map(label);
+    const type = raw.issueType == null ? null : issueType(raw.issueType);
     return yield* decodeNormalizedIssueSummary({
-      title: row.title,
-      state: state(row.state),
-      closeReason: closeReason(row.stateReason),
+      title: raw.title,
+      state: state(raw.state),
+      closeReason: closeReason(raw.stateReason),
+      ...(subIssues.length === 0 ? {} : { subIssues }),
+      ...(raw.parent == null ? {} : { parent: subIssue(raw.parent) }),
+      ...(labels.length === 0 ? {} : { labels }),
+      ...(type === null ? {} : { issueType: type }),
     });
   },
 );
-
-/** A child's close reason keyed by its number, read with one extra GraphQL call because `gh`
- * carries no reason on sub-issue nodes (RSI-Software/t3code-hyprws#1461). */
-const RawSubIssueReasons = Schema.Struct({
-  data: Schema.Struct({
-    repository: Schema.NullOr(
-      Schema.Struct({
-        issue: Schema.NullOr(
-          Schema.Struct({
-            subIssues: Schema.NullOr(
-              Schema.Struct({
-                nodes: Schema.Array(
-                  Schema.Struct({
-                    number: Schema.Number,
-                    stateReason: Schema.NullOr(Schema.String),
-                  }),
-                ),
-              }),
-            ),
-          }),
-        ),
-      }),
-    ),
-  }),
-});
-
-const decodeSubIssueReasonPayload = Schema.decodeEffect(Schema.fromJsonString(RawSubIssueReasons));
-
-export const decodeGitHubSubIssueReasons = Effect.fn("decodeGitHubSubIssueReasons")(function* (
-  raw: string,
-) {
-  const decoded = yield* decodeSubIssueReasonPayload(raw);
-  const reasons = new Map<number, GitHubIssueCloseReasonType | null>();
-  for (const node of decoded.data.repository?.issue?.subIssues?.nodes ?? []) {
-    reasons.set(node.number, closeReason(node.stateReason));
-  }
-  return reasons;
-});

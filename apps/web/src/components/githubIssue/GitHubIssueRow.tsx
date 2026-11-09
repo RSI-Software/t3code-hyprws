@@ -8,20 +8,9 @@ import {
   PullRequestRowAuthor,
   PullRequestRowLines,
 } from "../pullRequest/PullRequestListRow";
-import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
+import { GitHubIssueLabelChips, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueCommentCount, GitHubIssueStateGlyph } from "./githubIssuePresentation";
 import type { GitHubIssueFilterField } from "./GitHubIssueListView.logic";
-
-/**
- * Each label slot past the first only appears once the meta line is wide enough to hold it, the
- * pull request row's own rule, so a narrow row shows one label and a "+N" and a wide one up to
- * three. The "+N" rides the last visible pill and hides as soon as the next slot shows.
- */
-const LABEL_SLOTS = [
-  { overflow: "@xl/pr-row-meta:hidden" },
-  { overflow: "@3xl/pr-row-meta:hidden" },
-  { overflow: "" },
-] as const;
 
 /** The pull request page row's padding and the content box a skipped row reserves. */
 const PAGE_ROW_CLASS = "px-3 py-2.5 [contain-intrinsic-block-size:36.5px]";
@@ -88,33 +77,10 @@ function GitHubIssueRowImpl({
                 onFilter={() => onFilter("type", issueType.name)}
               />
             )}
-            {issue.labels.length > 0 ? (
-              <span className="flex min-w-0 items-center gap-1">
-                {LABEL_SLOTS.map((slot, index) => {
-                  const label = issue.labels[index];
-                  if (!label) return null;
-                  const remaining = issue.labels.length - index - 1;
-                  return (
-                    <GitHubIssueLabelChip
-                      key={label.name}
-                      label={label}
-                      className={
-                        index === 0
-                          ? ""
-                          : index === 1
-                            ? "hidden @xl/pr-row-meta:inline-flex"
-                            : "hidden @3xl/pr-row-meta:inline-flex"
-                      }
-                      onFilter={() => onFilter("label", label.name)}
-                    >
-                      {remaining > 0 ? (
-                        <span className={cn("shrink-0", slot.overflow)}>+{remaining}</span>
-                      ) : null}
-                    </GitHubIssueLabelChip>
-                  );
-                })}
-              </span>
-            ) : null}
+            <GitHubIssueLabelChips
+              labels={issue.labels}
+              onFilter={(name) => onFilter("label", name)}
+            />
           </>
         }
         updatedAt={issue.updatedAt}

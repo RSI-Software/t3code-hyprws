@@ -1,6 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
-
-import type { GitHubIssueLinkTarget } from "./githubIssueThreadLinks.logic";
+import type { GitHubIssueLinkTarget, ScopedThreadRef } from "@t3tools/contracts";
 
 const STORAGE_KEY = "t3code:github-issue-handoffs:v1";
 /** Drafts are few; the oldest handoffs go first once abandoned drafts pile up. */
