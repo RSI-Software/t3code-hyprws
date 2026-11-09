@@ -362,11 +362,21 @@ describe("issue toolkit handlers", () => {
 
   it.effect("lists the shell's links, with unknown state until the first read", () =>
     Effect.gen(function* () {
+      const child = {
+        number: 9,
+        title: "Guard the boot path",
+        url: "https://github.com/t3tools/t3code/issues/9",
+        state: "closed" as const,
+        closeReason: "completed" as const,
+      };
       const synced = makeLink(3, {
         source: "agent",
         snapshot: {
           title: "Crash on start",
           state: "closed",
+          subIssues: [child],
+          labels: [{ name: "crash", color: "b60205" }],
+          issueType: { name: "Bug", color: "RED" },
           syncedAt: "2026-08-11T00:00:00.000Z",
         },
       });
@@ -381,6 +391,10 @@ describe("issue toolkit handlers", () => {
             source: "agent",
             state: "closed",
             title: "Crash on start",
+            subIssues: [child],
+            parent: null,
+            issueType: "Bug",
+            labels: ["crash"],
           },
           {
             host: "github.com",
@@ -390,6 +404,10 @@ describe("issue toolkit handlers", () => {
             source: "manual",
             state: null,
             title: null,
+            subIssues: [],
+            parent: null,
+            issueType: null,
+            labels: [],
           },
         ],
       });

@@ -1,12 +1,13 @@
 import type { ThreadIssueLink } from "@t3tools/contracts";
 import { useRender } from "@base-ui/react/use-render";
-import { CircleHelpIcon } from "lucide-react";
+import { CircleHelpIcon, ListTreeIcon } from "lucide-react";
 import type { MouseEvent, ReactElement } from "react";
 
 import { cn } from "../../lib/utils";
 import { LinkedBadgeTooltipPopupFork } from "../LinkedBadgeTooltipPopup.fork";
 import { Tooltip, TooltipTrigger } from "../ui/tooltip";
 import { githubIssueStatePresentation } from "./githubIssuePresentation";
+import { subIssueProgress } from "./threadIssueTree.logic";
 
 const UNKNOWN_PRESENTATION = {
   label: "State unknown",
@@ -18,6 +19,21 @@ export const threadIssueLinkPresentation = (link: ThreadIssueLink) =>
   link.snapshot === null
     ? UNKNOWN_PRESENTATION
     : githubIssueStatePresentation(link.snapshot.state, link.snapshot.closeReason ?? null);
+
+/** A linked issue's closed and total sub-issues, absent for an issue without any. */
+export function ThreadIssueSubIssueProgressFork({ link }: { readonly link: ThreadIssueLink }) {
+  const progress = subIssueProgress(link);
+  if (progress === null) return null;
+  return (
+    <span
+      aria-label={`${progress.closed} of ${progress.total} sub-issues closed`}
+      className="inline-flex shrink-0 items-center gap-0.5 font-normal text-2xs tabular-nums text-muted-foreground"
+    >
+      <ListTreeIcon aria-hidden className="size-3" />
+      {progress.closed}/{progress.total}
+    </span>
+  );
+}
 
 /**
  * The linked-issue twin of the thread pull request badge: the first open link's glyph and number,
@@ -93,6 +109,7 @@ function ThreadIssuesMiniListFork({
             <span className="min-w-0 truncate text-foreground/75">
               {link.snapshot?.title ?? link.repository}
             </span>
+            <ThreadIssueSubIssueProgressFork link={link} />
           </li>
         );
       })}
