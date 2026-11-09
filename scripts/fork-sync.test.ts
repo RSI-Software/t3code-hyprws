@@ -477,6 +477,39 @@ it("lands a handed-off finished marker's tip without rebasing again, then files 
     });
 });
 
+it("lands a tree-equal refold of an applied tag; an unfolded marker stays already applied", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+      forkOnTag: true,
+    },
+    (f) => {
+      const trunk = f.git(["rev-parse", "hyprws"], f.root);
+      const refold = () =>
+        capture(() => run(["v1.0.0", "--refold"], { runner: exec().runner, root: f.root })).value;
+      assert.strictEqual(refold(), 0);
+      assert.strictEqual(readReport(f.root, "v1.0.0").marker?.tip, trunk);
+      handOff(f);
+      // The unfolded marker changes nothing, so the land run stops before it.
+      capture(() => land(["v1.0.0"], { runner: exec().runner, root: f.root }));
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "already-applied");
+      assert.strictEqual(refold(), 0);
+      f.git(["commit", "--quiet", "--amend", "-m", "fork change, folded"], f.worktree);
+      const folded = f.git(["rev-parse", "HEAD"], f.worktree);
+      assert.strictEqual(refold(), 0);
+      handOff(f);
+      assert.strictEqual(
+        capture(() => land(["v1.0.0"], { runner: exec().runner, root: f.root })).value,
+        0,
+      );
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "applied");
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), folded);
+    },
+  );
+});
+
 it("blocks a land run on a partial marker and never pushes the trunk", () => {
   withFixture(SHARED_CONFLICT, (f) => {
     const shas = forkShas(f);

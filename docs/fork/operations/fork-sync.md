@@ -13,6 +13,7 @@ The [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill owns the **s
 
 - `fork:sync [<tag>]`: a **session**; rebases only
 - `fork:sync --land`: the **land run**; workflow only
+- `fork:sync <tag> --refold`: **folds** an **applied tag**
 
 A session **writes no trunk**, candidate, or issue; `--land` **refuses to run** unless `GITHUB_ACTIONS=true`.
 The **lease** is the `origin/hyprws` sha the stack replays; the trunk push is **`--force-with-lease=hyprws:<lease>`**.

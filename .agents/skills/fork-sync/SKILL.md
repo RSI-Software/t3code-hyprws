@@ -15,12 +15,14 @@ A rerun of the same command is always the next move.
 ```bash
 vp run fork:sync            # target picked below
 vp run fork:sync <tag>      # one named v… tag
+vp run fork:sync <tag> --refold   # fold a tag the trunk already has
 ```
 
 - **Session:** rebases only; no CI, push, or issue
 - **Tag:** name one only when the user does
 - **Setup:** waits for the checkout's own setup
 - **`--land`:** workflow only; never a session
+- **`--refold`:** session; [fold](#fold), no new tag
 
 Any other flag is a defect.
 
@@ -186,6 +188,13 @@ Record a call **only when user-visible behaviour changes**, as one line in `.t3/
 After a green run, fold the stack in the kept worktree per [fork-fold](../fork-fold/SKILL.md).
 The fold is tree-equal, so the rerun that follows adopts it, and the marker hands it to the land run.
 Skip it when the budget is short; the next sync folds further.
+
+**Trunk already has the tag:** the job lands each tag within minutes.
+
+- **Run** with `--refold`, both times
+- **Land run** takes a **refold** marker
+- **Refold:** new tip, **same tree** as its lease
+- **Other markers** stay `already-applied`
 
 ## Hand off
 

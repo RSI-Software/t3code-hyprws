@@ -1952,7 +1952,13 @@ export interface RunOptions {
   readonly now?: () => Date;
 }
 
-const USAGE = "usage: vp run fork:sync [<tag>] [--land]";
+const USAGE = "usage: vp run fork:sync [<tag>] [--refold | --land]";
+
+/** A tree-equal rewrite of `lease`: a fold of a stack the trunk already carries. */
+const isRefold = (runner: CommandRunner, root: string, tip: string, lease: string): boolean =>
+  tip !== lease &&
+  git(runner, root, ["rev-parse", `${tip}^{tree}`]) ===
+    git(runner, root, ["rev-parse", `${lease}^{tree}`]);
 
 /** The session's hand-off of the marker it wrote. */
 const HANDOFF = `git push --force origin ${RESOLUTION_REF}:refs/heads/${SYNC_RESOLUTION_BRANCH}`;
@@ -1997,12 +2003,17 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
   const startedAt = now();
   let parsed;
   try {
-    parsed = parseArgs(argv, { positionals: { min: 0, max: 1 }, flags: ["--land"] });
+    parsed = parseArgs(argv, { positionals: { min: 0, max: 1 }, flags: ["--land", "--refold"] });
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`);
     return 1;
   }
   const land = parsed.flags.has("--land");
+  const refoldFlag = parsed.flags.has("--refold");
+  if (land && refoldFlag) {
+    process.stderr.write(`--refold is a session flag; the land run reads the marker\n${USAGE}\n`);
+    return 1;
+  }
   if (land && process.env.GITHUB_ACTIONS !== "true") {
     process.stderr.write(
       "fork:sync --land runs only in the hyprws upstream sync workflow; a session rebases and hands off the marker\n",
@@ -2187,7 +2198,12 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       };
     };
 
-    if (isAncestor(runner, root, target.sha, expectedOld)) {
+    const marker = usableMarker(runner, root, fetched, target, expectedOld);
+    // A fold rewrites an applied tag's stack without changing its tree; it still lands.
+    const refold = land
+      ? marker !== null && marker.todo === null && isRefold(runner, root, marker.tip, marker.lease)
+      : refoldFlag;
+    if (isAncestor(runner, root, target.sha, expectedOld) && !refold) {
       const close = closeStaleBlocks(expectedOld);
       // A no-op run posts nothing, except to settle the comment on an issue it just closed.
       const settle = startStatus(target.tag, null);
@@ -2202,7 +2218,6 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         }),
       );
     }
-    const marker = usableMarker(runner, root, fetched, target, expectedOld);
     if (land) {
       status = startStatus(target.tag, marker?.commit ?? null);
       status({ kind: marker === null ? "rebasing" : "adopting" });
