@@ -11,7 +11,7 @@ name: hyprws Release
 # setup, and action versions. The pin names the upstream commit it last matched;
 # fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
 # Its release test jobs stay out: the gate requires a green hyprws CI instead.
-# fork-mirror: .github/workflows/release.yml@4cb6945dc60ed03f567dc5daafd083e52308e82b
+# fork-mirror: .github/workflows/release.yml@357fb754fa9dae4111f0945fb8a13d30b012a62a
 
 on:
   workflow_run:
