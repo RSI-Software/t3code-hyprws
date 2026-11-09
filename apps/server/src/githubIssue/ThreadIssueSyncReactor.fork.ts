@@ -4,7 +4,9 @@
 // so replay rebuilds the same projection.
 import {
   CommandId,
+  githubIssueLinkTarget,
   ThreadIssueLink,
+  type GitHubSubIssue,
   type OrchestrationV2ThreadShell,
   type ThreadId,
   type ThreadIssueKey,
@@ -53,13 +55,36 @@ const issueKey = (key: ThreadIssueKey) => {
   return `${normalized.host}/${normalized.repository}#${normalized.number}`;
 };
 
+// A child names its repository only in its URL, which may differ from its parent's.
+const subIssueKey = (child: GitHubSubIssue): string | null => {
+  const target = githubIssueLinkTarget(child.url);
+  return target === null ? null : issueKey(target);
+};
+
+const sameSubIssue = (left: GitHubSubIssue | undefined, right: GitHubSubIssue | undefined) =>
+  left === right ||
+  (left !== undefined &&
+    right !== undefined &&
+    left.url === right.url &&
+    left.title === right.title &&
+    left.state === right.state &&
+    (left.closeReason ?? null) === (right.closeReason ?? null));
+
 const sameSnapshot = (
   stored: ThreadIssueSnapshot,
   read: Omit<ThreadIssueSnapshot, "syncedAt">,
-): boolean =>
-  stored.title === read.title &&
-  stored.state === read.state &&
-  (stored.closeReason ?? null) === (read.closeReason ?? null);
+): boolean => {
+  const storedChildren = stored.subIssues ?? [];
+  const readChildren = read.subIssues ?? [];
+  return (
+    stored.title === read.title &&
+    stored.state === read.state &&
+    (stored.closeReason ?? null) === (read.closeReason ?? null) &&
+    sameSubIssue(stored.parent, read.parent) &&
+    storedChildren.length === readChildren.length &&
+    storedChildren.every((child, index) => sameSubIssue(child, readChildren[index]))
+  );
+};
 
 export class ThreadIssueSyncReactor extends Context.Service<
   ThreadIssueSyncReactor,
@@ -196,7 +221,15 @@ export const make = Effect.gen(function* () {
     const batches = new Map<string, Array<IssueRead>>();
     for (const [key, group] of groups) {
       const links = group.map((entry) => entry.link);
-      const wanted = asked.has(key);
+      // A child read on request rereads its linked parent too, so the parent's progress follows.
+      const wanted =
+        asked.has(key) ||
+        links.some((link) =>
+          (link.snapshot?.subIssues ?? []).some((child) => {
+            const childKey = subIssueKey(child);
+            return childKey !== null && asked.has(childKey);
+          }),
+        );
       const due =
         wanted ||
         (scope === "all" &&

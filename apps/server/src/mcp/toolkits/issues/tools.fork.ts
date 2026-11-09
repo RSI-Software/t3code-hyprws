@@ -4,6 +4,7 @@
 // through the marked `github-issues/mcp-issues-toolkit` hook.
 import {
   GitHubIssueState,
+  GitHubSubIssue,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   PositiveInt,
@@ -192,6 +193,13 @@ export const ThreadIssueEntry = Schema.Struct({
   /** Null until T3 Code has read the issue from GitHub; never a guess. */
   state: Schema.NullOr(GitHubIssueState),
   title: Schema.NullOr(Schema.String),
+  subIssues: Schema.Array(GitHubSubIssue).annotate({
+    description:
+      "The issue's sub-issues on GitHub, as last read. Empty for an issue without any, or before the first read.",
+  }),
+  parent: Schema.NullOr(GitHubSubIssue).annotate({
+    description: "The issue this one is a sub-issue of, or null.",
+  }),
 });
 export type ThreadIssueEntry = typeof ThreadIssueEntry.Type;
 

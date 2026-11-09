@@ -2,10 +2,13 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
+import type { GitHubSubIssue, ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
 import {
   ArrowUpRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   CircleHelpIcon,
+  CornerLeftUpIcon,
   LinkIcon,
   MoreHorizontalIcon,
   PlusIcon,
@@ -34,6 +37,12 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
 import { openLinkGitHubIssueDialog } from "./LinkGitHubIssueDialog";
+import { ThreadIssueSubIssueProgressFork } from "./ThreadIssueBadge.fork";
+import {
+  subIssueProgress,
+  threadIssueTree,
+  type ThreadIssueTreeNode,
+} from "./threadIssueTree.logic";
 
 const SOURCE_LABELS: Record<ThreadIssueLink["source"], string> = {
   manual: "Linked by you",
@@ -139,10 +148,11 @@ function EnabledThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
-        {links.map((link) => (
-          <IssueLinkRow
-            key={linkKey(link)}
-            link={link}
+        {threadIssueTree(links).map((node) => (
+          <IssueLinkTree
+            key={linkKey(node.link)}
+            node={node}
+            root
             threadRef={threadRef}
             onUnlink={(target) => void unlinkIssue(target)}
           />
@@ -178,15 +188,96 @@ function EnabledThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
   );
 }
 
+/**
+ * A link and the sub-issues GitHub lists under it. Children the thread also links always show,
+ * nested; the rest wait behind a toggle so a large tracker does not flood the panel.
+ */
+function IssueLinkTree({
+  node,
+  root,
+  threadRef,
+  onUnlink,
+}: {
+  readonly node: ThreadIssueTreeNode;
+  readonly root: boolean;
+  readonly threadRef: ScopedThreadRef;
+  readonly onUnlink: (link: ThreadIssueLink) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const unlinked = node.children.filter((entry) => entry.node === null).length;
+  const shown = expanded ? node.children : node.children.filter((entry) => entry.node !== null);
+  return (
+    <>
+      <IssueLinkRow link={node.link} root={root} threadRef={threadRef} onUnlink={onUnlink} />
+      {node.children.length > 0 ? (
+        <div className="ml-4 border-l border-border/60 pl-1">
+          {shown.map(({ child, node: linked }) =>
+            linked === null ? (
+              <SubIssueRow key={child.url} child={child} threadRef={threadRef} />
+            ) : (
+              <IssueLinkTree
+                key={linkKey(linked.link)}
+                node={linked}
+                root={false}
+                threadRef={threadRef}
+                onUnlink={onUnlink}
+              />
+            ),
+          )}
+          {unlinked > 0 ? (
+            <Button size="xs" variant="ghost" onClick={() => setExpanded(!expanded)}>
+              {expanded ? (
+                <ChevronUpIcon className="size-3.5" />
+              ) : (
+                <ChevronDownIcon className="size-3.5" />
+              )}
+              {expanded
+                ? "Hide sub-issues"
+                : `Show ${unlinked} ${shown.length > 0 ? "more " : ""}sub-issue${unlinked === 1 ? "" : "s"}`}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** A sub-issue the thread does not link: it opens like a link, without link actions. */
+function SubIssueRow({
+  child,
+  threadRef,
+}: {
+  readonly child: GitHubSubIssue;
+  readonly threadRef: ScopedThreadRef;
+}) {
+  const openLink = useOpenPrLink(threadRef);
+  return (
+    <a
+      href={child.url}
+      onClick={(event) => openLink(event, child.url, threadRef)}
+      className={cn(PULL_REQUEST_ROW_CLASS, "pl-2 hover:bg-accent/60")}
+    >
+      <GitHubIssueStateGlyph state={child.state} closeReason={child.closeReason ?? null} />
+      <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{child.number}</span>
+      <span className="min-w-0 truncate text-sm text-muted-foreground">{child.title}</span>
+    </a>
+  );
+}
+
 function IssueLinkRow({
   link,
+  root,
   threadRef,
   onUnlink,
 }: {
   readonly link: ThreadIssueLink;
+  readonly root: boolean;
   readonly threadRef: ScopedThreadRef;
   readonly onUnlink: (link: ThreadIssueLink) => void;
 }) {
+  const progress = subIssueProgress(link);
+  // A nested link's parent is the row above it.
+  const parent = root ? (link.snapshot?.parent ?? null) : null;
   const openLink = useOpenPrLink(threadRef);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
@@ -221,15 +312,42 @@ function IssueLinkRow({
             </Tooltip>
           }
           title={link.snapshot?.title ?? link.repository}
+          status={
+            progress === null ? null : (
+              <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex" />}>
+                  <ThreadIssueSubIssueProgressFork link={link} />
+                </TooltipTrigger>
+                <TooltipPopup>
+                  {progress.closed} of {progress.total} sub-issues closed
+                </TooltipPopup>
+              </Tooltip>
+            )
+          }
           meta={
-            <Tooltip>
-              <TooltipTrigger render={<span className="flex min-w-0 max-w-40 font-mono" />}>
-                <MiddleTruncate value={link.repository} showTitle={false} />
-              </TooltipTrigger>
-              <TooltipPopup>
-                {link.host}/{link.repository}
-              </TooltipPopup>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger render={<span className="flex min-w-0 max-w-40 font-mono" />}>
+                  <MiddleTruncate value={link.repository} showTitle={false} />
+                </TooltipTrigger>
+                <TooltipPopup>
+                  {link.host}/{link.repository}
+                </TooltipPopup>
+              </Tooltip>
+              {parent === null ? null : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<span className="inline-flex min-w-0 shrink items-center gap-0.5" />}
+                  >
+                    <CornerLeftUpIcon aria-hidden className="size-3 shrink-0" />
+                    <span className="truncate">#{parent.number}</span>
+                  </TooltipTrigger>
+                  <TooltipPopup>
+                    Sub-issue of #{parent.number}: {parent.title}
+                  </TooltipPopup>
+                </Tooltip>
+              )}
+            </>
           }
         />
       </a>
