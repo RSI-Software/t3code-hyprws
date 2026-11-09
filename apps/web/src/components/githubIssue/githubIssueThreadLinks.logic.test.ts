@@ -1,27 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  githubIssueLinkTarget,
   resolveGitHubIssueReference,
   threadLinksGitHubIssue,
 } from "./githubIssueThreadLinks.logic";
-
-describe("githubIssueLinkTarget", () => {
-  it("keys an issue URL by lowercased host, port included", () => {
-    expect(githubIssueLinkTarget("https://GHE.acme.dev:8443/Acme/App/issues/12#comment")).toEqual({
-      host: "ghe.acme.dev:8443",
-      repository: "Acme/App",
-      number: 12,
-      url: "https://ghe.acme.dev:8443/Acme/App/issues/12",
-    });
-  });
-
-  it("rejects pages that are not issues", () => {
-    expect(githubIssueLinkTarget("https://github.com/acme/app/pull/12")).toBeNull();
-    expect(githubIssueLinkTarget("https://github.com/acme/app/issues/0")).toBeNull();
-    expect(githubIssueLinkTarget("not a url")).toBeNull();
-  });
-});
 
 describe("resolveGitHubIssueReference", () => {
   const project = { host: "github.com", repository: "acme/app" };

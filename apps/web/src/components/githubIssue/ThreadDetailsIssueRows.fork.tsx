@@ -7,7 +7,10 @@ import { cn } from "~/lib/utils";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { THREAD_DETAILS_PANEL_LABEL_CLASS } from "../chat/threadDetailsPanelStyles";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { threadIssueLinkPresentation } from "./ThreadIssueBadge.fork";
+import {
+  ThreadIssueSubIssueProgressFork,
+  threadIssueLinkPresentation,
+} from "./ThreadIssueBadge.fork";
 
 const linkKey = (link: ThreadIssueLink) => `${link.host}/${link.repository}#${link.number}`;
 
@@ -57,6 +60,7 @@ export function ThreadDetailsIssueRowsFork({
             #{link.number}
             {link.snapshot === null ? "" : `: ${link.snapshot.title}`}
           </span>
+          <ThreadIssueSubIssueProgressFork link={link} />
         </TooltipTrigger>
         <TooltipPopup side="top">
           {presentation.label} · {link.repository}#{link.number}
