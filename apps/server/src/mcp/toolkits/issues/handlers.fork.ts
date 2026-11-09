@@ -4,6 +4,7 @@
 // idempotent results only once a reread of the thread confirms that outcome.
 import {
   CommandId,
+  githubIssueLinkTarget,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -42,8 +43,6 @@ import {
 interface ResolvedIssueTarget extends ThreadIssueKey {
   readonly url: string;
 }
-
-const GITHUB_ISSUE_PATH = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u;
 
 /** The one GitHub host believed without a project on it. */
 const GITHUB_DOT_COM = "github.com";
@@ -86,23 +85,14 @@ export function parseGitHubIssueUrlFork(
   targetUrl: string,
   projectHost: string | null,
 ): ResolvedIssueTarget | null {
-  let url: URL;
-  try {
-    url = new URL(targetUrl);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  const host = url.host.toLowerCase();
-  const onProjectHost = host === projectHost || url.hostname.toLowerCase() === projectHost;
-  if (host !== GITHUB_DOT_COM && !onProjectHost) return null;
-  const match = GITHUB_ISSUE_PATH.exec(url.pathname);
-  const repository = match?.[1];
-  const number = Number(match?.[2]);
-  if (!repository || !Number.isSafeInteger(number) || number <= 0) return null;
-  const key = normalizeThreadIssueKey({ host, repository, number });
+  const target = githubIssueLinkTarget(targetUrl);
+  if (target === null) return null;
+  const { hostname, protocol } = new URL(target.url);
+  const onProjectHost = target.host === projectHost || hostname === projectHost;
+  if (target.host !== GITHUB_DOT_COM && !onProjectHost) return null;
+  const key = normalizeThreadIssueKey(target);
   // github.com is HTTPS-only; an Enterprise host keeps the scheme it was reached by.
-  return { ...key, url: canonicalIssueUrl(key, host === GITHUB_DOT_COM ? "https:" : url.protocol) };
+  return { ...key, url: canonicalIssueUrl(key, key.host === GITHUB_DOT_COM ? "https:" : protocol) };
 }
 
 /**
@@ -147,6 +137,10 @@ function listThreadIssuesFork(thread: ThreadIssuesShell): ListThreadIssuesResult
       source: link.source,
       state: link.snapshot?.state ?? null,
       title: link.snapshot?.title ?? null,
+      subIssues: link.snapshot?.subIssues ?? [],
+      parent: link.snapshot?.parent ?? null,
+      issueType: link.snapshot?.issueType?.name ?? null,
+      labels: (link.snapshot?.labels ?? []).map((label) => label.name),
     })),
   };
 }
