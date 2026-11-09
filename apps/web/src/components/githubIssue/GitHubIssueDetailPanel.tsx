@@ -1,10 +1,11 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type {
-  EnvironmentId,
-  GitHubIssueDetail,
-  GitHubIssueRef,
-  GitHubSubIssue,
-  ScopedThreadRef,
+import {
+  githubIssueLinkTarget,
+  type EnvironmentId,
+  type GitHubIssueDetail,
+  type GitHubIssueRef,
+  type GitHubSubIssue,
+  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts/settings";
 import {
@@ -49,7 +50,6 @@ import {
   GitHubIssueThreadPicker,
   useGitHubIssueThreadLinks,
 } from "./GitHubIssueThreadLinks";
-import { githubIssueLinkTarget } from "./githubIssueThreadLinks.logic";
 
 export function githubIssueHandoffPrompt(
   issue: Pick<GitHubIssueDetail, "number" | "title" | "url">,
