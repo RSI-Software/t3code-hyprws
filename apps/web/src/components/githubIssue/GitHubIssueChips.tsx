@@ -124,3 +124,51 @@ export function GitHubIssueTypeChip({
 }) {
   return <GitHubIssueChip kind="type" color={issueType.color} name={issueType.name} {...props} />;
 }
+
+/**
+ * Each label slot past the first only appears once the meta line is wide enough to hold it, the
+ * pull request row's own rule, so a narrow row shows one label and a "+N" and a wide one up to
+ * three. The "+N" rides the last visible pill and hides as soon as the next slot shows.
+ */
+const LABEL_SLOTS = [
+  { overflow: "@xl/pr-row-meta:hidden" },
+  { overflow: "@3xl/pr-row-meta:hidden" },
+  { overflow: "" },
+] as const;
+
+export function GitHubIssueLabelChips({
+  labels,
+  onFilter,
+}: {
+  readonly labels: ReadonlyArray<GitHubIssueLabel>;
+  readonly onFilter?: (name: string) => void;
+}) {
+  if (labels.length === 0) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      {LABEL_SLOTS.map((slot, index) => {
+        const label = labels[index];
+        if (!label) return null;
+        const remaining = labels.length - index - 1;
+        return (
+          <GitHubIssueLabelChip
+            key={label.name}
+            label={label}
+            className={
+              index === 0
+                ? ""
+                : index === 1
+                  ? "hidden @xl/pr-row-meta:inline-flex"
+                  : "hidden @3xl/pr-row-meta:inline-flex"
+            }
+            {...(onFilter ? { onFilter: () => onFilter(label.name) } : {})}
+          >
+            {remaining > 0 ? (
+              <span className={cn("shrink-0", slot.overflow)}>+{remaining}</span>
+            ) : null}
+          </GitHubIssueLabelChip>
+        );
+      })}
+    </span>
+  );
+}
