@@ -311,6 +311,8 @@ server environment that owns the issue, so its web and desktop clients use the s
 
 With proactive panels on, a newly linked issue opens **Linked issues**, as a linked pull request does.
 
+A linked issue with **sub-issues** shows how many are closed. **Linked sub-issues nest** under their parent; the rest open with **Show sub-issues**.
+
 The issue panel's menu closes an issue as completed or not planned, and reopens a closed one, which
 needs write access to the repository. Commenting, labeling, and assigning stay on GitHub. Each server
 holding a project needs GitHub CLI installed and authenticated — `gh auth login` for GitHub.com, or

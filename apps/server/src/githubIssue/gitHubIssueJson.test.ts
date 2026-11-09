@@ -4,11 +4,7 @@ import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 
 import issue152Fixture from "./__fixtures__/issue-152.json" with { type: "json" };
-import {
-  decodeGitHubIssueDetail,
-  decodeGitHubIssueList,
-  decodeGitHubSubIssueReasons,
-} from "./gitHubIssueJson.ts";
+import { decodeGitHubIssueDetail, decodeGitHubIssueList } from "./gitHubIssueJson.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -178,32 +174,6 @@ describe("GitHub issue JSON", () => {
           closeReason: "not planned",
         },
       ]);
-    }),
-  );
-
-  it.effect("keys the graphql sub-issue reasons by child number", () =>
-    Effect.gen(function* () {
-      const reasons = yield* decodeGitHubSubIssueReasons(
-        encodeJson({
-          data: {
-            repository: {
-              issue: {
-                subIssues: {
-                  nodes: [
-                    { number: 43, stateReason: "NOT_PLANNED" },
-                    { number: 44, stateReason: "COMPLETED" },
-                    { number: 45, stateReason: null },
-                  ],
-                },
-              },
-            },
-          },
-        }),
-      );
-
-      expect(reasons.get(43)).toBe("not planned");
-      expect(reasons.get(44)).toBe("completed");
-      expect(reasons.get(45)).toBeNull();
     }),
   );
 

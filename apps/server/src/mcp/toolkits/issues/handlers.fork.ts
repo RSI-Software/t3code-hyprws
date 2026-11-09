@@ -147,6 +147,8 @@ function listThreadIssuesFork(thread: ThreadIssuesShell): ListThreadIssuesResult
       source: link.source,
       state: link.snapshot?.state ?? null,
       title: link.snapshot?.title ?? null,
+      subIssues: link.snapshot?.subIssues ?? [],
+      parent: link.snapshot?.parent ?? null,
     })),
   };
 }
