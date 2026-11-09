@@ -1,12 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as Schema from "effect/Schema";
 
 import issue152Fixture from "./__fixtures__/issue-152.json" with { type: "json" };
-import { decodeGitHubIssueDetail, decodeGitHubIssueList } from "./gitHubIssueJson.ts";
-
-const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+import { decodeParsedGitHubIssueDetail, decodeParsedGitHubIssueList } from "./gitHubIssueJson.ts";
 
 const rawIssue = {
   number: 42,
@@ -23,7 +20,7 @@ const rawIssue = {
 describe("GitHub issue JSON", () => {
   it.effect("normalizes list actors, labels, and state", () =>
     Effect.gen(function* () {
-      const [issue] = yield* decodeGitHubIssueList(encodeJson([rawIssue]));
+      const [issue] = yield* decodeParsedGitHubIssueList([rawIssue]);
 
       expect(issue).toMatchObject({
         number: 42,
@@ -37,15 +34,13 @@ describe("GitHub issue JSON", () => {
 
   it.effect("degrades blank actors without failing the batch", () =>
     Effect.gen(function* () {
-      const [issue] = yield* decodeGitHubIssueList(
-        encodeJson([
-          {
-            ...rawIssue,
-            author: { login: "   " },
-            assignees: [{ login: "" }, { login: " maintainer " }],
-          },
-        ]),
-      );
+      const [issue] = yield* decodeParsedGitHubIssueList([
+        {
+          ...rawIssue,
+          author: { login: "   " },
+          assignees: [{ login: "" }, { login: " maintainer " }],
+        },
+      ]);
 
       expect(issue?.author).toBeNull();
       expect(issue?.assignees).toEqual([{ login: "maintainer", name: null, avatarUrl: null }]);
@@ -54,23 +49,21 @@ describe("GitHub issue JSON", () => {
 
   it.effect("normalizes optional actor fields in comments", () =>
     Effect.gen(function* () {
-      const issue = yield* decodeGitHubIssueDetail(
-        encodeJson({
-          ...rawIssue,
-          body: "Please make issues visible.",
-          closedAt: null,
-          comments: [
-            {
-              id: "comment-1",
-              author: { login: "reviewer" },
-              body: "This should open an agent thread.",
-              createdAt: "2026-08-21T01:00:00Z",
-              updatedAt: "2026-08-21T02:00:00Z",
-              url: `${rawIssue.url}#issuecomment-comment-1`,
-            },
-          ],
-        }),
-      );
+      const issue = yield* decodeParsedGitHubIssueDetail({
+        ...rawIssue,
+        body: "Please make issues visible.",
+        closedAt: null,
+        comments: [
+          {
+            id: "comment-1",
+            author: { login: "reviewer" },
+            body: "This should open an agent thread.",
+            createdAt: "2026-08-21T01:00:00Z",
+            updatedAt: "2026-08-21T02:00:00Z",
+            url: `${rawIssue.url}#issuecomment-comment-1`,
+          },
+        ],
+      });
 
       expect(issue.body).toBe("Please make issues visible.");
       expect(issue.comments[0]).toMatchObject({
@@ -84,7 +77,7 @@ describe("GitHub issue JSON", () => {
 
   it.effect("decodes the real gh payload for an issue with comments", () =>
     Effect.gen(function* () {
-      const issue = yield* decodeGitHubIssueDetail(encodeJson(issue152Fixture));
+      const issue = yield* decodeParsedGitHubIssueDetail(issue152Fixture);
 
       expect(issue.number).toBe(152);
       expect(issue.comments).toHaveLength(2);
@@ -98,7 +91,7 @@ describe("GitHub issue JSON", () => {
 
   it.effect("defaults absent detail fields without changing markdown", () =>
     Effect.gen(function* () {
-      const issue = yield* decodeGitHubIssueDetail(encodeJson(rawIssue));
+      const issue = yield* decodeParsedGitHubIssueDetail(rawIssue);
       expect(issue.body).toBe("");
       expect(issue.comments).toStrictEqual([]);
       expect(issue.subIssues).toStrictEqual([]);
@@ -110,15 +103,13 @@ describe("GitHub issue JSON", () => {
 
   it.effect("maps the close reason, reading anything but a real close as none", () =>
     Effect.gen(function* () {
-      const issues = yield* decodeGitHubIssueList(
-        encodeJson([
-          { ...rawIssue, state: "CLOSED", stateReason: "COMPLETED" },
-          { ...rawIssue, state: "CLOSED", stateReason: "NOT_PLANNED" },
-          // GitHub keeps a reopened issue's last close reason; neither word is a close now.
-          { ...rawIssue, state: "OPEN", stateReason: "REOPENED" },
-          { ...rawIssue, state: "CLOSED" },
-        ]),
-      );
+      const issues = yield* decodeParsedGitHubIssueList([
+        { ...rawIssue, state: "CLOSED", stateReason: "COMPLETED" },
+        { ...rawIssue, state: "CLOSED", stateReason: "NOT_PLANNED" },
+        // GitHub keeps a reopened issue's last close reason; neither word is a close now.
+        { ...rawIssue, state: "OPEN", stateReason: "REOPENED" },
+        { ...rawIssue, state: "CLOSED" },
+      ]);
 
       expect(issues.map((issue) => issue.closeReason)).toStrictEqual([
         "completed",
@@ -131,31 +122,29 @@ describe("GitHub issue JSON", () => {
 
   it.effect("normalizes the issue type and the sub-issue hierarchy", () =>
     Effect.gen(function* () {
-      const issue = yield* decodeGitHubIssueDetail(
-        encodeJson({
-          ...rawIssue,
-          issueType: { id: "IT_1", name: "Bug \u{1F41B}", description: "A problem", color: "RED" },
-          subIssues: {
-            nodes: [
-              {
-                id: "I_1",
-                number: 43,
-                title: "Render the list",
-                url: `${rawIssue.url.replace("42", "43")}`,
-                state: "OPEN",
-              },
-              {
-                id: "I_2",
-                number: 44,
-                title: "Drop the list",
-                url: `${rawIssue.url.replace("42", "44")}`,
-                state: "CLOSED",
-                stateReason: "NOT_PLANNED",
-              },
-            ],
-          },
-        }),
-      );
+      const issue = yield* decodeParsedGitHubIssueDetail({
+        ...rawIssue,
+        issueType: { id: "IT_1", name: "Bug \u{1F41B}", description: "A problem", color: "RED" },
+        subIssues: {
+          nodes: [
+            {
+              id: "I_1",
+              number: 43,
+              title: "Render the list",
+              url: `${rawIssue.url.replace("42", "43")}`,
+              state: "OPEN",
+            },
+            {
+              id: "I_2",
+              number: 44,
+              title: "Drop the list",
+              url: `${rawIssue.url.replace("42", "44")}`,
+              state: "CLOSED",
+              stateReason: "NOT_PLANNED",
+            },
+          ],
+        },
+      });
 
       expect(issue.issueType).toStrictEqual({ name: "Bug \u{1F41B}", color: "RED" });
       expect(issue.subIssues).toStrictEqual([
@@ -187,9 +176,9 @@ describe("GitHub issue JSON", () => {
     };
 
     return Effect.gen(function* () {
-      const exit = yield* decodeGitHubIssueDetail(
-        encodeJson({ ...rawIssue, comments: [comment] }),
-      ).pipe(Effect.exit);
+      const exit = yield* decodeParsedGitHubIssueDetail({ ...rawIssue, comments: [comment] }).pipe(
+        Effect.exit,
+      );
       expect(Exit.isFailure(exit)).toBe(true);
     });
   });
@@ -200,7 +189,7 @@ describe("GitHub issue JSON", () => {
     { name: "malformed date", patch: { updatedAt: "yesterday" } },
   ])("rejects $name", ({ patch }) =>
     Effect.gen(function* () {
-      const exit = yield* decodeGitHubIssueList(encodeJson([{ ...rawIssue, ...patch }])).pipe(
+      const exit = yield* decodeParsedGitHubIssueList([{ ...rawIssue, ...patch }]).pipe(
         Effect.exit,
       );
       expect(Exit.isFailure(exit)).toBe(true);

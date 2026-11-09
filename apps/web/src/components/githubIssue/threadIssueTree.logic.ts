@@ -1,6 +1,9 @@
-import type { GitHubSubIssue, ThreadIssueKey, ThreadIssueLink } from "@t3tools/contracts";
-
-import { githubIssueLinkTarget } from "./githubIssueThreadLinks.logic";
+import {
+  githubIssueLinkTarget,
+  type GitHubSubIssue,
+  type ThreadIssueKey,
+  type ThreadIssueLink,
+} from "@t3tools/contracts";
 
 /** A linked issue and its sub-issues; a child the thread also links carries its own node. */
 export interface ThreadIssueTreeNode {

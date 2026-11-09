@@ -42,9 +42,7 @@ const RawSubIssue = Schema.Struct({
   title: Schema.String,
   url: Schema.String,
   state: Schema.String,
-  // A close reason in GitHub's GraphQL words. `gh issue view --json subIssues` omits the key on
-  // every child (gh 2.98.0), so a detail read attaches reasons with its own GraphQL call and an
-  // absent key here must survive.
+  // A close reason in GitHub's GraphQL words; a read that does not select it leaves it absent.
   stateReason: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
@@ -111,8 +109,6 @@ const NormalizedIssueDetail = Schema.Struct({
   closedAt: Schema.NullOr(IsoDateTime),
 });
 
-const decodeIssueList = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(RawIssue)));
-const decodeIssueDetail = Schema.decodeEffect(Schema.fromJsonString(RawIssue));
 const decodeUnknownIssueList = Schema.decodeUnknownEffect(Schema.Array(RawIssue));
 const decodeUnknownIssueDetail = Schema.decodeUnknownEffect(RawIssue);
 const decodeNormalizedIssueList = Schema.decodeUnknownEffect(Schema.Array(NormalizedIssue));
@@ -249,16 +245,6 @@ class GitHubIssueNormalizeError extends Schema.TaggedError<GitHubIssueNormalizeE
   { cause: Schema.Defect() },
 ) {}
 
-export const decodeGitHubIssueList = Effect.fn("decodeGitHubIssueList")(function* (raw: string) {
-  const decoded = yield* decodeIssueList(raw);
-  const normalized = yield* Effect.try({
-    try: () => decoded.map(normalizeGitHubIssue),
-    catch: (cause) => new GitHubIssueNormalizeError({ cause }),
-  });
-  return yield* decodeNormalizedIssueList(normalized);
-});
-
-/** The same read for rows that were never a JSON string, such as GraphQL answers reshaped in memory. */
 export const decodeParsedGitHubIssueList = Effect.fn("decodeParsedGitHubIssueList")(function* (
   rows: ReadonlyArray<unknown>,
 ) {
@@ -270,14 +256,6 @@ export const decodeParsedGitHubIssueList = Effect.fn("decodeParsedGitHubIssueLis
   return yield* decodeNormalizedIssueList(normalized);
 });
 
-export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(function* (
-  raw: string,
-) {
-  const decoded = yield* decodeIssueDetail(raw);
-  return yield* decodeNormalizedIssueDetail(normalizeIssueDetail(decoded));
-});
-
-/** The same read for one row that was never a JSON string. */
 export const decodeParsedGitHubIssueDetail = Effect.fn("decodeParsedGitHubIssueDetail")(function* (
   row: unknown,
 ) {

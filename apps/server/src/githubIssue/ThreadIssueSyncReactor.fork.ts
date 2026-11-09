@@ -4,6 +4,7 @@
 // so replay rebuilds the same projection.
 import {
   CommandId,
+  githubIssueLinkTarget,
   ThreadIssueLink,
   type GitHubSubIssue,
   type OrchestrationV2ThreadShell,
@@ -56,10 +57,8 @@ const issueKey = (key: ThreadIssueKey) => {
 
 // A child names its repository only in its URL, which may differ from its parent's.
 const subIssueKey = (child: GitHubSubIssue): string | null => {
-  const match = /^https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/issues\/(\d+)/u.exec(child.url);
-  return match === null
-    ? null
-    : issueKey({ host: match[1]!, repository: match[2]!, number: Number(match[3]) });
+  const target = githubIssueLinkTarget(child.url);
+  return target === null ? null : issueKey(target);
 };
 
 const sameSubIssue = (left: GitHubSubIssue | undefined, right: GitHubSubIssue | undefined) =>
