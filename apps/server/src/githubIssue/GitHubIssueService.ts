@@ -37,7 +37,6 @@ import {
   decodeParsedGitHubIssueSummary,
   type GitHubIssueSummary,
 } from "./gitHubIssueJson.ts";
-import { attachSubIssueCloseReasons } from "./subIssueCloseReasons.fork.ts";
 import { gitHubIssueSearchQueryFork, compareGitHubIssuesFork } from "./listView.fork.ts";
 
 const DEFAULT_LIMIT = 50;
@@ -56,8 +55,11 @@ const SEARCH_PAGE_MAX = 100;
 const ISSUE_ACTOR_SELECTION =
   "login ... on User { name avatarUrl } ... on Organization { name avatarUrl }";
 const ISSUE_BASE_SELECTION = `number title url author { ${ISSUE_ACTOR_SELECTION} } assignees(first: 100) { nodes { login name avatarUrl } } labels(first: 100) { nodes { name color } } issueType { name color } state stateReason createdAt updatedAt reactionGroups { content users { totalCount } }`;
-const ISSUE_SUMMARY_SELECTION = "title state stateReason";
-const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body parent { number title url state stateReason } subIssues(first: 100) { nodes { number title url state stateReason } } closedAt comments(last: ${DETAIL_COMMENT_LIMIT}) { totalCount nodes { id author { ${ISSUE_ACTOR_SELECTION} } body createdAt updatedAt url } }`;
+// GitHub caps `subIssues` at `first: 100`; asking for more fails the whole query.
+const ISSUE_HIERARCHY_SELECTION =
+  "parent { number title url state stateReason } subIssues(first: 100) { nodes { number title url state stateReason } }";
+const ISSUE_SUMMARY_SELECTION = `title state stateReason labels(first: 100) { nodes { name color } } issueType { name color } ${ISSUE_HIERARCHY_SELECTION}`;
+const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body ${ISSUE_HIERARCHY_SELECTION} closedAt comments(last: ${DETAIL_COMMENT_LIMIT}) { totalCount nodes { id author { ${ISSUE_ACTOR_SELECTION} } body createdAt updatedAt url } }`;
 
 const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!,$type:SearchType!){search(query:$query,type:$type,first:$first){nodes{... on Issue{${ISSUE_BASE_SELECTION} comments{totalCount}}}}}`;
 const ISSUE_DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_DETAIL_SELECTION}}}}`;
@@ -112,21 +114,11 @@ const DetailEnvelope = Schema.Struct({
     repository: Schema.NullOr(Schema.Struct({ issue: Schema.NullOr(GraphQlIssueRow) })),
   }),
 });
-// One alias per issue (`i<number>`); a number GitHub has no issue for answers null.
+// One alias per issue (`i<number>`); a number GitHub has no issue for answers null. Rows pass
+// through untouched, like `GraphQlIssueRow`'s inner objects: the summary decoder owns them.
 const SummariesEnvelope = Schema.Struct({
   data: Schema.Struct({
-    repository: Schema.NullOr(
-      Schema.Record(
-        Schema.String,
-        Schema.NullOr(
-          Schema.Struct({
-            title: Schema.String,
-            state: Schema.String,
-            stateReason: Schema.NullOr(Schema.String),
-          }),
-        ),
-      ),
-    ),
+    repository: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
   }),
 });
 const IssueIdEnvelope = Schema.Struct({
@@ -500,18 +492,8 @@ export const make = Effect.gen(function* () {
       const issue = yield* decodeParsedGitHubIssueDetail(toRawIssue(row)).pipe(
         Effect.mapError((cause) => decodeError("detail", cause)),
       );
-      // Fork-hook: github-issues/sub-issue-close-reasons — the detail read omits a child's close
-      // reason, so one extra read attaches it when a closed child exists
-      // (RSI-Software/t3code-hyprws#1461).
-      const subIssues = yield* attachSubIssueCloseReasons(api, {
-        host: project.host,
-        repository: input.repository,
-        parentNumber: input.number,
-        children: issue.subIssues,
-      });
       return {
         ...issue,
-        subIssues,
         // The window is the read itself (`last: 100`); totalCount keeps the true count.
         comments: issue.comments,
         commentCount: row.comments?.totalCount ?? issue.comments.length,
