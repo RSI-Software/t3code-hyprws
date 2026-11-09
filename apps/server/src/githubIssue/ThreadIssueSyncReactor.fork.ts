@@ -4,11 +4,13 @@
 // so replay rebuilds the same projection.
 import {
   CommandId,
+  githubIssueLinkTarget,
   ThreadIssueLink,
+  type GitHubSubIssue,
   type OrchestrationV2ThreadShell,
   type ThreadId,
   type ThreadIssueKey,
-  type ThreadIssueSnapshot,
+  ThreadIssueSnapshot,
   type ThreadIssueSyncScope,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -53,13 +55,23 @@ const issueKey = (key: ThreadIssueKey) => {
   return `${normalized.host}/${normalized.repository}#${normalized.number}`;
 };
 
+// A child names its repository only in its URL, which may differ from its parent's.
+const subIssueKey = (child: GitHubSubIssue): string | null => {
+  const target = githubIssueLinkTarget(child.url);
+  return target === null ? null : issueKey(target);
+};
+
+const sameSnapshotFields = Schema.toEquivalence(ThreadIssueSnapshot);
+
+// An older snapshot may omit `closeReason` where a read sends null; both mean no reason.
 const sameSnapshot = (
   stored: ThreadIssueSnapshot,
   read: Omit<ThreadIssueSnapshot, "syncedAt">,
 ): boolean =>
-  stored.title === read.title &&
-  stored.state === read.state &&
-  (stored.closeReason ?? null) === (read.closeReason ?? null);
+  sameSnapshotFields(
+    { ...stored, closeReason: stored.closeReason ?? null },
+    { ...read, closeReason: read.closeReason ?? null, syncedAt: stored.syncedAt },
+  );
 
 export class ThreadIssueSyncReactor extends Context.Service<
   ThreadIssueSyncReactor,
@@ -196,7 +208,15 @@ export const make = Effect.gen(function* () {
     const batches = new Map<string, Array<IssueRead>>();
     for (const [key, group] of groups) {
       const links = group.map((entry) => entry.link);
-      const wanted = asked.has(key);
+      // A child read on request rereads its linked parent too, so the parent's progress follows.
+      const wanted =
+        asked.has(key) ||
+        links.some((link) =>
+          (link.snapshot?.subIssues ?? []).some((child) => {
+            const childKey = subIssueKey(child);
+            return childKey !== null && asked.has(childKey);
+          }),
+        );
       const due =
         wanted ||
         (scope === "all" &&
