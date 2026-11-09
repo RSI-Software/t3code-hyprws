@@ -3,11 +3,12 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  GitHubIssueDetail,
-  ScopedThreadRef,
-  ThreadId,
+import {
+  githubIssueLinkTarget,
+  type EnvironmentId,
+  type GitHubIssueDetail,
+  type ScopedThreadRef,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ArchiveIcon, CheckIcon, LinkIcon, MessageSquareIcon, UnlinkIcon } from "lucide-react";
@@ -30,7 +31,7 @@ import { Command, CommandInput, CommandItem, CommandList } from "../ui/command";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { MenuItem } from "../ui/menu";
 import { toastManager } from "../ui/toast";
-import { githubIssueLinkTarget, threadLinksGitHubIssue } from "./githubIssueThreadLinks.logic";
+import { threadLinksGitHubIssue } from "./githubIssueThreadLinks.logic";
 
 /**
  * One issue's thread links, as the detail panel shows them: whether its environment keeps links,
