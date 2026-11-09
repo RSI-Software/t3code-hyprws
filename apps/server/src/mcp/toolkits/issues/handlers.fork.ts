@@ -139,6 +139,8 @@ function listThreadIssuesFork(thread: ThreadIssuesShell): ListThreadIssuesResult
       title: link.snapshot?.title ?? null,
       subIssues: link.snapshot?.subIssues ?? [],
       parent: link.snapshot?.parent ?? null,
+      issueType: link.snapshot?.issueType?.name ?? null,
+      labels: (link.snapshot?.labels ?? []).map((label) => label.name),
     })),
   };
 }

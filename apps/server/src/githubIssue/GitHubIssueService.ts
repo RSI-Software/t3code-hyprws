@@ -58,7 +58,7 @@ const ISSUE_BASE_SELECTION = `number title url author { ${ISSUE_ACTOR_SELECTION}
 // GitHub caps `subIssues` at `first: 100`; asking for more fails the whole query.
 const ISSUE_HIERARCHY_SELECTION =
   "parent { number title url state stateReason } subIssues(first: 100) { nodes { number title url state stateReason } }";
-const ISSUE_SUMMARY_SELECTION = `title state stateReason ${ISSUE_HIERARCHY_SELECTION}`;
+const ISSUE_SUMMARY_SELECTION = `title state stateReason labels(first: 100) { nodes { name color } } issueType { name color } ${ISSUE_HIERARCHY_SELECTION}`;
 const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body ${ISSUE_HIERARCHY_SELECTION} closedAt comments(last: ${DETAIL_COMMENT_LIMIT}) { totalCount nodes { id author { ${ISSUE_ACTOR_SELECTION} } body createdAt updatedAt url } }`;
 
 const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!,$type:SearchType!){search(query:$query,type:$type,first:$first){nodes{... on Issue{${ISSUE_BASE_SELECTION} comments{totalCount}}}}}`;

@@ -11,7 +11,13 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { GitHubIssueCloseReason, GitHubIssueState, GitHubSubIssue } from "./githubIssue.ts";
+import {
+  GitHubIssueCloseReason,
+  GitHubIssueLabel,
+  GitHubIssueState,
+  GitHubIssueType,
+  GitHubSubIssue,
+} from "./githubIssue.ts";
 
 /** Who created a thread ↔ issue link. */
 export const ThreadIssueLinkSource = Schema.Literals(["manual", "handoff", "agent"]);
@@ -62,9 +68,11 @@ export const ThreadIssueSnapshot = Schema.Struct({
   // Optional, not merely nullable: snapshot rows and events from an older server omit the key
   // entirely rather than sending null.
   closeReason: Schema.optional(Schema.NullOr(GitHubIssueCloseReason)),
-  // Omitted when empty, so a leaf issue keeps its earlier shape; an older snapshot also omits both.
+  // Omitted when empty, so a bare issue keeps its earlier shape; an older snapshot omits them too.
   subIssues: Schema.optionalKey(Schema.Array(GitHubSubIssue)),
   parent: Schema.optionalKey(GitHubSubIssue),
+  labels: Schema.optionalKey(Schema.Array(GitHubIssueLabel)),
+  issueType: Schema.optionalKey(GitHubIssueType),
   syncedAt: IsoDateTime,
 });
 export type ThreadIssueSnapshot = typeof ThreadIssueSnapshot.Type;

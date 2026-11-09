@@ -200,6 +200,10 @@ export const ThreadIssueEntry = Schema.Struct({
   parent: Schema.NullOr(GitHubSubIssue).annotate({
     description: "The issue this one is a sub-issue of, or null.",
   }),
+  issueType: Schema.NullOr(Schema.String).annotate({
+    description: "The issue's GitHub issue type, such as Bug, or null.",
+  }),
+  labels: Schema.Array(Schema.String).annotate({ description: "The issue's label names." }),
 });
 export type ThreadIssueEntry = typeof ThreadIssueEntry.Type;
 

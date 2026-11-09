@@ -375,6 +375,8 @@ describe("issue toolkit handlers", () => {
           title: "Crash on start",
           state: "closed",
           subIssues: [child],
+          labels: [{ name: "crash", color: "b60205" }],
+          issueType: { name: "Bug", color: "RED" },
           syncedAt: "2026-08-11T00:00:00.000Z",
         },
       });
@@ -391,6 +393,8 @@ describe("issue toolkit handlers", () => {
             title: "Crash on start",
             subIssues: [child],
             parent: null,
+            issueType: "Bug",
+            labels: ["crash"],
           },
           {
             host: "github.com",
@@ -402,6 +406,8 @@ describe("issue toolkit handlers", () => {
             title: null,
             subIssues: [],
             parent: null,
+            issueType: null,
+            labels: [],
           },
         ],
       });

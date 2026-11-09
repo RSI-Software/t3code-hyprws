@@ -5,8 +5,7 @@ import {
 import type { GitHubSubIssue, ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
 import {
   ArrowUpRightIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
+  ChevronRightIcon,
   CircleHelpIcon,
   CornerLeftUpIcon,
   LinkIcon,
@@ -14,7 +13,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
@@ -35,6 +34,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { GitHubIssueLabelChips, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
 import { openLinkGitHubIssueDialog } from "./LinkGitHubIssueDialog";
 import { ThreadIssueSubIssueProgressFork } from "./ThreadIssueBadge.fork";
@@ -189,8 +189,9 @@ function EnabledThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
 }
 
 /**
- * A link and the sub-issues GitHub lists under it. Children the thread also links always show,
- * nested; the rest wait behind a toggle so a large tracker does not flood the panel.
+ * A link and the sub-issues GitHub lists under it, behind a disclosure. A link with a linked child
+ * starts open, so no link hides; a tracker of unlinked children starts closed so it cannot flood
+ * the panel.
  */
 function IssueLinkTree({
   node,
@@ -203,15 +204,36 @@ function IssueLinkTree({
   readonly threadRef: ScopedThreadRef;
   readonly onUnlink: (link: ThreadIssueLink) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const unlinked = node.children.filter((entry) => entry.node === null).length;
-  const shown = expanded ? node.children : node.children.filter((entry) => entry.node !== null);
+  const [expanded, setExpanded] = useState(() =>
+    node.children.some((entry) => entry.node !== null),
+  );
+  const disclosure =
+    node.children.length === 0 ? (
+      <DisclosureSpacer />
+    ) : (
+      <Button
+        variant="ghost"
+        size="icon-micro"
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Collapse" : "Expand"} sub-issues of #${node.link.number}`}
+        className="shrink-0"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <ChevronRightIcon className={cn("size-3.5", expanded && "rotate-90")} />
+      </Button>
+    );
   return (
     <>
-      <IssueLinkRow link={node.link} root={root} threadRef={threadRef} onUnlink={onUnlink} />
-      {node.children.length > 0 ? (
-        <div className="ml-4 border-l border-border/60 pl-1">
-          {shown.map(({ child, node: linked }) =>
+      <IssueLinkRow
+        link={node.link}
+        root={root}
+        disclosure={disclosure}
+        threadRef={threadRef}
+        onUnlink={onUnlink}
+      />
+      {expanded && node.children.length > 0 ? (
+        <div className="ml-4.5 border-l border-border/60 pl-1">
+          {node.children.map(({ child, node: linked }) =>
             linked === null ? (
               <SubIssueRow key={child.url} child={child} threadRef={threadRef} />
             ) : (
@@ -224,22 +246,15 @@ function IssueLinkTree({
               />
             ),
           )}
-          {unlinked > 0 ? (
-            <Button size="xs" variant="ghost" onClick={() => setExpanded(!expanded)}>
-              {expanded ? (
-                <ChevronUpIcon className="size-3.5" />
-              ) : (
-                <ChevronDownIcon className="size-3.5" />
-              )}
-              {expanded
-                ? "Hide sub-issues"
-                : `Show ${unlinked} ${shown.length > 0 ? "more " : ""}sub-issue${unlinked === 1 ? "" : "s"}`}
-            </Button>
-          ) : null}
         </div>
       ) : null}
     </>
   );
+}
+
+/** Holds a leaf row's glyph in line with its siblings' disclosure chevrons. */
+function DisclosureSpacer() {
+  return <span aria-hidden className="size-5 shrink-0" />;
 }
 
 /** A sub-issue the thread does not link: it opens like a link, without link actions. */
@@ -257,6 +272,7 @@ function SubIssueRow({
       onClick={(event) => openLink(event, child.url, threadRef)}
       className={cn(PULL_REQUEST_ROW_CLASS, "pl-2 hover:bg-accent/60")}
     >
+      <DisclosureSpacer />
       <GitHubIssueStateGlyph state={child.state} closeReason={child.closeReason ?? null} />
       <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{child.number}</span>
       <span className="min-w-0 truncate text-sm text-muted-foreground">{child.title}</span>
@@ -267,17 +283,20 @@ function SubIssueRow({
 function IssueLinkRow({
   link,
   root,
+  disclosure,
   threadRef,
   onUnlink,
 }: {
   readonly link: ThreadIssueLink;
   readonly root: boolean;
+  readonly disclosure: ReactNode;
   readonly threadRef: ScopedThreadRef;
   readonly onUnlink: (link: ThreadIssueLink) => void;
 }) {
   const progress = subIssueProgress(link);
   // A nested link's parent is the row above it.
   const parent = root ? (link.snapshot?.parent ?? null) : null;
+  const issueType = link.snapshot?.issueType;
   const openLink = useOpenPrLink(threadRef);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
@@ -294,6 +313,7 @@ function IssueLinkRow({
         setMenuOpen(true);
       }}
     >
+      {disclosure}
       <IssueLinkStateGlyph link={link} />
       <a
         href={link.url}
@@ -312,6 +332,7 @@ function IssueLinkRow({
             </Tooltip>
           }
           title={link.snapshot?.title ?? link.repository}
+          metaClassName="@container/pr-row-meta"
           status={
             progress === null ? null : (
               <Tooltip>
@@ -347,6 +368,10 @@ function IssueLinkRow({
                   </TooltipPopup>
                 </Tooltip>
               )}
+              {issueType === undefined ? null : (
+                <GitHubIssueTypeChip issueType={issueType} className="shrink-0" />
+              )}
+              <GitHubIssueLabelChips labels={link.snapshot?.labels ?? []} />
             </>
           }
         />

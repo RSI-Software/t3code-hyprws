@@ -88,6 +88,8 @@ describe("GitHubIssueService summaries", () => {
                         stateReason: "NOT_PLANNED",
                         parent: null,
                         subIssues: { nodes: number === "1" ? [child] : [] },
+                        labels: { nodes: number === "1" ? [{ name: "bug", color: "d73a4a" }] : [] },
+                        issueType: number === "1" ? { name: "Task", color: "YELLOW" } : null,
                       },
                 ]),
               ),
@@ -114,15 +116,19 @@ describe("GitHubIssueService summaries", () => {
       assert.deepStrictEqual(call?.variables, { owner: "acme", name: "web" });
       assert.strictEqual(summaries.size, numbers.length - 1);
       assert.isFalse(summaries.has(2));
-      // A leaf issue's summary leaves out the hierarchy keys, so its snapshot keeps its shape.
+      // A bare issue's summary leaves out the empty keys, so its snapshot keeps its shape.
       assert.deepStrictEqual(summaries.get(51), {
         title: "Issue 51",
         state: "closed",
         closeReason: "not planned",
       });
-      assert.deepStrictEqual(summaries.get(1)?.subIssues, [
-        { number: 60, title: "Child", url: child.url, state: "closed", closeReason: "completed" },
-      ]);
+      assert.deepInclude(summaries.get(1), {
+        subIssues: [
+          { number: 60, title: "Child", url: child.url, state: "closed", closeReason: "completed" },
+        ],
+        labels: [{ name: "bug", color: "d73a4a" }],
+        issueType: { name: "Task", color: "YELLOW" },
+      });
     }),
   );
 });

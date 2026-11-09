@@ -10,7 +10,7 @@ import {
   type OrchestrationV2ThreadShell,
   type ThreadId,
   type ThreadIssueKey,
-  type ThreadIssueSnapshot,
+  ThreadIssueSnapshot,
   type ThreadIssueSyncScope,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -61,30 +61,17 @@ const subIssueKey = (child: GitHubSubIssue): string | null => {
   return target === null ? null : issueKey(target);
 };
 
-const sameSubIssue = (left: GitHubSubIssue | undefined, right: GitHubSubIssue | undefined) =>
-  left === right ||
-  (left !== undefined &&
-    right !== undefined &&
-    left.url === right.url &&
-    left.title === right.title &&
-    left.state === right.state &&
-    (left.closeReason ?? null) === (right.closeReason ?? null));
+const sameSnapshotFields = Schema.toEquivalence(ThreadIssueSnapshot);
 
+// An older snapshot may omit `closeReason` where a read sends null; both mean no reason.
 const sameSnapshot = (
   stored: ThreadIssueSnapshot,
   read: Omit<ThreadIssueSnapshot, "syncedAt">,
-): boolean => {
-  const storedChildren = stored.subIssues ?? [];
-  const readChildren = read.subIssues ?? [];
-  return (
-    stored.title === read.title &&
-    stored.state === read.state &&
-    (stored.closeReason ?? null) === (read.closeReason ?? null) &&
-    sameSubIssue(stored.parent, read.parent) &&
-    storedChildren.length === readChildren.length &&
-    storedChildren.every((child, index) => sameSubIssue(child, readChildren[index]))
+): boolean =>
+  sameSnapshotFields(
+    { ...stored, closeReason: stored.closeReason ?? null },
+    { ...read, closeReason: read.closeReason ?? null, syncedAt: stored.syncedAt },
   );
-};
 
 export class ThreadIssueSyncReactor extends Context.Service<
   ThreadIssueSyncReactor,

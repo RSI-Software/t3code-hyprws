@@ -271,6 +271,8 @@ const IssueSummary = Schema.Struct({
   closeReason: Schema.NullOr(GitHubIssueCloseReason),
   subIssues: Schema.optionalKey(Schema.Array(GitHubSubIssue)),
   parent: Schema.optionalKey(GitHubSubIssue),
+  labels: Schema.optionalKey(Schema.Array(GitHubIssueLabel)),
+  issueType: Schema.optionalKey(GitHubIssueType),
 });
 export type GitHubIssueSummary = typeof IssueSummary.Type;
 
@@ -280,23 +282,29 @@ const RawIssueSummary = Schema.Struct({
   stateReason: Schema.NullOr(Schema.String),
   subIssues: Schema.optional(Schema.NullOr(Schema.Struct({ nodes: Schema.Array(RawSubIssue) }))),
   parent: Schema.optional(Schema.NullOr(RawSubIssue)),
+  labels: Schema.optional(Schema.NullOr(Schema.Struct({ nodes: Schema.Array(RawLabel) }))),
+  issueType: Schema.optional(Schema.NullOr(RawIssueType)),
 });
 
 const decodeUnknownIssueSummary = Schema.decodeUnknownEffect(RawIssueSummary);
 const decodeNormalizedIssueSummary = Schema.decodeUnknownEffect(IssueSummary);
 
-/** A linked issue's summary, read from a row the caller already parsed. Empty hierarchy keys are
- * left out, so a leaf issue's snapshot keeps its earlier shape. */
+/** A linked issue's summary, read from a row the caller already parsed. Empty keys are left out,
+ * so a bare issue's snapshot keeps its earlier shape. */
 export const decodeParsedGitHubIssueSummary = Effect.fn("decodeParsedGitHubIssueSummary")(
   function* (row: unknown) {
     const raw = yield* decodeUnknownIssueSummary(row);
     const subIssues = (raw.subIssues?.nodes ?? []).map(subIssue);
+    const labels = (raw.labels?.nodes ?? []).map(label);
+    const type = raw.issueType == null ? null : issueType(raw.issueType);
     return yield* decodeNormalizedIssueSummary({
       title: raw.title,
       state: state(raw.state),
       closeReason: closeReason(raw.stateReason),
       ...(subIssues.length === 0 ? {} : { subIssues }),
       ...(raw.parent == null ? {} : { parent: subIssue(raw.parent) }),
+      ...(labels.length === 0 ? {} : { labels }),
+      ...(type === null ? {} : { issueType: type }),
     });
   },
 );
