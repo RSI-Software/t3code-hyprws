@@ -47,8 +47,8 @@ export const systemForkCiGit = (git: SystemGit): ForkCiGit => ({
 });
 
 // With no trunk ancestry (no trunk ref, or the head is the trunk tip), the parent stands in.
-// A sync candidate shares no fork commit with the trunk: its trunk merge base is the old upstream
-// base, so its range starts at its own base and the stale-delete check has nothing to judge.
+// A sync candidate or refold shares no fork commit with the trunk: its trunk merge base is an
+// upstream commit, so its range starts at its own base and the stale-delete check has nothing to judge.
 export const deriveForkCiFlags = (git: ForkCiGit, head: string): ForkCiFlags => {
   const base = git.run(["merge-base", UPSTREAM_MAIN, head]).trim();
   const resolvedHead = git.run(["rev-parse", head]).trim();
@@ -56,8 +56,8 @@ export const deriveForkCiFlags = (git: ForkCiGit, head: string): ForkCiFlags => 
   const onTrunk = trunkMergeBase.length > 0 && trunkMergeBase !== resolvedHead;
   const rebased =
     onTrunk &&
-    trunkMergeBase !== base &&
-    git.attempt(["merge-base", "--is-ancestor", trunkMergeBase, base]) !== null;
+    git.attempt(["merge-base", "--is-ancestor", trunkMergeBase, base]) !== null &&
+    git.attempt(["merge-base", "--is-ancestor", FORK_TRUNK_REF, resolvedHead]) === null;
   const trunkResolves = git.attempt(["rev-parse", "--verify", "--quiet", FORK_TRUNK_REF]) !== null;
   return {
     head: resolvedHead,

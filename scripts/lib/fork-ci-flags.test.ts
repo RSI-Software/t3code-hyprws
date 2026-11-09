@@ -35,7 +35,7 @@ const fakeGit = (overrides: {
   },
   attempt: (args) => {
     if (args[0] === "merge-base" && args[1] === "--is-ancestor")
-      return overrides.trunkBelowBase === true ? "" : null;
+      return args[2] !== "origin/hyprws" && overrides.trunkBelowBase === true ? "" : null;
     if (args[0] === "merge-base")
       return overrides.trunkMergeBase === undefined ? `${TRUNK}\n` : overrides.trunkMergeBase;
     if (args[0] === "rev-parse") return overrides.trunkResolves === false ? null : `${TRUNK}\n`;
@@ -187,6 +187,18 @@ it("derives the same flags from a real repository with remote-tracking refs", ()
     const candidate = reader.run(["rev-parse", "HEAD"]).trim();
     assert.deepStrictEqual(deriveForkCiFlags(git, candidate), {
       head: candidate,
+      base: newBase,
+      since: newBase,
+      target: newBase,
+      replayOf: "origin/hyprws",
+      rebased: true,
+    });
+    // A refold: the trunk's own stack rewritten on the same base.
+    reader.run(["update-ref", "refs/remotes/origin/hyprws", candidate]);
+    reader.run(["commit", "--quiet", "--amend", "-m", "folded fork commit"]);
+    const refold = reader.run(["rev-parse", "HEAD"]).trim();
+    assert.deepStrictEqual(deriveForkCiFlags(git, refold), {
+      head: refold,
       base: newBase,
       since: newBase,
       target: newBase,
