@@ -189,9 +189,9 @@ function EnabledThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
 }
 
 /**
- * A link and the sub-issues GitHub lists under it, behind a disclosure. A link with a linked child
- * starts open, so no link hides; a tracker of unlinked children starts closed so it cannot flood
- * the panel.
+ * A link and the sub-issues GitHub lists under it, behind a disclosure. Until the user toggles it,
+ * a link with a linked child is open, so no link hides as snapshots arrive; a tracker of unlinked
+ * children stays closed so it cannot flood the panel.
  */
 function IssueLinkTree({
   node,
@@ -204,9 +204,8 @@ function IssueLinkTree({
   readonly threadRef: ScopedThreadRef;
   readonly onUnlink: (link: ThreadIssueLink) => void;
 }) {
-  const [expanded, setExpanded] = useState(() =>
-    node.children.some((entry) => entry.node !== null),
-  );
+  const [toggled, setExpanded] = useState<boolean | null>(null);
+  const expanded = toggled ?? node.children.some((entry) => entry.node !== null);
   const disclosure =
     node.children.length === 0 ? (
       <DisclosureSpacer />
