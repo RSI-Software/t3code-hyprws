@@ -252,7 +252,33 @@ describe("ThreadIssueSyncReactor", () => {
     run(
       Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse(NOW));
-        const fixture = yield* makeHarness();
+        const child = {
+          number: 6,
+          title: "Child",
+          url: "https://github.com/acme/api/issues/6",
+          state: "open" as const,
+          closeReason: null,
+        };
+        yield* insertThread(
+          "parent",
+          [{ ...makeLink(8), snapshot: { ...openSummary(8), subIssues: [child], syncedAt: NOW } }],
+          { archived: true },
+        );
+        const fixture = yield* makeHarness((read) =>
+          Effect.succeed(
+            new Map(
+              read.numbers.map((number) => [
+                number,
+                number === 8
+                  ? {
+                      ...openSummary(8),
+                      subIssues: [{ ...child, state: "closed" as const, closeReason: "completed" }],
+                    }
+                  : openSummary(number),
+              ]),
+            ),
+          ),
+        );
         yield* fixture.activate;
         const link = { ...makeLink(5), linkedAt: NOW };
         yield* insertThread("linked", [link], { archived: true });
@@ -280,6 +306,20 @@ describe("ThreadIssueSyncReactor", () => {
         yield* Queue.take(fixture.started);
         yield* fixture.reactor.drain;
         assert.lengthOf(yield* Ref.get(fixture.reads), 2);
+
+        // A sub-issue's change rereads the linked parent that lists it, keyed by the repository in
+        // the child's URL, and the parent's changed child writes a new snapshot.
+        yield* Queue.offer(fixture.stateChanges, {
+          host: "github.com",
+          repository: "acme/api",
+          number: 6,
+        });
+        yield* Queue.take(fixture.started);
+        yield* fixture.reactor.drain;
+        assert.deepStrictEqual((yield* Ref.get(fixture.reads)).at(-1)?.numbers, [8]);
+        const parentSync = (yield* Ref.get(fixture.syncs)).at(-1);
+        assert.strictEqual(parentSync?.number, 8);
+        assert.strictEqual(parentSync?.snapshot.subIssues?.[0]?.state, "closed");
       }),
     ),
   );

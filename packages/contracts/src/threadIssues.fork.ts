@@ -11,7 +11,13 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { GitHubIssueCloseReason, GitHubIssueState } from "./githubIssue.ts";
+import {
+  GitHubIssueCloseReason,
+  GitHubIssueLabel,
+  GitHubIssueState,
+  GitHubIssueType,
+  GitHubSubIssue,
+} from "./githubIssue.ts";
 
 /** Who created a thread ↔ issue link. */
 export const ThreadIssueLinkSource = Schema.Literals(["manual", "handoff", "agent"]);
@@ -25,6 +31,36 @@ export const ThreadIssueKey = Schema.Struct({
 });
 export type ThreadIssueKey = typeof ThreadIssueKey.Type;
 
+/** An issue a thread can link: its host-level key and the address it opens at. */
+export interface GitHubIssueLinkTarget extends ThreadIssueKey {
+  readonly url: string;
+}
+
+/**
+ * The link target an issue URL names, or null for anything that is not an issue page. The host
+ * keeps a port, so an Enterprise install served on one stays a distinct host. It trusts any host;
+ * a caller reading a URL it did not get from GitHub checks the host itself.
+ */
+export function githubIssueLinkTarget(url: string): GitHubIssueLinkTarget | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+  const match = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u.exec(parsed.pathname);
+  const number = Number(match?.[2]);
+  if (!match?.[1] || !Number.isSafeInteger(number) || number < 1) return null;
+  const host = parsed.host.toLowerCase();
+  return {
+    host,
+    repository: match[1],
+    number,
+    url: `${parsed.protocol}//${host}/${match[1]}/issues/${number}`,
+  };
+}
+
 /** Issue state last read from the host; null on a link until its first sync. */
 export const ThreadIssueSnapshot = Schema.Struct({
   title: TrimmedNonEmptyString,
@@ -32,6 +68,11 @@ export const ThreadIssueSnapshot = Schema.Struct({
   // Optional, not merely nullable: snapshot rows and events from an older server omit the key
   // entirely rather than sending null.
   closeReason: Schema.optional(Schema.NullOr(GitHubIssueCloseReason)),
+  // Omitted when empty, so a bare issue keeps its earlier shape; an older snapshot omits them too.
+  subIssues: Schema.optionalKey(Schema.Array(GitHubSubIssue)),
+  parent: Schema.optionalKey(GitHubSubIssue),
+  labels: Schema.optionalKey(Schema.Array(GitHubIssueLabel)),
+  issueType: Schema.optionalKey(GitHubIssueType),
   syncedAt: IsoDateTime,
 });
 export type ThreadIssueSnapshot = typeof ThreadIssueSnapshot.Type;

@@ -1,35 +1,9 @@
-import type { ThreadIssueKey } from "@t3tools/contracts";
+import {
+  githubIssueLinkTarget,
+  type GitHubIssueLinkTarget,
+  type ThreadIssueKey,
+} from "@t3tools/contracts";
 import { threadPullRequestKeysEqual } from "@t3tools/client-runtime/thread-pull-requests";
-
-/** An issue a thread can link: its host-level key and the address it opens at. */
-export interface GitHubIssueLinkTarget extends ThreadIssueKey {
-  readonly url: string;
-}
-
-/**
- * The link target an issue URL names, or null for anything that is not an issue page. The host
- * keeps a port, so an Enterprise install served on one stays a distinct host, as the agent's
- * link tool keys it.
- */
-export function githubIssueLinkTarget(url: string): GitHubIssueLinkTarget | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url.trim());
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
-  const match = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u.exec(parsed.pathname);
-  const number = Number(match?.[2]);
-  if (!match?.[1] || !Number.isSafeInteger(number) || number < 1) return null;
-  const host = parsed.host.toLowerCase();
-  return {
-    host,
-    repository: match[1],
-    number,
-    url: `${parsed.protocol}//${host}/${match[1]}/issues/${number}`,
-  };
-}
 
 /** Whether a thread's links hold this issue; host and repository compare case-blind. */
 export function threadLinksGitHubIssue(
