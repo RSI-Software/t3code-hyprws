@@ -15,7 +15,6 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
 import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
-import { SUB_ISSUE_REASONS_QUERY } from "./subIssueCloseReasons.fork.ts";
 
 function project(id: string): OrchestrationProjectShell {
   return {
@@ -66,6 +65,13 @@ function makeService(
 describe("GitHubIssueService summaries", () => {
   it.effect("reads a repository's issues in aliased batches and leaves out missing ones", () =>
     Effect.gen(function* () {
+      const child = {
+        number: 60,
+        title: "Child",
+        url: "https://github.com/acme/web/issues/60",
+        state: "CLOSED",
+        stateReason: "COMPLETED",
+      };
       const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
         Effect.succeed(
           JSON.stringify({
@@ -76,7 +82,15 @@ describe("GitHubIssueService summaries", () => {
                   // #2 is a pull request or gone: GitHub answers that alias null.
                   number === "2"
                     ? null
-                    : { title: `Issue ${number}`, state: "CLOSED", stateReason: "NOT_PLANNED" },
+                    : {
+                        title: `Issue ${number}`,
+                        state: "CLOSED",
+                        stateReason: "NOT_PLANNED",
+                        parent: null,
+                        subIssues: { nodes: number === "1" ? [child] : [] },
+                        labels: { nodes: number === "1" ? [{ name: "bug", color: "d73a4a" }] : [] },
+                        issueType: number === "1" ? { name: "Task", color: "YELLOW" } : null,
+                      },
                 ]),
               ),
             },
@@ -102,10 +116,18 @@ describe("GitHubIssueService summaries", () => {
       assert.deepStrictEqual(call?.variables, { owner: "acme", name: "web" });
       assert.strictEqual(summaries.size, numbers.length - 1);
       assert.isFalse(summaries.has(2));
+      // A bare issue's summary leaves out the empty keys, so its snapshot keeps its shape.
       assert.deepStrictEqual(summaries.get(51), {
         title: "Issue 51",
         state: "closed",
         closeReason: "not planned",
+      });
+      assert.deepInclude(summaries.get(1), {
+        subIssues: [
+          { number: 60, title: "Child", url: child.url, state: "closed", closeReason: "completed" },
+        ],
+        labels: [{ name: "bug", color: "d73a4a" }],
+        issueType: { name: "Task", color: "YELLOW" },
       });
     }),
   );
@@ -207,9 +229,7 @@ describe("GitHubIssueService reference", () => {
   );
 });
 
-// One GraphQL read attaches the children's close reasons the detail read omits, fired only when
-// a closed child exists (RSI-Software/t3code-hyprws#1461).
-describe("GitHubIssueService detail sub-issue reasons", () => {
+describe("GitHubIssueService detail hierarchy", () => {
   const detailPayload = (children: ReadonlyArray<Record<string, unknown>>) =>
     JSON.stringify({
       data: {
@@ -235,12 +255,6 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
       },
     });
 
-  const closedChild = {
-    number: 43,
-    title: "Drop the list",
-    url: "https://github.com/acme/web/issues/43",
-    state: "CLOSED",
-  };
   const openChild = {
     number: 44,
     title: "Render the list",
@@ -314,71 +328,6 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
       );
       assert.strictEqual(list.entries[0]?.number, 51);
       assert.lengthOf(list.entries, 50);
-    }),
-  );
-
-  it.effect("attaches a closed child's reason with exactly one graphql read", () =>
-    Effect.gen(function* () {
-      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
-        call.query.includes("subIssues(first:100)")
-          ? Effect.succeed(
-              JSON.stringify({
-                data: {
-                  repository: {
-                    issue: { subIssues: { nodes: [{ number: 43, stateReason: "NOT_PLANNED" }] } },
-                  },
-                },
-              }),
-            )
-          : Effect.succeed(detailPayload([closedChild, openChild])),
-      );
-      const detail = yield* makeDetailService(graphql);
-
-      assert.strictEqual(graphql.mock.calls.length, 2);
-      const reasonsCall = graphql.mock.calls[1]?.[0];
-      assert.strictEqual(reasonsCall?.query, SUB_ISSUE_REASONS_QUERY);
-      assert.strictEqual(reasonsCall?.host, "github.com");
-      assert.deepStrictEqual(reasonsCall?.variables, { owner: "acme", name: "web", number: 42 });
-      assert.deepStrictEqual(detail.subIssues, [
-        { ...closedChild, state: "closed", closeReason: "not planned" },
-        { ...openChild, state: "open", closeReason: null },
-      ]);
-    }),
-  );
-
-  it.effect("skips the graphql read when no sub-issue is closed", () =>
-    Effect.gen(function* () {
-      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
-        Effect.succeed(detailPayload([openChild])),
-      );
-      const detail = yield* makeDetailService(graphql);
-
-      assert.lengthOf(graphql.mock.calls, 1);
-      assert.deepStrictEqual(detail.subIssues, [
-        { ...openChild, state: "open", closeReason: null },
-      ]);
-    }),
-  );
-
-  it.effect("keeps the detail when the graphql read fails, reason unknown", () =>
-    Effect.gen(function* () {
-      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
-        call.query.includes("subIssues(first:100)")
-          ? Effect.fail(
-              new GitHubRequestPolicy.GitHubApiResponseError({
-                host: "github.com",
-                operation: "subIssueCloseReasons",
-                status: 500,
-              }),
-            )
-          : Effect.succeed(detailPayload([closedChild])),
-      );
-      const detail = yield* makeDetailService(graphql);
-
-      assert.lengthOf(graphql.mock.calls, 2);
-      assert.deepStrictEqual(detail.subIssues, [
-        { ...closedChild, state: "closed", closeReason: null },
-      ]);
     }),
   );
 });
