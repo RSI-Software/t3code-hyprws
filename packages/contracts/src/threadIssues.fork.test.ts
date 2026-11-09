@@ -1,4 +1,4 @@
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
@@ -8,6 +8,7 @@ import {
   OrchestrationV2Command,
   type OrchestrationV2ServerCommand,
 } from "./orchestrationV2.ts";
+import { githubIssueLinkTarget } from "./threadIssues.fork.ts";
 
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationV2AppThreadJson);
 const encodeThread = Schema.encodeEffect(OrchestrationV2AppThreadJson);
@@ -95,3 +96,23 @@ it.effect("clients link and unlink issues but cannot forge a sync", () =>
     assert.strictEqual(serverSync, sync.type);
   }),
 );
+
+describe("githubIssueLinkTarget", () => {
+  it("keys an issue URL by lowercased host, port included", () => {
+    assert.deepStrictEqual(
+      githubIssueLinkTarget("https://GHE.acme.dev:8443/Acme/App/issues/12#comment"),
+      {
+        host: "ghe.acme.dev:8443",
+        repository: "Acme/App",
+        number: 12,
+        url: "https://ghe.acme.dev:8443/Acme/App/issues/12",
+      },
+    );
+  });
+
+  it("rejects pages that are not issues", () => {
+    assert.isNull(githubIssueLinkTarget("https://github.com/acme/app/pull/12"));
+    assert.isNull(githubIssueLinkTarget("https://github.com/acme/app/issues/0"));
+    assert.isNull(githubIssueLinkTarget("not a url"));
+  });
+});
