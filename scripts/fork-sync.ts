@@ -102,6 +102,8 @@ const agentStamp = (at: string, retried: boolean): string =>
   `<!-- agent-labelled:${at}${retried ? " retried" : ""} -->`;
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
+/** hyprws-stable.yml files this after each stable cut; only a landing closes it. */
+const REFOLD_TITLE_PHRASE = '"hyprws refold" in:title';
 const REPORT_SCHEMA = "fork.sync-report.v3";
 
 /** Stable per step and target, so a rerun refreshes the issue without renaming it. */
@@ -1846,19 +1848,20 @@ const fileDecisions = (
 };
 
 /**
- * A clean run closes every open sync issue — block and failure alike: the trunk
- * moved, so none can hold. `gh issue close --comment` posts the close evidence
- * and closes in one call. Each issue reports its own refusal; one refusal
- * never stops the other closes.
+ * A clean run closes every open sync issue, block and failure alike: the trunk moved, so none
+ * can hold. Only a landing closes the refold issue. Each issue reports its own refusal; one
+ * refusal never stops the other closes.
  */
 export const closeBlocks = (
   runner: CommandRunner,
   root: string,
   newSha: string,
+  landed = false,
 ): ReadonlyArray<BlockClosure> => {
   const github = githubClient(runner, root);
   const closures: BlockClosure[] = [];
-  for (const titlePhrase of [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE])
+  const phrases = [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE];
+  for (const titlePhrase of landed ? [...phrases, REFOLD_TITLE_PHRASE] : phrases)
     for (const issue of github.list(titlePhrase)) {
       try {
         github.close(issue.number, blockCloseComment(newSha));
@@ -2176,12 +2179,13 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
      */
     const closeStaleBlocks = (
       resolvedSha: string,
+      landed: boolean,
     ): { readonly closed: ReadonlyArray<BlockClosure>; readonly error: string | null } => {
       if (!land) return { closed: [], error: null };
       let closed: ReadonlyArray<BlockClosure> = [];
       let failure: string | null = null;
       try {
-        closed = closeBlocks(runner, root, resolvedSha);
+        closed = closeBlocks(runner, root, resolvedSha, landed);
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
       }
@@ -2204,7 +2208,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       ? marker !== null && marker.todo === null && isRefold(runner, root, marker.tip, marker.lease)
       : refoldFlag;
     if (isAncestor(runner, root, target.sha, expectedOld) && !refold) {
-      const close = closeStaleBlocks(expectedOld);
+      const close = closeStaleBlocks(expectedOld, false);
       // A no-op run posts nothing, except to settle the comment on an issue it just closed.
       const settle = startStatus(target.tag, null);
       for (const { issue, refusal } of close.closed)
@@ -2410,7 +2414,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     followTrunk(runner, root, expectedOld, newSha);
 
     status?.({ kind: "landed", sha: newSha });
-    const close = closeStaleBlocks(newSha);
+    const close = closeStaleBlocks(newSha, true);
     const refused = [
       close.error,
       fileDecisions(runner, root, target.tag, newSha, finished.decisions),
