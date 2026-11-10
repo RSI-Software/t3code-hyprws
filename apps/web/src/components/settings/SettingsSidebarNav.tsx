@@ -91,7 +91,6 @@ const SETTINGS_SECTION_ICONS: Readonly<
 > = {
   "/settings/general": Settings2Icon,
   "/settings/diagnostics": WrenchIcon,
-  "/settings/dictation": MicIcon, // fork-hook: voice-input/settings-icon
   "/settings/voice": MicIcon,
   "/settings/appearance": PaletteIcon,
   "/settings/terminal": SquareTerminalIcon, // fork-hook: zmux-estate/settings-icon

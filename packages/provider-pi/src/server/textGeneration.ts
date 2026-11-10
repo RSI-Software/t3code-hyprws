@@ -1,4 +1,3 @@
-import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -179,11 +178,8 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
     },
   );
 
-  return withVoiceTextGenerationFork(
-    TextGenerationOperations.fromRunner(
-      "PiTextGeneration",
-      TextGenerationOperations.withoutInvestigation("Pi", runPiJson),
-    ),
-    runPiJson,
-  ); // fork-hook: voice-input/generation-runner
+  return TextGenerationOperations.fromRunner(
+    "PiTextGeneration",
+    TextGenerationOperations.withoutInvestigation("Pi", runPiJson),
+  );
 });

@@ -79,27 +79,13 @@ https://github.com/user-attachments/assets/78f1f4b6-1162-4498-b5ca-95542e40f15f
 
 </details>
 
-### Desktop dictation
+### Remote voice models
 
-- **Speak** into an editable draft
-- **Words appear live** while you speak
-- **Meta** or any **OpenAI Realtime** endpoint
-- **Per-project terms** fix names and spelling
-- **Optional cleanup** and formatting
-- **Commit, review**, then send
-- **Cancel** keeps the original draft
-- [Guide](docs/fork/user/dictation.md)
-
-https://github.com/user-attachments/assets/7e122ae4-4e82-42ec-9782-6026f34d1ba7
-
-<details>
-<summary>More clips</summary>
-
-**Speech terms for a project**
-
-![Dictation settings list a project's speech terms](https://github.com/user-attachments/assets/5131e649-35ef-4bac-b8dd-2b68bbc6a5bc)
-
-</details>
+- **Any OpenAI-compatible** transcription service
+- Shows as a **model under Transcription**
+- **Live preview** over OpenAI Realtime
+- **Ducks speakers** while recording on desktop
+- Set up in **Settings → Voice → Remote model**
 
 ### Rich Markdown editing
 
@@ -382,7 +368,6 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 
 - [Install and first run](./docs/user/install.md)
 - [Browser bookmarks](./docs/fork/user/browser.md)
-- [Desktop dictation](./docs/fork/user/dictation.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Source control](./docs/user/source-control.md)
