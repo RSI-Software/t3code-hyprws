@@ -283,7 +283,19 @@ Applied **by hand** in **Settings > Rules > Rulesets**, all `active`; **nothing 
 
 `hyprws-release.yml` **publishes a nightly** on every trunk landing that passes the release gate, with a **scheduled fallback**.
 It **prunes old nightlies** with their tags; **stable is never pruned**.
-Stable fork releases are **tagged by hand**; `hyprws-release.yml` **owns the build** either way.
+
+`hyprws-stable.yml` **cuts stable automatically** after every sync run:
+
+1. **Newest upstream stable** without a fork stable
+2. **Fork nightly on exactly its commit**, newest first
+3. **Dispatch** the release from the trunk
+4. **File** a `hyprws refold` issue, unless one is open
+
+`hyprws-release.yml` takes the tag and sha as inputs; **publishing creates the tag**, so a failed release retries on the next run.
+
+No nightly on that commit means **no cut**; recut instead.
+**Recut** with `gh workflow run hyprws-stable.yml`: the trunk tip becomes the next `.N` of the newest upstream stable it contains.
+The release gate takes an **older stable sha only with a fork nightly tag** on it.
 A missing runner tool is a **workflow task**, never a reason to patch the build script.
 
 ### Optional T3 Connect config
