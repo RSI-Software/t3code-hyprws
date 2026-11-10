@@ -1,7 +1,8 @@
 name: hyprws Release
 
 # Fork-only Linux x64 release channels for RSI-Software/t3code-hyprws.
-# Stable tags keep the v<upstream>-hyprws.<n> flow. Trunk landings publish the
+# hyprws-stable.yml tags each v<upstream>-hyprws.<n> and dispatches its stable
+# cut here from that tag ref. Trunk landings publish the
 # commit `hyprws CI` just finished checking, once that CI run completes (a
 # workflow_run trigger, not the push itself, so the gate's CI lookup always
 # finds a completed run instead of racing it). Scheduled fallbacks and
@@ -19,10 +20,6 @@ on:
     types: [completed]
     branches:
       - hyprws
-  push:
-    tags:
-      - "v*-hyprws.*"
-      - "!v*-hyprws-nightly.*"
   schedule:
     # Off minute zero: GitHub delays scheduled runs most at the top of the hour.
     - cron: "41 */6 * * *"
@@ -37,7 +34,7 @@ on:
           - nightly
           - stable
 
-# Stable tag pushes and stable dispatches use the stable queue; every other run uses nightly.
+# Stable dispatches use the stable queue; every other run uses nightly.
 # Preflight remains the only place that resolves the requested channel.
 # No queue: max here, unlike upstream. Upstream nightlies only fire on a schedule
 # behind a six-hour gap, so its nightly lane never holds more than one pending run
@@ -47,7 +44,7 @@ on:
 # the running build finishes, the newest waiting commit survives, the rest drop.
 # The stable lane resolves to its own group and only ever carries one tag at a time.
 concurrency:
-  group: hyprws-release-${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || inputs.channel == 'stable') && 'stable' || 'nightly' }}
+  group: hyprws-release-${{ inputs.channel == 'stable' && 'stable' || 'nightly' }}
   cancel-in-progress: false
 
 permissions:
@@ -117,13 +114,6 @@ jobs:
             workflow_run)
               channel=nightly
               ;;
-            push)
-              if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-                channel=stable
-              else
-                channel=nightly
-              fi
-              ;;
             *)
               echo "Unsupported release event: $GITHUB_EVENT_NAME" >&2
               exit 1
@@ -144,7 +134,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || ((github.event_name == 'push' || steps.release_channel.outputs.channel == 'stable') && github.sha || 'hyprws') }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || (steps.release_channel.outputs.channel == 'stable' && github.sha || 'hyprws') }}
           fetch-depth: 0
           sparse-checkout: |
             /*
@@ -158,10 +148,9 @@ jobs:
       # The release gate: the cut runs only after the lease push that moved
       # hyprws. The release sha must be the current tip of origin/hyprws (so
       # it is what the lease push landed) and that sha must carry a green
-      # `hyprws CI` conclusion. A human trigger is not a reason to cut from a
-      # red trunk, so the stable tag channel passes the same gate — and a tag
-      # on an older commit, or a trunk that advanced past the tag, closes the
-      # gate: the cut stays shut and this step fails with the reason.
+      # `hyprws CI` conclusion. A stable cut may instead take an older sha
+      # that carries a fork nightly tag, since that nightly once passed this
+      # gate as the tip; any other older sha closes the gate with the reason.
       # Missing or red means no cut: the step fails and the build never runs.
       # Only a push run counts: a pull_request run may skip unaffected jobs.
       - id: release_gate
@@ -169,10 +158,17 @@ jobs:
         uses: actions/github-script@v8
         env:
           RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+          RELEASE_CHANNEL: ${{ steps.release_channel.outputs.channel }}
         with:
           script: |
             const { execSync } = require('node:child_process');
             const releaseSha = process.env.RELEASE_SHA;
+            const landedNightly =
+              process.env.RELEASE_CHANNEL === 'stable'
+                ? execSync(`git tag --points-at ${releaseSha} --list 'v*-hyprws-nightly.*'`, { encoding: 'utf8' })
+                    .split('\n')[0]
+                    .trim()
+                : '';
             // The checkout fetches only the ref it checks out, so origin/hyprws
             // may not exist here (notably on stable-tag runs); fetch the trunk
             // explicitly the way the merge-tree job does, and read FETCH_HEAD.
@@ -203,7 +199,8 @@ jobs:
             try {
               first = execSync(
                 `node scripts/fork-release-gate.ts --release-sha ${releaseSha} --trunk-tip ${trunkTip}` +
-                (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`),
+                (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`) +
+                (landedNightly === '' ? '' : ` --landed-nightly ${landedNightly}`),
                 { encoding: 'utf8' },
               ).trim().split('\n')[0] ?? '';
             } catch (error) {
