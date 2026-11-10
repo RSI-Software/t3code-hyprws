@@ -9,7 +9,7 @@ import {
   readVoiceDuckingFork,
   saveVoiceDuckingFork,
   VOICE_DUCKING_CHANGED_FORK,
-} from "../../voice-input/ducking.fork";
+} from "../../speech/ducking.fork";
 import { Button } from "../ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
