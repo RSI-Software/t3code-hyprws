@@ -39,7 +39,7 @@ export class InvalidForkReleaseInputError extends Schema.TaggedError<InvalidFork
 ) {
   override get message(): string {
     if (this.channel === "stable" && this.reason === "tag") {
-      return "Stable fork releases require a vX.Y.Z-hyprws.N tag ref.";
+      return "Stable fork releases require a vX.Y.Z-hyprws.N tag.";
     }
     return `Invalid ${this.channel} fork release ${this.reason}.`;
   }

@@ -44,7 +44,7 @@ it.effect("rejects stable dispatch metadata that is not a fork stable tag", () =
     const error = yield* resolveForkStableReleaseMetadata("v1.2.3-hyprws.0").pipe(Effect.flip);
 
     assert.equal(error._tag, "InvalidForkReleaseInputError");
-    assert.equal(error.message, "Stable fork releases require a vX.Y.Z-hyprws.N tag ref.");
+    assert.equal(error.message, "Stable fork releases require a vX.Y.Z-hyprws.N tag.");
   }),
 );
 

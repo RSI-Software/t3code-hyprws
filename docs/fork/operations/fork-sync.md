@@ -288,9 +288,10 @@ It **prunes old nightlies** with their tags; **stable is never pruned**.
 
 1. **Newest upstream stable** without a fork stable
 2. **Fork nightly on exactly its commit**, newest first
-3. **Push** `vX.Y.Z-hyprws.1`; the tag stops repeats
-4. **Dispatch** `hyprws-release.yml` from that tag
-5. **File** a `hyprws refold` issue for the agent
+3. **Dispatch** the release from the trunk
+4. **File** a `hyprws refold` issue, unless one is open
+
+`hyprws-release.yml` takes the tag and sha as inputs; **publishing creates the tag**, so a failed release retries on the next run.
 
 No nightly on that commit means **no cut**; recut instead.
 **Recut** with `gh workflow run hyprws-stable.yml`: the trunk tip becomes the next `.N` of the newest upstream stable it contains.

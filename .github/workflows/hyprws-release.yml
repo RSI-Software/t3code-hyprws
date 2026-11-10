@@ -1,8 +1,9 @@
 name: hyprws Release
 
 # Fork-only Linux x64 release channels for RSI-Software/t3code-hyprws.
-# hyprws-stable.yml tags each v<upstream>-hyprws.<n> and dispatches its stable
-# cut here from that tag ref. Trunk landings publish the
+# hyprws-stable.yml dispatches each stable cut here from hyprws with its tag and
+# sha, so this file and the gate are always the trunk's; publishing creates the
+# tag, which is what makes a repeat cut skip. Trunk landings publish the
 # commit `hyprws CI` just finished checking, once that CI run completes (a
 # workflow_run trigger, not the push itself, so the gate's CI lookup always
 # finds a completed run instead of racing it). Scheduled fallbacks and
@@ -33,6 +34,14 @@ on:
         options:
           - nightly
           - stable
+      tag:
+        description: "Stable only: the vX.Y.Z-hyprws.N tag to publish"
+        required: false
+        type: string
+      sha:
+        description: "Stable only: the commit the tag names"
+        required: false
+        type: string
 
 # Stable dispatches use the stable queue; every other run uses nightly.
 # Preflight remains the only place that resolves the requested channel.
@@ -52,20 +61,32 @@ permissions:
 
 jobs:
   # Runs first, as upstream's resolve_commit does, so an idle schedule skips
-  # preflight's install. A tip that already carries a nightly tag has nothing new.
+  # preflight's install. A tip that already carries a nightly tag has nothing new,
+  # and neither has a stable cut whose release exists (a repeat dispatch).
   check_changes:
-    name: Check for changes since last nightly
-    if: github.event_name == 'schedule'
+    name: Check for changes since last release
+    if: github.event_name == 'schedule' || inputs.channel == 'stable'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       has_changes: ${{ steps.check.outputs.has_changes }}
     steps:
       - id: check
-        name: Compare hyprws to the nightly tags
+        name: Compare against published releases
         env:
           REMOTE: https://github.com/${{ github.repository }}.git
+          GH_TOKEN: ${{ github.token }}
+          STABLE_TAG: ${{ inputs.tag }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "$STABLE_TAG is already released. Skipping."
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
           head_sha=$(git ls-remote "$REMOTE" refs/heads/hyprws | cut -f1)
           if git ls-remote --tags "$REMOTE" | grep -E "^${head_sha}\s+refs/tags/v.*-hyprws-nightly\." ; then
             echo "hyprws $head_sha already has a nightly. Skipping."
@@ -82,7 +103,7 @@ jobs:
     if: |
       !cancelled() &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
+      ((github.event_name != 'schedule' && inputs.channel != 'stable') || needs.check_changes.outputs.has_changes == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -103,6 +124,8 @@ jobs:
         shell: bash
         env:
           DISPATCH_CHANNEL: ${{ github.event.inputs.channel }}
+          STABLE_TAG: ${{ inputs.tag }}
+          STABLE_SHA: ${{ inputs.sha }}
         run: |
           case "$GITHUB_EVENT_NAME" in
             schedule)
@@ -124,9 +147,11 @@ jobs:
             echo "Invalid fork release channel: $channel" >&2
             exit 1
           fi
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$channel" == "stable" && ( "$GITHUB_REF_TYPE" != "tag" || ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-hyprws\.[0-9]+$ ) ]]; then
-            echo "workflow_dispatch channel=stable must run from a vX.Y.Z-hyprws.N tag ref." >&2
-            exit 1
+          if [[ "$channel" == "stable" ]]; then
+            if [[ ! "$STABLE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-hyprws\.[0-9]+$ || ! "$STABLE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "channel=stable needs a vX.Y.Z-hyprws.N tag input and a full commit sha input." >&2
+              exit 1
+            fi
           fi
 
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
@@ -134,16 +159,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || (steps.release_channel.outputs.channel == 'stable' && github.sha || 'hyprws') }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'hyprws' }}
           fetch-depth: 0
           sparse-checkout: |
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      # A stable cut builds its sha with this checkout's tooling and gate.
       - id: release_ref
         name: Resolve release commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          STABLE_SHA: ${{ inputs.sha }}
+        run: echo "sha=$(git rev-parse "${STABLE_SHA:-HEAD}^{commit}")" >> "$GITHUB_OUTPUT"
 
       # The release gate: the cut runs only after the lease push that moved
       # hyprws. The release sha must be the current tip of origin/hyprws (so
@@ -170,7 +198,7 @@ jobs:
                     .trim()
                 : '';
             // The checkout fetches only the ref it checks out, so origin/hyprws
-            // may not exist here (notably on stable-tag runs); fetch the trunk
+            // may not exist here; fetch the trunk
             // explicitly the way the merge-tree job does, and read FETCH_HEAD.
             // A fetch failure closes the gate with a reason, never a throw.
             const close = async (reason) => {
@@ -233,6 +261,7 @@ jobs:
           NIGHTLY_DATE: ${{ github.run_started_at }}
           NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
           RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+          STABLE_TAG: ${{ inputs.tag }}
         run: |
           if [[ "$RELEASE_CHANNEL" == "nightly" ]]; then
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
@@ -245,7 +274,7 @@ jobs:
           else
             node scripts/fork-release-version.ts \
               --channel "$RELEASE_CHANNEL" \
-              --tag "$GITHUB_REF_NAME" \
+              --tag "$STABLE_TAG" \
               --github-output
           fi
 
@@ -258,8 +287,10 @@ jobs:
 
       - id: upstream_base
         name: Resolve upstream base
+        env:
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
         run: |
-          base_commit="$(git merge-base HEAD upstream/main)"
+          base_commit="$(git merge-base "$RELEASE_SHA" upstream/main)"
           tags="$(git tag --points-at "$base_commit" --sort=-v:refname)"
           base="$(printf '%s\n' "$tags" | grep -v -- '-nightly\.' | head -n 1 || true)"
           if [[ -z "$base" ]]; then
@@ -273,7 +304,7 @@ jobs:
 
       - id: delta_revision
         name: Resolve delta revision
-        run: node scripts/fork-release-delta-rev.ts --base upstream/main --head HEAD --github-output
+        run: node scripts/fork-release-delta-rev.ts --base upstream/main --head ${{ steps.release_ref.outputs.sha }} --github-output
 
   # The release gate already requires a green push run of hyprws CI on this
   # sha, a superset of upstream's release quality and test jobs; rerunning
