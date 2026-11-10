@@ -59,7 +59,7 @@ export class SpeakerDuckingFork {
         )
         .map((output) => output.id);
       if (ids.length === 0)
-        throw new Error("No selected speaker output is available. Check Dictation settings.");
+        throw new Error("No selected speaker output is available. Check Settings → Voice.");
       this.sessions.set(key, { owner, ids, settings });
       for (const id of ids) {
         if (this.outputs.has(id)) continue;
