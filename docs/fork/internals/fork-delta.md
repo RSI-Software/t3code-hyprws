@@ -782,7 +782,7 @@ Retention and release stay fork scope until upstream keeps one task across round
 
 ### Need
 
-- **Remote transcription** on any OpenAI-compatible service
+- **Remote transcription** via OpenAI-compatible APIs
 - **Live preview** over OpenAI Realtime
 - **Speaker ducking** while recording on desktop
 
@@ -794,6 +794,7 @@ Batch posts the **multipart transcription**; live relays the **PCM stream over R
 Upstream **custom words** go out as the `prompt`, then upstream aliases and filler removal run on the result.
 Ducking **hooks upstream's PCM capture**; the desktop bridge restores speakers even when a recording is cancelled before ducking starts.
 **Mobile stays upstream-owned**, and the remote model still works from it.
+The remote model **needs a host upstream's local speech supports**: clients gate voice on `capabilities.voiceTranscription`, set from the host platform.
 
 ### Retirement condition
 
