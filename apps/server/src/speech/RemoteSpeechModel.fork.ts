@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import type * as Scope from "effect/Scope";
 import * as Socket from "effect/socket/Socket";
@@ -153,6 +154,8 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
   const settings = yield* ServerSettings.ServerSettingsService;
   const http = yield* HttpClient.HttpClient;
   const store = yield* RemoteSpeechModelStore.RemoteSpeechModelStoreFork;
+  // Removal restores the remote selection after upstream replaces it; a selection must not interleave.
+  const selection = yield* Semaphore.make(1);
 
   /** The remote service, when this environment has it configured and selected. */
   const selected = Effect.gen(function* () {
@@ -403,7 +406,7 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       if (!remote) return yield* new SpeechService.SpeechModelNotFoundError({ modelId });
       yield* selectRemote("model selection");
       return yield* models(false);
-    }),
+    }, selection.withPermits(1)),
     // Removing the remote model forgets the service; the selection falls back to the default model.
     removeModel: Effect.fn("RemoteSpeechModel.removeModel")(function* (modelId: string) {
       if (modelId === SPEECH_REMOTE_MODEL_ID_FORK) {
@@ -416,18 +419,11 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
         return yield* models(false);
       }
       const remote = yield* selected;
-      const removed = yield* local.removeModel(modelId);
+      yield* local.removeModel(modelId);
       // Upstream reads the remote id as its default model, and replaces it when that model goes.
-      // Restore only while its replacement still holds, so a newer selection wins.
-      const replacement = removed.models.find((model) => model.active)?.id;
-      const { speechModelId } = yield* settings.getSettings.pipe(
-        Effect.mapError(
-          (cause) => new SpeechService.SpeechOperationError({ operation: "model removal", cause }),
-        ),
-      );
-      if (remote && speechModelId === replacement) yield* selectRemote("model removal");
+      if (remote) yield* selectRemote("model removal");
       return yield* models(false);
-    }),
+    }, selection.withPermits(1)),
     prepareModel: Effect.flatMap(selected, (remote) => (remote ? Effect.void : local.prepareModel)),
     transcribe: Effect.fn("RemoteSpeechModel.route")(function* (
       bytes: Uint8Array,

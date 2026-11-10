@@ -5,6 +5,7 @@ import {
   type ServerSettings as ServerSettingsValue,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -51,7 +52,7 @@ const harness = Effect.fn(function* () {
     output: yield* Queue.make<string | Uint8Array | Socket.CloseEvent>(),
   };
   const opened: Array<{ url: string; headers: unknown }> = [];
-  const hooks = { onRemove: () => {} };
+  const hooks = { removing: Effect.void };
   const layer = RemoteSpeechModel.layer((url, headers) =>
     Effect.sync(() => {
       opened.push({ url, headers });
@@ -76,9 +77,14 @@ const harness = Effect.fn(function* () {
           updateAcceleration: () => Effect.succeed({ supported: false, reason: "local status" }),
           // Upstream replaces a selection it reads as its removed default model.
           removeModel: () =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
               settings.speechModelId = "local";
-              hooks.onRemove();
+              yield* hooks.removing;
+              return { models: [localModel] };
+            }),
+          selectModel: (modelId) =>
+            Effect.sync(() => {
+              settings.speechModelId = modelId;
               return { models: [localModel] };
             }),
         }),
@@ -164,10 +170,19 @@ describe("remote speech model", () => {
             ["local", false],
           ]);
 
-          // A selection made while upstream removes the model is not overwritten.
-          h.onRemove = () => void (h.settings.speechModelId = "other");
-          yield* speech.removeModel("local");
-          expect(h.settings.speechModelId).toBe("other");
+          // A selection made during removal waits for the restore, so it is not overwritten.
+          const gate = yield* Deferred.make<void>();
+          h.removing = Deferred.await(gate);
+          const removing = yield* speech
+            .removeModel("local")
+            .pipe(Effect.forkChild({ startImmediately: true }));
+          const selecting = yield* speech
+            .selectModel("local")
+            .pipe(Effect.forkChild({ startImmediately: true }));
+          yield* Deferred.succeed(gate, undefined);
+          yield* Fiber.join(removing);
+          yield* Fiber.join(selecting);
+          expect(h.settings.speechModelId).toBe("local");
         }),
       );
     }),
