@@ -416,9 +416,16 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
         return yield* models(false);
       }
       const remote = yield* selected;
-      yield* local.removeModel(modelId);
+      const removed = yield* local.removeModel(modelId);
       // Upstream reads the remote id as its default model, and replaces it when that model goes.
-      if (remote) yield* selectRemote("model removal");
+      // Restore only while its replacement still holds, so a newer selection wins.
+      const replacement = removed.models.find((model) => model.active)?.id;
+      const { speechModelId } = yield* settings.getSettings.pipe(
+        Effect.mapError(
+          (cause) => new SpeechService.SpeechOperationError({ operation: "model removal", cause }),
+        ),
+      );
+      if (remote && speechModelId === replacement) yield* selectRemote("model removal");
       return yield* models(false);
     }),
     prepareModel: Effect.flatMap(selected, (remote) => (remote ? Effect.void : local.prepareModel)),

@@ -51,6 +51,7 @@ const harness = Effect.fn(function* () {
     output: yield* Queue.make<string | Uint8Array | Socket.CloseEvent>(),
   };
   const opened: Array<{ url: string; headers: unknown }> = [];
+  const hooks = { onRemove: () => {} };
   const layer = RemoteSpeechModel.layer((url, headers) =>
     Effect.sync(() => {
       opened.push({ url, headers });
@@ -77,6 +78,7 @@ const harness = Effect.fn(function* () {
           removeModel: () =>
             Effect.sync(() => {
               settings.speechModelId = "local";
+              hooks.onRemove();
               return { models: [localModel] };
             }),
         }),
@@ -123,7 +125,7 @@ const harness = Effect.fn(function* () {
   const run = <A, E, R>(
     use: (service: SpeechService.SpeechService["Service"]) => Effect.Effect<A, E, R>,
   ) => Effect.flatMap(SpeechService.SpeechService, use).pipe(Effect.provide(layer));
-  return { settings, requests, socket, opened, run };
+  return Object.assign(hooks, { settings, requests, socket, opened, run });
 });
 
 describe("remote speech model", () => {
@@ -161,6 +163,11 @@ describe("remote speech model", () => {
             [SPEECH_REMOTE_MODEL_ID_FORK, true],
             ["local", false],
           ]);
+
+          // A selection made while upstream removes the model is not overwritten.
+          h.onRemove = () => void (h.settings.speechModelId = "other");
+          yield* speech.removeModel("local");
+          expect(h.settings.speechModelId).toBe("other");
         }),
       );
     }),
