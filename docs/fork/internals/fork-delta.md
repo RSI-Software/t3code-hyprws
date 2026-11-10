@@ -487,8 +487,10 @@ When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#1522
 ├── hyprws-ci.yml                     checks, tests, trailers, desktop build
 ├── hyprws-body.yml                   advisory citation and squash-trailer checks
 ├── hyprws-release.yml                stable and per-landing prerelease builds
+├── hyprws-stable.yml                 cuts and dispatches each stable
 └── hyprws-agent-context-budget.yml   upstream's budget check against the PR base
 scripts/
+├── fork-stable-cut.ts                stable commit and tag
 ├── fork-release-version.ts           channel metadata and previous tag
 └── build-desktop-artifact.ts         update feed from GITHUB_REPOSITORY
 apps/desktop/src/updates/
