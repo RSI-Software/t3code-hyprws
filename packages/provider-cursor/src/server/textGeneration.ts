@@ -1,4 +1,3 @@
-import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 import * as FileSystem from "effect/FileSystem";
 
 import type { AgentOptions, RunResult } from "@cursor/sdk";
@@ -228,11 +227,8 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     },
   );
 
-  return withVoiceTextGenerationFork(
-    TextGenerationOperations.fromRunner(
-      "CursorTextGeneration",
-      TextGenerationOperations.withoutInvestigation("Cursor", runCursorJson),
-    ),
-    runCursorJson,
-  ); // fork-hook: voice-input/generation-runner
+  return TextGenerationOperations.fromRunner(
+    "CursorTextGeneration",
+    TextGenerationOperations.withoutInvestigation("Cursor", runCursorJson),
+  );
 });

@@ -1,4 +1,3 @@
-import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 import { ProviderSetupError, TextGenerationError } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -340,11 +339,8 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
       ),
   );
 
-  return withVoiceTextGenerationFork(
-    TextGenerationOperations.fromRunner(
-      "AntigravityTextGeneration",
-      TextGenerationOperations.withoutInvestigation("Antigravity", runAntigravityJson),
-    ),
-    runAntigravityJson,
-  ); // fork-hook: voice-input/generation-runner
+  return TextGenerationOperations.fromRunner(
+    "AntigravityTextGeneration",
+    TextGenerationOperations.withoutInvestigation("Antigravity", runAntigravityJson),
+  );
 });

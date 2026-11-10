@@ -151,7 +151,6 @@ function SettingsRouteLayout() {
     <SettingsScopeProvider
       search={rawSearch}
       singleEnvironment={pathname === "/settings/providers" || pathname === "/settings/secrets"}
-      {...(pathname === "/settings/dictation" ? { singleEnvironment: true } : {})} // fork-hook: voice-input/settings-environment
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({
