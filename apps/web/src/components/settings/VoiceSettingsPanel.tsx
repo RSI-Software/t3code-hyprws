@@ -147,6 +147,7 @@ import { useSearchableSetting } from "./settingsSearch";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
+import { VoiceSettingsFork } from "./VoiceSettings.fork"; // fork-hook: voice-input/settings-sections-import
 
 const OFF = "off";
 const DEVICE = "device";
@@ -1901,6 +1902,9 @@ export function VoiceSettingsPanel() {
           />
         ) : null}
       </SettingsSection>
+      {/* fork-hook: voice-input/settings-sections */}
+      <VoiceSettingsFork prepared={prepared} run={catalog.run} />
+      {/* fork-hook-end */}
     </SettingsPageContainer>
   );
 }
