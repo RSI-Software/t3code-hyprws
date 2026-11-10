@@ -43,7 +43,6 @@ import { Route as ChatSettingsKeybindingsRouteImport } from './routes/_chat.sett
 import { Route as ChatSettingsIntegrationsRouteImport } from './routes/_chat.settings.integrations'
 import { Route as ChatSettingsGeneralRouteImport } from './routes/_chat.settings.general'
 import { Route as ChatSettingsDiffsRouteImport } from './routes/_chat.settings.diffs'
-import { Route as ChatSettingsDictationRouteImport } from './routes/_chat.settings.dictation'
 import { Route as ChatSettingsDiagnosticsRouteImport } from './routes/_chat.settings.diagnostics'
 import { Route as ChatSettingsDevicesRouteImport } from './routes/_chat.settings.devices'
 import { Route as ChatSettingsConnectionsRouteImport } from './routes/_chat.settings.connections'
@@ -231,11 +230,6 @@ const ChatSettingsDiffsRoute = ChatSettingsDiffsRouteImport.update({
   path: '/diffs',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
-const ChatSettingsDictationRoute = ChatSettingsDictationRouteImport.update({
-  id: '/dictation',
-  path: '/dictation',
-  getParentRoute: () => ChatSettingsRoute,
-} as any)
 const ChatSettingsDiagnosticsRoute = ChatSettingsDiagnosticsRouteImport.update({
   id: '/diagnostics',
   path: '/diagnostics',
@@ -325,7 +319,6 @@ export interface FileRoutesByFullPath {
   '/settings/connections': typeof ChatSettingsConnectionsRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
-  '/settings/dictation': typeof ChatSettingsDictationRoute
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
@@ -373,7 +366,6 @@ export interface FileRoutesByTo {
   '/settings/connections': typeof ChatSettingsConnectionsRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
-  '/settings/dictation': typeof ChatSettingsDictationRoute
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
@@ -423,7 +415,6 @@ export interface FileRoutesById {
   '/_chat/settings/connections': typeof ChatSettingsConnectionsRoute
   '/_chat/settings/devices': typeof ChatSettingsDevicesRoute
   '/_chat/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
-  '/_chat/settings/dictation': typeof ChatSettingsDictationRoute
   '/_chat/settings/diffs': typeof ChatSettingsDiffsRoute
   '/_chat/settings/general': typeof ChatSettingsGeneralRoute
   '/_chat/settings/integrations': typeof ChatSettingsIntegrationsRoute
@@ -473,7 +464,6 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/devices'
     | '/settings/diagnostics'
-    | '/settings/dictation'
     | '/settings/diffs'
     | '/settings/general'
     | '/settings/integrations'
@@ -521,7 +511,6 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/devices'
     | '/settings/diagnostics'
-    | '/settings/dictation'
     | '/settings/diffs'
     | '/settings/general'
     | '/settings/integrations'
@@ -570,7 +559,6 @@ export interface FileRouteTypes {
     | '/_chat/settings/connections'
     | '/_chat/settings/devices'
     | '/_chat/settings/diagnostics'
-    | '/_chat/settings/dictation'
     | '/_chat/settings/diffs'
     | '/_chat/settings/general'
     | '/_chat/settings/integrations'
@@ -845,13 +833,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatSettingsDiffsRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
-    '/_chat/settings/dictation': {
-      id: '/_chat/settings/dictation'
-      path: '/dictation'
-      fullPath: '/settings/dictation'
-      preLoaderRoute: typeof ChatSettingsDictationRouteImport
-      parentRoute: typeof ChatSettingsRoute
-    }
     '/_chat/settings/diagnostics': {
       id: '/_chat/settings/diagnostics'
       path: '/diagnostics'
@@ -950,7 +931,6 @@ interface ChatSettingsRouteChildren {
   ChatSettingsConnectionsRoute: typeof ChatSettingsConnectionsRoute
   ChatSettingsDevicesRoute: typeof ChatSettingsDevicesRoute
   ChatSettingsDiagnosticsRoute: typeof ChatSettingsDiagnosticsRoute
-  ChatSettingsDictationRoute: typeof ChatSettingsDictationRoute
   ChatSettingsDiffsRoute: typeof ChatSettingsDiffsRoute
   ChatSettingsGeneralRoute: typeof ChatSettingsGeneralRoute
   ChatSettingsIntegrationsRoute: typeof ChatSettingsIntegrationsRoute
@@ -982,7 +962,6 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsConnectionsRoute: ChatSettingsConnectionsRoute,
   ChatSettingsDevicesRoute: ChatSettingsDevicesRoute,
   ChatSettingsDiagnosticsRoute: ChatSettingsDiagnosticsRoute,
-  ChatSettingsDictationRoute: ChatSettingsDictationRoute,
   ChatSettingsDiffsRoute: ChatSettingsDiffsRoute,
   ChatSettingsGeneralRoute: ChatSettingsGeneralRoute,
   ChatSettingsIntegrationsRoute: ChatSettingsIntegrationsRoute,
