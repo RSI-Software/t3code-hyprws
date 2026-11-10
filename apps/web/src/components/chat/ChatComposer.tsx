@@ -15,11 +15,6 @@ import {
 } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import {
-  useDesktopVoiceInputFork,
-  voicePendingAnswerFork,
-} from "../../voice-input/useVoiceInput.fork"; // fork-hook: voice-input/composer-import
-import { VoiceComposerFooterFork } from "../../voice-input/VoiceComposerControls.fork"; // fork-hook: voice-input/footer-import
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
   importPastedComposerText,
@@ -1054,30 +1049,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     m,
   );
-  const desktopVoiceFork = useDesktopVoiceInputFork({
-    environmentId,
-    projectId: activeThread?.projectId ?? pullRequestProjectId, // fork-hook: voice-input/text-processing-project
-    threadId: routeKind === "server" ? (activeThread?.id ?? null) : null, // fork-hook: voice-input/text-processing-context
-    ownerKey: composerDraftTargetKey,
-    draftTarget: composerDraftTarget, // fork-hook: voice-input/draft-target
-    label: activeThread?.title || "New thread", // fork-hook: voice-input/draft-label
-    enabled: canOperateThread && pendingApprovals.length === 0, // fork-hook: voice-input/pending-answer-enabled
-    pendingAnswer: voicePendingAnswerFork(
-      pendingUserInputs[0]?.requestId,
-      activePendingProgress,
-      onChangeActivePendingUserInputCustomAnswer,
-    ), // fork-hook: voice-input/pending-answer
-    readSelection: () =>
-      composerEditorRef.current?.readSelectionRange() ?? {
-        start: promptRef.current.length,
-        end: promptRef.current.length,
-      }, // fork-hook: voice-input/draft-selection
-    commitDraft: (text, cursor) => {
-      const collapsedCursor = collapseExpandedComposerCursor(text, cursor);
-      onPromptChange(text, collapsedCursor, cursor, false, collectInlineContextIds(text));
-      requestAnimationFrame(() => composerEditorRef.current?.focusAt(collapsedCursor));
-    },
-  }); // fork-hook: voice-input/composer-controller
   const sendDisabledReason =
     externalSendDisabledReason ??
     (multipleModelSelections?.length === 0 ? gt("Select at least one model.") : null) ??
@@ -1764,7 +1735,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ? null
       : detectComposerTrigger(nextPrompt, expandedCursor);
     const updateTrigger = textChanged ? setComposerTrigger : followComposerCaret;
-    desktopVoiceFork.markDraftChanged(); // fork-hook: voice-input/draft-revision
     if (activePendingProgress?.activeQuestion && pendingUserInputs.length > 0) {
       if (activePendingProgress.activeQuestion.allowCustomAnswer === false) return;
       setComposerCursor(nextCursor);
@@ -2421,9 +2391,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       return false;
     }
-    if (desktopVoiceFork.blocksSubmission()) {
-      return;
-    } // fork-hook: voice-input/submission-guard
     if (submissionBlocked || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
       event?.preventDefault();
       return false;
@@ -3758,11 +3725,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }}
       className="mx-auto w-full min-w-0 max-w-(--chat-content-max-width)"
       data-chat-composer-form="true"
-      {...{
-        "data-voice-input-presented-fork": desktopVoiceFork.presented ? "true" : undefined,
-        "data-voice-input-live-fork": desktopVoiceFork.live ? "true" : undefined, // fork-hook: voice-input/live-presentation
-        "data-voice-input-compact-fork": isComposerCollapsedMobile ? "true" : undefined,
-      }} /* fork-hook: voice-input/presentation */
       {...threadContextDropTargetProps()}
     >
       <ComposerBanner.Dock>
@@ -3913,16 +3875,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 };
               }}
               data-chat-composer-body="true"
-              {...{
-                inert:
-                  desktopVoiceFork.busy || (desktopVoiceFork.presented && isComposerCollapsedMobile)
-                    ? true
-                    : undefined,
-                "aria-hidden":
-                  desktopVoiceFork.presented && isComposerCollapsedMobile && !desktopVoiceFork.live
-                    ? true
-                    : undefined, // fork-hook: voice-input/live-editor-presentation
-              }} /* fork-hook: voice-input/editor-presentation */
               className={cn(
                 "relative px-4 pb-2",
                 "pt-3.5 sm:pt-4",
@@ -4005,9 +3957,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
                     draftKey={composerDraftTargetKey}
-                    voicePreviewFork={
-                      desktopVoiceFork.preview
-                    } /* fork-hook: voice-input/preview-editor */
                     // Switching threads lands focus here, so the label names the thread.
                     ariaLabel={
                       activeThread
@@ -4103,7 +4052,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       canInterrupt={false}
                       isSendBusy={isSendBusy}
                       sendDisabledReason={primaryActionSendDisabledReason}
-                      {...desktopVoiceFork.sendProps} /* fork-hook: voice-input/mobile-send */
                       isEnvironmentUnavailable={primaryActionEnvironmentUnavailable}
                       isPreparingWorktree={false}
                       hasSendableContent={false}
@@ -4136,10 +4084,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {isComposerCollapsedMobile && speechInput.state.phase === "idle" ? null : (
               <div
                 data-chat-composer-footer="true"
-                {...{
-                  inert: desktopVoiceFork.presented ? true : undefined,
-                  "aria-hidden": desktopVoiceFork.presented ? true : undefined,
-                }} /* fork-hook: voice-input/footer-presentation */
                 className={cn(
                   "flex min-w-0 flex-nowrap items-center overflow-visible px-2 pb-2",
                   pendingUserInputs.length > 0 && "pt-2",
@@ -4170,9 +4114,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   >
                     {composerControls}
                   </div>
-                  {/* fork-hook: voice-input/composer-controls */}
-                  {desktopVoiceFork.controls}
-                  {/* fork-hook-end */}
                   <ComposerFooterPrimaryActions
                     // Stop state belongs to one thread; the composer stays mounted across threads.
                     key={`${environmentId}:${activeThreadId ?? "new"}`}
@@ -4203,7 +4144,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isSendBusy={isSendBusy}
                     isSendHeld={composerSendHeld}
                     sendDisabledReason={primaryActionSendDisabledReason}
-                    {...desktopVoiceFork.sendProps} /* fork-hook: voice-input/primary-send */
                     isEnvironmentUnavailable={primaryActionEnvironmentUnavailable}
                     isPreparingWorktree={isPreparingWorktree}
                     hasSendableContent={hasMessageToSend || voiceInputActive}
@@ -4262,12 +4202,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
             )}
             {showInlineRestingControls ? (
-              <div
-                className="h-8"
-                {...{
-                  "data-voice-input-resting-fork": "true",
-                }} /* fork-hook: voice-input/inline-resting */
-              >
+              <div className="h-8">
                 <div
                   ref={setInlineRestingControlsHost}
                   className="absolute bottom-2 inset-x-4 min-w-0"
@@ -4277,9 +4212,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     data-chat-composer-resting-controls="true"
                     aria-hidden={restingControlsVisible ? undefined : true}
                     inert={restingControlsVisible ? undefined : true}
-                    {...(desktopVoiceFork.presented
-                      ? { "data-voice-input-hidden-fork": "true", "aria-hidden": true, inert: true }
-                      : {})} /* fork-hook: voice-input/resting-presentation */
                     className={cn(
                       "relative flex w-max min-w-0 max-w-full items-center gap-1 text-muted-foreground/70 [&_button]:text-xs!",
                       !restingControlsVisible && "invisible",
@@ -4290,13 +4222,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 </div>
               </div>
             ) : null}
-            {/* fork-hook: voice-input/footer */}
-            <VoiceComposerFooterFork
-              toolbar={desktopVoiceFork.toolbar}
-              compact={isComposerCollapsedMobile}
-              presented={desktopVoiceFork.presented}
-            />
-            {/* fork-hook-end */}
           </div>
         </ComposerSurface.Main>
       </div>
