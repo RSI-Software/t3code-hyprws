@@ -62,7 +62,7 @@ permissions:
 jobs:
   # Runs first, as upstream's resolve_commit does, so an idle schedule skips
   # preflight's install. A tip that already carries a nightly tag has nothing new,
-  # and neither has a stable cut whose release exists (a repeat dispatch).
+  # and neither has a stable cut whose tag exists (a repeat dispatch).
   check_changes:
     name: Check for changes since last release
     if: github.event_name == 'schedule' || inputs.channel == 'stable'
@@ -79,7 +79,8 @@ jobs:
           STABLE_TAG: ${{ inputs.tag }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            if gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Only a published release creates the tag; a leftover draft does not.
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$STABLE_TAG" >/dev/null 2>&1; then
               echo "$STABLE_TAG is already released. Skipping."
               echo "has_changes=false" >> "$GITHUB_OUTPUT"
             else
