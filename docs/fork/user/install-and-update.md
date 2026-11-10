@@ -27,3 +27,16 @@ t3 update <version>
 ```
 
 [Updating T3 Code](../../user/updating.md) covers restarts and failed updates.
+
+## Switch channel
+
+- **Stable** follows each upstream stable
+- **Nightly** follows every upstream nightly
+
+Move a server to stable with the command below; nightly is `--channel nightly`.
+
+```bash
+t3 update --channel stable --allow-downgrade
+```
+
+A **database change** only the newer release supports **blocks the move**.

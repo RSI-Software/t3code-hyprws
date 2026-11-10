@@ -12,6 +12,7 @@ timeout: 45
 
 This issue is the `hyprws` sync attention issue: a sync stopped on a seam the driver cannot resolve, a carried trunk commit conflicted, or its candidate failed CI.
 Its title names the target tag; its body names each manual path and blocking commit, the commits left, or each red job.
+A `hyprws refold` issue instead asks for a fold of the current trunk after a stable cut.
 
 The `fork-sync` skill owns every step and rule; follow its procedure and its Job section, and copy nothing from memory.
 
