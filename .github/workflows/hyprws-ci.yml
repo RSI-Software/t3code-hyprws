@@ -5,7 +5,7 @@ name: hyprws CI
 # (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
 # free for a public repository. The pin names the upstream ci.yml commit these steps
 # last matched; fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
-# fork-mirror: .github/workflows/ci.yml@dc7270581800518b9d7d4db6c8e13852067c8c2d
+# fork-mirror: .github/workflows/ci.yml@822671581383a357c5dc8d3ea9984b408c3e03c6
 
 on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
