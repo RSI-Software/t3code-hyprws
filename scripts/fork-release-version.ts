@@ -34,15 +34,12 @@ export class InvalidForkReleaseInputError extends Schema.TaggedError<InvalidFork
   "InvalidForkReleaseInputError",
   {
     channel: ForkReleaseChannel,
-    reason: Schema.Literals(["tag", "upstream-version", "date", "run-number", "sha"]),
+    reason: Schema.Literals(["tag", "date", "run-number", "sha"]),
   },
 ) {
   override get message(): string {
     if (this.channel === "stable" && this.reason === "tag") {
-      return "Stable fork releases require a vX.Y.Z-hyprws.N tag ref.";
-    }
-    if (this.channel === "stable" && this.reason === "upstream-version") {
-      return "Stable fork release derivation requires an X.Y.Z upstream version.";
+      return "Stable fork releases require a vX.Y.Z-hyprws.N tag.";
     }
     return `Invalid ${this.channel} fork release ${this.reason}.`;
   }
@@ -79,24 +76,6 @@ const compareNumberFields = <T extends object>(
     if (comparison !== 0) return comparison;
   }
   return 0;
-};
-
-export const resolveNextForkStableTag = (
-  upstreamVersion: string,
-  tags: ReadonlyArray<string>,
-): string | null => {
-  const upstream = parseUpstreamReleaseTag(`v${upstreamVersion}`);
-  if (upstream === null || upstream.channel !== "stable") return null;
-  const revision = tags.reduce((highest, tag) => {
-    const parsed = parseStableForkTag(tag);
-    return parsed !== null &&
-      parsed.major === upstream.major &&
-      parsed.minor === upstream.minor &&
-      parsed.patch === upstream.patch
-      ? Math.max(highest, parsed.revision)
-      : highest;
-  }, 0);
-  return `v${upstreamVersion}-hyprws.${revision + 1}`;
 };
 
 export const resolvePreviousForkReleaseTag = (
@@ -223,10 +202,6 @@ export const forkReleaseVersionCommand = Command.make(
       Flag.withDescription("Fork release channel."),
     ),
     tag: Flag.String("tag").pipe(Flag.withDescription("Stable fork release tag."), Flag.optional),
-    upstreamVersion: Flag.String("upstream-version").pipe(
-      Flag.withDescription("Derive the next stable tag for this upstream X.Y.Z version."),
-      Flag.optional,
-    ),
     date: Flag.String("date").pipe(
       Flag.withDescription("Nightly build date in YYYYMMDD."),
       Flag.optional,
@@ -248,17 +223,12 @@ export const forkReleaseVersionCommand = Command.make(
       Flag.withDefault(false),
     ),
   },
-  ({ channel, tag, upstreamVersion, date, runNumber, sha, root, githubOutput }) =>
+  ({ channel, tag, date, runNumber, sha, root, githubOutput }) =>
     Effect.gen(function* () {
       const tags = yield* listGitTags();
       const metadata =
         channel === "stable"
-          ? resolveForkStableReleaseMetadata(
-              Option.getOrElse(tag, () => {
-                const version = Option.getOrElse(upstreamVersion, () => "");
-                return resolveNextForkStableTag(version, tags) ?? "";
-              }),
-            )
+          ? resolveForkStableReleaseMetadata(Option.getOrElse(tag, () => ""))
           : Effect.gen(function* () {
               const nightlyDate = yield* requireNightlyInput(Option.getOrUndefined(date), "date");
               if (parseUpstreamReleaseTag(`v0.0.0-nightly.${nightlyDate}.1`) === null) {
@@ -293,19 +263,6 @@ export const forkReleaseVersionCommand = Command.make(
               );
             });
 
-      if (
-        channel === "stable" &&
-        Option.isNone(tag) &&
-        resolveNextForkStableTag(
-          Option.getOrElse(upstreamVersion, () => ""),
-          tags,
-        ) === null
-      ) {
-        return yield* new InvalidForkReleaseInputError({
-          channel: "stable",
-          reason: "upstream-version",
-        });
-      }
       const resolvedMetadata = yield* metadata;
       const previousTag = resolvePreviousForkReleaseTag(channel, resolvedMetadata.tag, tags);
       yield* writeForkReleaseOutput(resolvedMetadata, previousTag, githubOutput);
