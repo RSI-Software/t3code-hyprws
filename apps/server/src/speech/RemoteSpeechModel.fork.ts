@@ -351,32 +351,34 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       ),
   );
 
+  const status = Effect.gen(function* () {
+    const remote = yield* selected;
+    if (!remote) return yield* local.status;
+    const { speechAcceleration, speechModelUnloadTimeout } = yield* settings.getSettings.pipe(
+      Effect.mapError(
+        (cause) => new SpeechService.SpeechOperationError({ operation: "status", cause }),
+      ),
+    );
+    return {
+      supported: true as const,
+      state: "ready" as const,
+      modelId: SPEECH_REMOTE_MODEL_ID_FORK,
+      model: remote.model,
+      size: 0,
+      supportsStreaming: remote.live,
+      supportsBufferedStreaming: remote.live,
+      supportsTranslation: false,
+      supportsLanguageDetection: true,
+      acceleration: speechAcceleration,
+      benchmarkTier: "accelerated" as const,
+      modelUnloadTimeout: speechModelUnloadTimeout,
+      gpuDevices: [],
+    };
+  });
+
+  // No spread: a method upstream adds fails the typecheck rather than skipping the remote model.
   return SpeechService.SpeechService.of({
-    ...local,
-    status: Effect.gen(function* () {
-      const remote = yield* selected;
-      if (!remote) return yield* local.status;
-      const { speechAcceleration, speechModelUnloadTimeout } = yield* settings.getSettings.pipe(
-        Effect.mapError(
-          (cause) => new SpeechService.SpeechOperationError({ operation: "status", cause }),
-        ),
-      );
-      return {
-        supported: true as const,
-        state: "ready" as const,
-        modelId: SPEECH_REMOTE_MODEL_ID_FORK,
-        model: remote.model,
-        size: 0,
-        supportsStreaming: remote.live,
-        supportsBufferedStreaming: remote.live,
-        supportsTranslation: false,
-        supportsLanguageDetection: true,
-        acceleration: speechAcceleration,
-        benchmarkTier: "accelerated" as const,
-        modelUnloadTimeout: speechModelUnloadTimeout,
-        gpuDevices: [],
-      };
-    }),
+    status,
     models,
     // Upstream calls answer with its own catalog; every model change answers with the wrapped one.
     downloadModel: Effect.fn("RemoteSpeechModel.downloadModel")(function* (modelId: string) {
@@ -435,6 +437,17 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       const remote = yield* selected;
       return yield* remote ? streamRemote(remote, options) : local.startStream(options);
     }),
+    // Upstream answers with its local model's status; the selection may be the remote one.
+    updateAcceleration: Effect.fn("RemoteSpeechModel.updateAcceleration")(function* (acceleration) {
+      yield* local.updateAcceleration(acceleration);
+      return yield* status;
+    }),
+    updateModelUnloadTimeout: Effect.fn("RemoteSpeechModel.updateModelUnloadTimeout")(
+      function* (timeout) {
+        yield* local.updateModelUnloadTimeout(timeout);
+        return yield* status;
+      },
+    ),
   });
 });
 

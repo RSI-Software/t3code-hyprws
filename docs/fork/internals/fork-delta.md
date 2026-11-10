@@ -789,7 +789,7 @@ Retention and release stay fork scope until upstream keeps one task across round
 ### Shape
 
 The remote service is **one more model** on upstream `SpeechService`: `RemoteSpeechModel.fork.ts` wraps the layer, so every client selects and uses it through upstream's voice endpoints.
-Selection is upstream's **`speechModelId`** setting; base URL, model, and key stay in the **`fork-voice-input` secret**, behind one fork HTTP route.
+Selection is upstream's **`speechModelId`** setting, holding **`fork/remote`**: stock servers read an unknown id as their default model, so this fork value is deliberate; base URL, model, and key stay in the **`fork-voice-input` secret**, behind one fork HTTP route.
 Batch posts the **multipart transcription**; live relays the **PCM stream over Realtime**.
 Upstream **custom words** go out as the `prompt`, then upstream aliases and filler removal run on the result.
 Ducking **hooks upstream's PCM capture**; the desktop bridge restores speakers even when a recording is cancelled before ducking starts.

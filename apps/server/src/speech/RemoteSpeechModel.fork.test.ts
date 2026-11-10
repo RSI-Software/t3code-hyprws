@@ -72,6 +72,7 @@ const harness = Effect.fn(function* () {
         Layer.mock(SpeechService.SpeechService)({
           models: () => Effect.succeed({ models: [localModel] }),
           transcribe: () => Effect.succeed("local text"),
+          updateAcceleration: () => Effect.succeed({ supported: false, reason: "local status" }),
           // Upstream replaces a selection it reads as its removed default model.
           removeModel: () =>
             Effect.sync(() => {
@@ -150,6 +151,10 @@ describe("remote speech model", () => {
           const form = request?.body._tag === "FormData" ? request.body.formData : undefined;
           expect([form?.get("model"), form?.get("prompt")]).toEqual(["nemo", "Promptletariat"]);
 
+          expect(yield* speech.updateAcceleration("cpu")).toMatchObject({
+            modelId: SPEECH_REMOTE_MODEL_ID_FORK,
+          });
+
           const removed = yield* speech.removeModel("local");
           expect(h.settings.speechModelId).toBe(SPEECH_REMOTE_MODEL_ID_FORK);
           expect(removed.models.map(({ id, active }) => [id, active])).toEqual([
@@ -180,10 +185,18 @@ describe("remote speech model", () => {
               headers: { authorization: "Bearer private-key" },
             },
           ]);
+          // The reader handles frames in order, so the delta lands before start resolves.
+          yield* Queue.offer(
+            h.socket.input,
+            '{"type":"conversation.item.input_audio_transcription.delta","delta":"prompt prole"}',
+          );
           yield* Queue.offer(h.socket.input, '{"type":"session.updated"}');
           const stream = yield* Fiber.join(starting);
 
-          yield* stream.feed(audio);
+          expect(yield* stream.feed(audio)).toEqual({
+            revision: 1,
+            text: { committed: "", tentative: "prompt prole" },
+          });
           const append = JSON.parse(String(yield* Queue.take(h.socket.output)));
           expect(append.type).toBe("input_audio_buffer.append");
           // Four 16 kHz samples, minus the one held back to interpolate, become five at 24 kHz.
