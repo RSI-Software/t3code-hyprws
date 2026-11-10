@@ -26,6 +26,17 @@ it("closes the gate for a green sha that is no longer the trunk tip", () => {
   assert.match(decision.reason, /not what the lease push landed/);
 });
 
+it("opens a stable cut of an older sha only when a fork nightly tag shows it landed", () => {
+  const old = { releaseSha: sha("abc"), trunkTip: sha("def"), ciConclusion: "success" };
+  const landed = "v1.2.3-hyprws-nightly.20261109.8";
+  assert.strictEqual(decideReleaseGate({ ...old, landedNightly: landed }).proceed, true);
+  assert.strictEqual(decideReleaseGate({ ...old, landedNightly: null }).proceed, false);
+  assert.strictEqual(
+    decideReleaseGate({ ...old, ciConclusion: "failure", landedNightly: landed }).proceed,
+    false,
+  );
+});
+
 it("closes the gate for a trunk tip whose hyprws CI never ran green", () => {
   const tip = sha("abc");
   for (const ciConclusion of [null, "", "failure", "cancelled", "stale"]) {
