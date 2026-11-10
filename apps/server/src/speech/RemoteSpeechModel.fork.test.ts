@@ -16,6 +16,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as RemoteSpeechModel from "./RemoteSpeechModel.fork.ts";
+import * as RemoteSpeechModelStore from "./RemoteSpeechModelStore.fork.ts";
 import * as SpeechService from "./SpeechService.ts";
 
 // The shape the fork's first dictation settings saved, still on disk for existing installs.
@@ -34,13 +35,14 @@ const localModel = {
 } as unknown as EnvironmentSpeechModel;
 const options = {
   ...DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS,
+  speechLanguage: "en",
   speechCustomWords: [{ term: "Promptletariat", aliases: ["prompt proletariat"] }],
 };
 const audio = new Uint8Array(new Float32Array([0, 0.5, -0.5, 0.25]).buffer);
 
-const harness = Effect.fn(function* (stored: unknown = legacy) {
+const harness = Effect.fn(function* () {
   const secrets = new Map<string, Uint8Array>([
-    ["fork-voice-input", new TextEncoder().encode(JSON.stringify(stored))],
+    ["fork-voice-input", new TextEncoder().encode(JSON.stringify(legacy))],
   ]);
   const settings = { speechModelId: "local" };
   const requests: Array<HttpClientRequest.HttpClientRequest> = [];
@@ -49,7 +51,7 @@ const harness = Effect.fn(function* (stored: unknown = legacy) {
     output: yield* Queue.make<string | Uint8Array | Socket.CloseEvent>(),
   };
   const opened: Array<{ url: string; headers: unknown }> = [];
-  const layer = RemoteSpeechModel.layerFork((url, headers) =>
+  const layer = RemoteSpeechModel.layer((url, headers) =>
     Effect.sync(() => {
       opened.push({ url, headers });
       return Socket.make({
@@ -64,11 +66,18 @@ const harness = Effect.fn(function* (stored: unknown = legacy) {
       });
     }),
   ).pipe(
+    Layer.provide(RemoteSpeechModelStore.layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(SpeechService.SpeechService)({
           models: () => Effect.succeed({ models: [localModel] }),
           transcribe: () => Effect.succeed("local text"),
+          // Upstream replaces a selection it reads as its removed default model.
+          removeModel: () =>
+            Effect.sync(() => {
+              settings.speechModelId = "local";
+              return { models: [localModel] };
+            }),
         }),
         Layer.mock(ServerSettings.ServerSettingsService)({
           getSettings: Effect.sync(
@@ -117,34 +126,6 @@ const harness = Effect.fn(function* (stored: unknown = legacy) {
 });
 
 describe("remote speech model", () => {
-  it.each([
-    {
-      name: "legacy endpoints",
-      stored: legacy,
-      expected: { baseUrl: "https://speech.example/v1", live: true },
-    },
-    {
-      name: "base URL settings",
-      stored: {
-        provider: "openai-compatible",
-        baseUrl: "https://speech.example/v1/",
-        live: false,
-        model: "nemo",
-        apiKey: "",
-      },
-      expected: { baseUrl: "https://speech.example/v1", live: false },
-    },
-    { name: "Meta", stored: { ...legacy, provider: "meta" }, expected: null },
-    {
-      name: "a URL with a query",
-      stored: { ...legacy, endpoint: "https://speech.example/v1?x=1" },
-      expected: null,
-    },
-  ])("reads $name", ({ stored, expected }) => {
-    const parsed = RemoteSpeechModel.parseRemoteSpeechModelFork(JSON.stringify(stored));
-    expect(parsed && { baseUrl: parsed.baseUrl, live: parsed.live }).toEqual(expected);
-  });
-
   it.effect("transcribes locally until the remote model is selected", () =>
     Effect.gen(function* () {
       const h = yield* harness();
@@ -168,6 +149,13 @@ describe("remote speech model", () => {
           expect(request?.headers.authorization).toBe("Bearer private-key");
           const form = request?.body._tag === "FormData" ? request.body.formData : undefined;
           expect([form?.get("model"), form?.get("prompt")]).toEqual(["nemo", "Promptletariat"]);
+
+          const removed = yield* speech.removeModel("local");
+          expect(h.settings.speechModelId).toBe(SPEECH_REMOTE_MODEL_ID_FORK);
+          expect(removed.models.map(({ id, active }) => [id, active])).toEqual([
+            [SPEECH_REMOTE_MODEL_ID_FORK, true],
+            ["local", false],
+          ]);
         }),
       );
     }),
@@ -183,6 +171,7 @@ describe("remote speech model", () => {
           const session = String(yield* Queue.take(h.socket.output));
           expect(JSON.parse(session).session.audio.input.transcription).toEqual({
             model: "nemo",
+            language: "en",
             prompt: "Promptletariat",
           });
           expect(h.opened).toEqual([

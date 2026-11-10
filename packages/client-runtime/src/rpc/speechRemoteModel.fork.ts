@@ -14,16 +14,20 @@ import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "../state/environmentHttpAuth.ts";
-import { RemoteEnvironmentAuthUndeclaredStatusError } from "./http.ts";
 
 const decodeSettings = Schema.decodeUnknownEffect(SpeechRemoteModelSettingsFork);
 const decodeHttpError = Schema.decodeUnknownEffect(EnvironmentHttpCommonError);
-const decodeErrorBody = Schema.decodeUnknownEffect(Schema.Struct({ error: Schema.String }));
 
 export class SpeechRemoteModelErrorFork extends Schema.TaggedError<SpeechRemoteModelErrorFork>()(
   "SpeechRemoteModelErrorFork",
-  { message: Schema.String },
-) {}
+  { status: Schema.Number },
+) {
+  override get message(): string {
+    if (this.status === 400) return "Check the base URL and model.";
+    if (this.status === 403) return "Changing the remote model needs settings access.";
+    return "The remote model settings are unavailable.";
+  }
+}
 
 /** Uses the environment's cookies, bearer grant, or refreshed relay proof. */
 const request = Effect.fn("speechRemoteModel.request")(function* (
@@ -63,13 +67,9 @@ const request = Effect.fn("speechRemoteModel.request")(function* (
       return { status: response.status, json };
     }),
   });
-  // Endpoint errors decode outside the auth boundary, which wraps unknown failures.
-  if (response.status < 200 || response.status >= 300) {
-    const body = yield* decodeErrorBody(response.json).pipe(Effect.option);
-    return yield* Option.isSome(body)
-      ? new SpeechRemoteModelErrorFork({ message: body.value.error })
-      : new RemoteEnvironmentAuthUndeclaredStatusError({ requestUrl, status: response.status });
-  }
+  // Endpoint errors surface outside the auth boundary, which wraps unknown failures.
+  if (response.status < 200 || response.status >= 300)
+    return yield* new SpeechRemoteModelErrorFork({ status: response.status });
   return yield* decodeSettings(response.json);
 });
 

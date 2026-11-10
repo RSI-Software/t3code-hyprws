@@ -34,12 +34,13 @@ export function VoiceSettingsFork(props: { prepared: PreparedConnection | null; 
 function RemoteSpeechModelSettings({ prepared, run }: { prepared: PreparedConnection; run: Run }) {
   const [saved, setSaved] = useState<SpeechRemoteModelSettingsFork | null>(null);
   const [edited, setEdited] = useState<SpeechRemoteModelUpdateFork | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the environment's saved remote model once its connection is ready
   useEffect(() => {
     let current = true;
     runEnvironmentSpeech(readSpeechRemoteModelFork(prepared)).then(
       (settings) => current && setSaved(settings),
-      () => undefined,
+      () => current && setLoadFailed(true),
     );
     return () => {
       current = false;
@@ -47,7 +48,29 @@ function RemoteSpeechModelSettings({ prepared, run }: { prepared: PreparedConnec
   }, [prepared]);
   const form =
     edited ?? (saved && { baseUrl: saved.baseUrl, model: saved.model, live: saved.live });
-  if (!form) return null;
+  if (!form)
+    return loadFailed ? (
+      <SettingsSection id="voice-remote-model-fork" title="Remote model">
+        <SettingsRow
+          title="OpenAI-compatible service"
+          description="Could not load the remote model settings."
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                setLoadFailed(false);
+                runEnvironmentSpeech(readSpeechRemoteModelFork(prepared)).then(setSaved, () =>
+                  setLoadFailed(true),
+                );
+              }}
+            >
+              Retry
+            </Button>
+          }
+        />
+      </SettingsSection>
+    ) : null;
   const update = (patch: Partial<SpeechRemoteModelUpdateFork>) => setEdited({ ...form, ...patch });
   const keyKept = saved?.hasApiKey && form.apiKey === undefined && form.baseUrl === saved.baseUrl;
   const save = () =>

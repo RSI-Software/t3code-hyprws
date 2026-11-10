@@ -3,8 +3,6 @@
 import {
   SPEECH_REMOTE_MODEL_ID_FORK,
   type EnvironmentSpeechModel,
-  type SpeechRemoteModelConfigFork,
-  type SpeechRemoteModelUpdateFork,
   type SpeechTranscriptionOptions,
 } from "@t3tools/contracts";
 import * as NodeWS from "@effect/platform-node/NodeWS";
@@ -21,23 +19,11 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { applySpeechAliases } from "./customWords.ts";
 import { removeSpeechFillerWords } from "./fillerWords.ts";
+import * as RemoteSpeechModelStore from "./RemoteSpeechModelStore.fork.ts";
 import * as SpeechService from "./SpeechService.ts";
 
-export type RemoteSpeechModelFork = SpeechRemoteModelConfigFork & { readonly apiKey: string };
+type RemoteSpeechModelFork = RemoteSpeechModelStore.RemoteSpeechModelFork;
 
-// The name predates this design; keeping it keeps the service configured across the change.
-const SECRET_NAME = "fork-voice-input";
-/** Every shape the fork has stored: the current one, base URL settings, and full endpoint URLs. */
-const Stored = Schema.Struct({
-  provider: Schema.optionalKey(Schema.String),
-  baseUrl: Schema.optionalKey(Schema.String),
-  endpoint: Schema.optionalKey(Schema.String),
-  streamingEndpoint: Schema.optionalKey(Schema.String),
-  live: Schema.optionalKey(Schema.Boolean),
-  model: Schema.String,
-  apiKey: Schema.String,
-});
-const decodeStored = Schema.decodeUnknownOption(Schema.fromJsonString(Stored));
 const Transcript = Schema.Struct({ text: Schema.String });
 const RealtimeEvent = Schema.Struct({
   type: Schema.String,
@@ -47,65 +33,6 @@ const RealtimeEvent = Schema.Struct({
 });
 const decodeRealtimeEvent = Schema.decodeUnknownOption(Schema.fromJsonString(RealtimeEvent));
 const encodeJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
-
-/** The canonical API root, or null for one paths cannot be appended to. */
-function apiRootFork(value: string) {
-  try {
-    const url = new URL(value.trim());
-    // URL drops a bare trailing ? or #, so check the raw text.
-    return (url.protocol === "http:" || url.protocol === "https:") &&
-      !url.username &&
-      !url.password &&
-      !/[?#]/.test(value)
-      ? url.origin + url.pathname.replace(/\/+$/, "")
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Meta's wire is gone, so its settings read as unconfigured. */
-export function parseRemoteSpeechModelFork(encoded: string): RemoteSpeechModelFork | null {
-  const stored = Option.getOrUndefined(decodeStored(encoded));
-  if (!stored || stored.provider === "meta") return null;
-  const baseUrl = apiRootFork(
-    stored.baseUrl ?? stored.endpoint?.replace(/\/audio\/transcriptions\/*$/, "") ?? "",
-  );
-  const model = stored.model.trim();
-  if (!baseUrl || !model) return null;
-  return {
-    baseUrl,
-    model,
-    live: stored.live ?? Boolean(stored.streamingEndpoint),
-    apiKey: stored.apiKey,
-  };
-}
-
-export const remoteSpeechModelStoreFork = Effect.gen(function* () {
-  const secrets = yield* ServerSecretStore.ServerSecretStore;
-  const read = secrets
-    .get(SECRET_NAME)
-    .pipe(
-      Effect.map((stored) =>
-        Option.isSome(stored)
-          ? parseRemoteSpeechModelFork(new TextDecoder().decode(stored.value))
-          : null,
-      ),
-    );
-  /** Null when the base URL or model is unusable. */
-  const save = Effect.fn("RemoteSpeechModel.save")(function* (input: SpeechRemoteModelUpdateFork) {
-    const baseUrl = apiRootFork(input.baseUrl);
-    const model = input.model.trim();
-    if (!baseUrl || !model) return null;
-    const previous = yield* read;
-    const apiKey = input.apiKey?.trim() ?? (previous?.baseUrl === baseUrl ? previous.apiKey : "");
-    const saved: RemoteSpeechModelFork = { baseUrl, model, live: input.live, apiKey };
-    yield* secrets.set(SECRET_NAME, new TextEncoder().encode(yield* encodeJson(saved)));
-    return saved;
-  });
-  const clear = secrets.remove(SECRET_NAME);
-  return { read, save, clear };
-});
 
 function pcm16(samples: Float32Array) {
   const view = new DataView(new ArrayBuffer(samples.length * 2));
@@ -174,14 +101,14 @@ const finalize = (text: string, options: SpeechTranscriptionOptions) => {
   ).trim();
 };
 
-const failure = (operation: string) => (cause: unknown) =>
-  new SpeechService.SpeechOperationError({ operation, cause });
-
 const isInvalidAudio = Schema.is(SpeechService.SpeechInvalidAudioError);
 const decodePcm = (bytes: Uint8Array) =>
   Effect.try({
     try: () => SpeechService.decodeSpeechPcm(bytes),
-    catch: (cause) => (isInvalidAudio(cause) ? cause : failure("decode")(cause)),
+    catch: (cause) =>
+      isInvalidAudio(cause)
+        ? cause
+        : new SpeechService.SpeechOperationError({ operation: "decode", cause }),
   });
 
 const hostOf = (baseUrl: string) => new URL(baseUrl).host;
@@ -225,17 +152,25 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
   const local = yield* SpeechService.SpeechService;
   const settings = yield* ServerSettings.ServerSettingsService;
   const http = yield* HttpClient.HttpClient;
-  const store = yield* remoteSpeechModelStoreFork;
+  const store = yield* RemoteSpeechModelStore.RemoteSpeechModelStoreFork;
 
   /** The remote service, when this environment has it configured and selected. */
   const selected = Effect.gen(function* () {
     const { speechModelId } = yield* settings.getSettings;
     if (speechModelId !== SPEECH_REMOTE_MODEL_ID_FORK) return null;
     return yield* store.read;
-  }).pipe(Effect.mapError(failure("settings")));
+  }).pipe(
+    Effect.mapError(
+      (cause) => new SpeechService.SpeechOperationError({ operation: "settings", cause }),
+    ),
+  );
 
   const models = Effect.fn("RemoteSpeechModel.models")(function* (includeBenchmarks: boolean) {
-    const remote = yield* store.read.pipe(Effect.mapError(failure("model listing")));
+    const remote = yield* store.read.pipe(
+      Effect.mapError(
+        (cause) => new SpeechService.SpeechOperationError({ operation: "model listing", cause }),
+      ),
+    );
     const active = remote !== null && (yield* selected) !== null;
     const { models } = yield* local.models(includeBenchmarks);
     if (!remote) return { models };
@@ -246,6 +181,13 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       ],
     };
   });
+
+  const selectRemote = (operation: string) =>
+    settings
+      .updateSettings({ speechModelId: SPEECH_REMOTE_MODEL_ID_FORK })
+      .pipe(
+        Effect.mapError((cause) => new SpeechService.SpeechOperationError({ operation, cause })),
+      );
 
   const transcribeRemote = Effect.fn("RemoteSpeechModel.transcribe")(
     function* (
@@ -268,7 +210,10 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       if (remote.apiKey) request = request.pipe(HttpClientRequest.bearerToken(remote.apiKey));
       const response = yield* http.execute(request);
       if (response.status < 200 || response.status >= 300)
-        return yield* failure("transcription")(`HTTP ${response.status}`);
+        return yield* new SpeechService.SpeechOperationError({
+          operation: "transcription",
+          cause: `HTTP ${response.status}`,
+        });
       const { text } = yield* HttpClientResponse.schemaBodyJson(Transcript)(response);
       return finalize(text, options);
     },
@@ -278,7 +223,7 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
         Effect.mapError((cause) =>
           cause._tag === "SpeechInvalidAudioError" || cause._tag === "SpeechOperationError"
             ? cause
-            : failure("transcription")(cause),
+            : new SpeechService.SpeechOperationError({ operation: "transcription", cause: cause }),
         ),
       ),
   );
@@ -300,7 +245,13 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
             audio: {
               input: {
                 format: { type: "audio/pcm", rate: 24000 },
-                transcription: { model: remote.model, ...(prompt ? { prompt } : {}) },
+                transcription: {
+                  model: remote.model,
+                  ...(options.speechLanguage === "auto"
+                    ? {}
+                    : { language: options.speechLanguage }),
+                  ...(prompt ? { prompt } : {}),
+                },
                 turn_detection: null,
               },
             },
@@ -310,7 +261,10 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       const ready = yield* Deferred.make<void, SpeechService.SpeechOperationError>();
       const final = yield* Deferred.make<string, SpeechService.SpeechOperationError>();
       const fail = (detail: unknown) => {
-        const error = failure("live transcription")(detail);
+        const error = new SpeechService.SpeechOperationError({
+          operation: "live transcription",
+          cause: detail,
+        });
         return Deferred.fail(ready, error).pipe(Effect.andThen(Deferred.fail(final, error)));
       };
       let preview = "";
@@ -358,7 +312,10 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
             Effect.mapError((cause) =>
               cause._tag === "SpeechInvalidAudioError" || cause._tag === "SpeechOperationError"
                 ? cause
-                : failure("live transcription")(cause),
+                : new SpeechService.SpeechOperationError({
+                    operation: "live transcription",
+                    cause: cause,
+                  }),
             ),
             Effect.as({
               revision,
@@ -370,7 +327,12 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
           Effect.timeout("60 seconds"),
           Effect.map((text) => finalize(text, options)),
           Effect.mapError((cause) =>
-            cause._tag === "SpeechOperationError" ? cause : failure("live transcription")(cause),
+            cause._tag === "SpeechOperationError"
+              ? cause
+              : new SpeechService.SpeechOperationError({
+                  operation: "live transcription",
+                  cause: cause,
+                }),
           ),
         ),
       };
@@ -379,7 +341,12 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
     (effect) =>
       effect.pipe(
         Effect.mapError((cause) =>
-          cause._tag === "SpeechOperationError" ? cause : failure("live transcription")(cause),
+          cause._tag === "SpeechOperationError"
+            ? cause
+            : new SpeechService.SpeechOperationError({
+                operation: "live transcription",
+                cause: cause,
+              }),
         ),
       ),
   );
@@ -390,7 +357,9 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       const remote = yield* selected;
       if (!remote) return yield* local.status;
       const { speechAcceleration, speechModelUnloadTimeout } = yield* settings.getSettings.pipe(
-        Effect.mapError(failure("status")),
+        Effect.mapError(
+          (cause) => new SpeechService.SpeechOperationError({ operation: "status", cause }),
+        ),
       );
       return {
         supported: true as const,
@@ -409,19 +378,45 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
       };
     }),
     models,
+    // Upstream calls answer with its own catalog; every model change answers with the wrapped one.
+    downloadModel: Effect.fn("RemoteSpeechModel.downloadModel")(function* (modelId: string) {
+      yield* local.downloadModel(modelId);
+      return yield* models(false);
+    }),
+    cancelDownload: Effect.fn("RemoteSpeechModel.cancelDownload")(function* (modelId: string) {
+      yield* local.cancelDownload(modelId);
+      return yield* models(false);
+    }),
     selectModel: Effect.fn("RemoteSpeechModel.selectModel")(function* (modelId: string) {
-      if (modelId !== SPEECH_REMOTE_MODEL_ID_FORK) return yield* local.selectModel(modelId);
-      const remote = yield* store.read.pipe(Effect.mapError(failure("model selection")));
+      if (modelId !== SPEECH_REMOTE_MODEL_ID_FORK) {
+        yield* local.selectModel(modelId);
+        return yield* models(false);
+      }
+      const remote = yield* store.read.pipe(
+        Effect.mapError(
+          (cause) =>
+            new SpeechService.SpeechOperationError({ operation: "model selection", cause }),
+        ),
+      );
       if (!remote) return yield* new SpeechService.SpeechModelNotFoundError({ modelId });
-      yield* settings
-        .updateSettings({ speechModelId: modelId })
-        .pipe(Effect.mapError(failure("model selection")));
+      yield* selectRemote("model selection");
       return yield* models(false);
     }),
     // Removing the remote model forgets the service; the selection falls back to the default model.
     removeModel: Effect.fn("RemoteSpeechModel.removeModel")(function* (modelId: string) {
-      if (modelId !== SPEECH_REMOTE_MODEL_ID_FORK) return yield* local.removeModel(modelId);
-      yield* store.clear.pipe(Effect.mapError(failure("model removal")));
+      if (modelId === SPEECH_REMOTE_MODEL_ID_FORK) {
+        yield* store.clear.pipe(
+          Effect.mapError(
+            (cause) =>
+              new SpeechService.SpeechOperationError({ operation: "model removal", cause }),
+          ),
+        );
+        return yield* models(false);
+      }
+      const remote = yield* selected;
+      yield* local.removeModel(modelId);
+      // Upstream reads the remote id as its default model, and replaces it when that model goes.
+      if (remote) yield* selectRemote("model removal");
       return yield* models(false);
     }),
     prepareModel: Effect.flatMap(selected, (remote) => (remote ? Effect.void : local.prepareModel)),
@@ -444,13 +439,14 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
 });
 
 /** Wraps upstream's layer, keeping its own dependencies on the outer context. */
-export const layerFork = (openSocket: OpenRealtimeSocketFork) =>
+export const layer = (openSocket: OpenRealtimeSocketFork) =>
   Layer.effect(SpeechService.SpeechService, make(openSocket));
 
 export const wrapSpeechServiceFork = <E, R>(
   upstream: Layer.Layer<SpeechService.SpeechService, E, R>,
 ) =>
-  layerFork(openRealtimeSocket).pipe(
+  layer(openRealtimeSocket).pipe(
     Layer.provide(upstream),
+    Layer.provide(RemoteSpeechModelStore.layer),
     Layer.provide(ServerSecretStore.layer),
   );
