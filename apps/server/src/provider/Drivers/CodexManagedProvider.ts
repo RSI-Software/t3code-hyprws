@@ -275,7 +275,6 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
           }),
       ),
     );
-  const generateTextFork = nativeGeneration.generateTextFork; // fork-hook: voice-input/managed-generation-capability
   const textGeneration: ProviderInstance["textGeneration"] = {
     generateCommitMessage: (value) =>
       protect("generateCommitMessage", nativeGeneration.generateCommitMessage(value)),
@@ -287,12 +286,6 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
       protect("generateThreadTitle", nativeGeneration.generateThreadTitle(value)),
     generateReviewGuide: (value) =>
       protect("generateReviewGuide", nativeGeneration.generateReviewGuide(value)),
-    ...(generateTextFork
-      ? {
-          generateTextFork: (value: Parameters<typeof generateTextFork>[0]) =>
-            protect("generateTextFork", generateTextFork(value)),
-        }
-      : {}), // fork-hook: voice-input/managed-text-generation
     generateTranscriptionPostProcessing: (value) =>
       protect(
         "generateTranscriptionPostProcessing",
