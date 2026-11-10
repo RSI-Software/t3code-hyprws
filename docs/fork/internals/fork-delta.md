@@ -782,48 +782,40 @@ Retention and release stay fork scope until upstream keeps one task across round
 
 ### Need
 
-- Client audio to **editable text**
-- **Cleanup** prompts on a separate model
-- **External HTTP** engines
+- **Remote transcription** via OpenAI-compatible APIs
+- **Live preview** over OpenAI Realtime
+- **Speaker ducking** while recording on desktop
 
 ### Shape
 
-**Fork-owned** contracts, services, adapters, and web and desktop controls; **marked imports and mounts** are the only upstream seams.
-Settings and API keys use the **server secret store**; T3 **never persists audio**.
-Cleanup and formatting **reuse text generation runners**; automatic processing follows transcription completion only.
-One **base URL per service** derives both paths: Meta's ASR wire, or OpenAI's multipart transcription and Realtime for everything else.
-Live preview **relays one PCM capture** over the same two wires; that capture also builds the WAV, so a **failed stream falls back** to batch upload.
-Project speech terms **resolve on the server** and go out only as the standard `prompt`; the server applies spelling rules itself, so any OpenAI-compatible service works.
-**Mobile stays upstream-owned.**
+The remote service is **one more model** on upstream `SpeechService`: `RemoteSpeechModel.fork.ts` wraps the layer, so every client selects and uses it through upstream's voice endpoints.
+Selection is upstream's **`speechModelId`** setting, holding **`fork/remote`**: stock servers read an unknown id as their default model, so this fork value is deliberate; base URL, model, and key stay in the **`fork-voice-input` secret**, behind one fork HTTP route.
+Batch posts the **multipart transcription**; live relays the **PCM stream over Realtime**.
+Upstream **custom words** go out as the `prompt`, then upstream aliases and filler removal run on the result.
+Ducking **hooks upstream's PCM capture**; the desktop bridge restores speakers even when a recording is cancelled before ducking starts.
+**Mobile stays upstream-owned**, and the remote model still works from it.
+The remote model **needs a host upstream's local speech supports**: clients gate voice on `capabilities.voiceTranscription`, set from the host platform.
 
 ### Retirement condition
 
-Upstream desktop dictation supports configurable external transcription services.
+Upstream voice input supports a configurable OpenAI-compatible transcription service.
+Ducking stays fork scope until upstream lowers speaker volume while recording.
 
 ### Rebase scan
 
-| Path                                                       | Why it matters            |
-| ---------------------------------------------------------- | ------------------------- |
-| `apps/server/src/server.ts`                                | Route mount and import    |
-| `apps/server/src/textGeneration/*TextGeneration.ts`        | Provider runner extension |
-| `apps/server/src/provider/Drivers/OpenCodeDriver.ts`       | Generation runtime choice |
-| `apps/server/src/provider/Drivers/CodexManagedProvider.ts` | Managed generation bridge |
-| `packages/contracts/src/index.ts`                          | Fork contract export      |
-| `packages/client-runtime/src/rpc/index.ts`                 | Dictation HTTP export     |
-| `apps/web/src/components/chat/ChatComposer.tsx`            | Mic and send guards       |
-| `apps/web/src/routes/__root.tsx`                           | Window dictation lifetime |
-| `apps/web/src/components/ComposerPromptEditorTiptap.tsx`   | Provisional dictation     |
-| `packages/client-runtime/src/voice-input/index.ts`         | Transcript helper export  |
-| `apps/web/src/components/settings/SettingsSidebarNav.tsx`  | Desktop navigation        |
-| `apps/web/src/routes/settings.tsx`                         | Environment selection     |
-| `apps/web/src/components/settings/settingsSearch.ts`       | Dictation search entry    |
-| `apps/desktop/scripts/electron-launcher.mjs`               | macOS mic permission      |
-| `apps/desktop/src/main.ts`                                 | Desktop ducking lifetime  |
-| `apps/desktop/src/app/DesktopApp.ts`                       | Await speaker restoration |
-| `apps/desktop/src/preload.ts`                              | Speaker control bridge    |
-| `apps/desktop/src/ipc/DesktopIpcHandlers.ts`               | Speaker control handlers  |
-| `packages/contracts/src/ipc.ts`                            | Speaker bridge contract   |
-| `scripts/build-desktop-artifact.ts`                        | Packaged mic permission   |
+| Path                                                      | Why it matters             |
+| --------------------------------------------------------- | -------------------------- |
+| `apps/server/src/speech/SpeechService.ts`                 | Wrapped service shape      |
+| `apps/server/src/server.ts`                               | Layer wrap and route mount |
+| `apps/web/src/speech/browserPcmCapture.ts`                | Ducking start and stop     |
+| `apps/web/src/components/settings/VoiceSettingsPanel.tsx` | Fork settings sections     |
+| `packages/contracts/src/index.ts`                         | Fork contract export       |
+| `packages/client-runtime/src/rpc/index.ts`                | Settings HTTP export       |
+| `packages/contracts/src/ipc.ts`                           | Speaker bridge contract    |
+| `apps/desktop/src/main.ts`                                | Desktop ducking lifetime   |
+| `apps/desktop/src/app/DesktopApp.ts`                      | Await speaker restoration  |
+| `apps/desktop/src/preload.ts`                             | Speaker control bridge     |
+| `apps/desktop/src/ipc/DesktopIpcHandlers.ts`              | Speaker control handlers   |
 
 ## colleague-collab
 
