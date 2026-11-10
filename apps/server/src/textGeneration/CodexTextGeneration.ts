@@ -1,4 +1,3 @@
-import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -427,8 +426,5 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     }).pipe(Effect.ensuring(cleanup));
   });
 
-  return withVoiceTextGenerationFork(
-    TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson),
-    runCodexJson,
-  ); // fork-hook: voice-input/generation-runner
+  return TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson);
 });

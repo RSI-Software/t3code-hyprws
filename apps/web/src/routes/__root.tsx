@@ -1,4 +1,3 @@
-import { DesktopVoiceInputProviderFork } from "../voice-input/VoiceInputProvider.fork"; // fork-hook: voice-input/window-provider-import
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -192,15 +191,23 @@ function RootRouteBranch() {
       <ConnectOnboardingDialog />
       <SshPasswordPromptDialog />
       <SnapShotCoordinator />
-      <ThreadGroupsSyncFork /> {/* fork-hook: thread-ordering/thread-groups-sync */}
+      {/* fork-hook: thread-ordering/thread-groups-sync */}
+      <ThreadGroupsSyncFork />
+      {/* fork-hook-end */}
       <ReopenClosedViewShortcut />
       <ConfirmDialogHost />
       <CustomSnoozeDialogHost />
       <GuestShareDialogHost />
-      <CollaboratorShareDialogHostFork /> {/* fork-hook: colleague-collab/share-dialog */}
-      <CollaboratorMessageToastsFork /> {/* fork-hook: colleague-collab/message-toasts */}
+      {/* fork-hook: colleague-collab/share-dialog */}
+      <CollaboratorShareDialogHostFork />
+      {/* fork-hook-end */}
+      {/* fork-hook: colleague-collab/message-toasts */}
+      <CollaboratorMessageToastsFork />
+      {/* fork-hook-end */}
       <ProjectCloneToastCoordinator />
-      <WindowProjectsPublishFork /> {/* fork-hook: multi-window/window-projects-publish */}
+      {/* fork-hook: multi-window/window-projects-publish */}
+      <WindowProjectsPublishFork />
+      {/* fork-hook-end */}
       <AddProjectToMachineDialogHost />
       <UseInAnotherAppDialogHost />
       {import.meta.env.DEV && primaryEnvironmentAuthenticated ? <DevReplayHost /> : null}
@@ -232,9 +239,7 @@ function RootRouteBranch() {
           {primaryEnvironmentAuthenticated ? (
             <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />
           ) : null}
-          {/* fork-hook: voice-input/window-provider */}
-          <DesktopVoiceInputProviderFork>{appShell}</DesktopVoiceInputProviderFork>
-          {/* fork-hook-end */}
+          {appShell}
         </FirstRunGate>
       )}
       {/* Above both shells and the router, so drafts survive navigation, including to /welcome. */}

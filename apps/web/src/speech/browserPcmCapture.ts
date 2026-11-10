@@ -5,6 +5,7 @@ import type {
   VoiceTranscriptionOptions,
 } from "@t3tools/client-runtime/voice-input";
 import workletUrl from "./pcmWorklet.ts?worker&url";
+import { VoiceRecorderDuckingFork } from "./ducking.fork"; // fork-hook: voice-input/ducking-import
 
 type PreparedBrowserTranscription = PreparedVoiceTranscription & {
   readonly streaming?: VoiceStreamingSession & { readonly feed: (pcm: Float32Array) => void };
@@ -44,8 +45,10 @@ export function createBrowserPcmCapture(
   let stopped:
     | { readonly resolve: () => void; readonly reject: (error: Error) => void }
     | undefined;
+  const duckingFork = new VoiceRecorderDuckingFork(); // fork-hook: voice-input/ducking-session
 
   const cleanupCapture = () => {
+    void duckingFork.stop(); // fork-hook: voice-input/ducking-stop
     if (durationTimer) clearTimeout(durationTimer);
     durationTimer = undefined;
     worklet?.disconnect();
@@ -144,6 +147,7 @@ export function createBrowserPcmCapture(
       // oxlint-disable-next-line unicorn/require-post-message-target-origin -- AudioWorklet MessagePorts do not accept a target origin
       worklet?.port.postMessage("start");
       durationTimer = setTimeout(input.onDurationLimit, forDuration * 1_000);
+      duckingFork.start(); // fork-hook: voice-input/ducking-start
     },
     stop: async () => {
       if (!worklet) return;
