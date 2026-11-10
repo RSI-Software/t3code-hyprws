@@ -1,3 +1,4 @@
+/// <reference lib="es2024.promise" />
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
