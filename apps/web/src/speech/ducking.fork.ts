@@ -24,19 +24,22 @@ export function saveVoiceDuckingFork(settings: VoiceDuckingSettingsFork) {
 
 /** Settings and output IDs belong to the recording desktop, not the transcription server. */
 export class VoiceRecorderDuckingFork {
-  private sessionId: string | null = null;
-  async start() {
+  private session: Promise<string | null> | null = null;
+  start() {
     const settings = readVoiceDuckingFork();
-    if (!settings.enabled) return;
     const bridge = window.desktopBridge?.voiceDuckingFork;
-    if (!bridge) throw new Error("Speaker ducking requires a newer desktop build.");
+    if (!settings.enabled || !bridge || this.session) return;
     const id = randomUUID();
-    await bridge.start(id, settings);
-    this.sessionId = id;
+    this.session = bridge.start(id, settings).then(
+      () => id,
+      () => null,
+    );
   }
+  /** Waits for a start still in flight, so a quick cancel never leaves speakers ducked. */
   async stop() {
-    const id = this.sessionId;
-    this.sessionId = null;
+    const session = this.session;
+    this.session = null;
+    const id = await session;
     if (id) await window.desktopBridge?.voiceDuckingFork?.stop(id);
   }
 }

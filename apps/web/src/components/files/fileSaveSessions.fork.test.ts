@@ -1,3 +1,4 @@
+/// <reference lib="es2024.promise" />
 import { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";

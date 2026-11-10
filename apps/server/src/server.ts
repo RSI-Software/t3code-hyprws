@@ -44,6 +44,8 @@ import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as SpeechModelStore from "./speech/SpeechModelStore.ts";
 import * as SpeechService from "./speech/SpeechService.ts";
+import * as RemoteSpeechModelFork from "./speech/RemoteSpeechModel.fork.ts"; // fork-hook: voice-input/speech-remote-model-import
+import { routeLayerFork as remoteSpeechModelRoutesFork } from "./speech/RemoteSpeechModelHttp.fork.ts"; // fork-hook: voice-input/speech-remote-model-routes-import
 import * as CloudSpeech from "./speech/CloudSpeech.ts";
 import { speechHttpApiLayer } from "./speech/http.ts";
 import { speechStreamRouteLayer } from "./speech/stream.ts";
@@ -167,7 +169,6 @@ import * as AuthHttp from "./auth/http.ts";
 import * as ReplayMarkers from "./auth/replayMarkers.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as CodexManagedTokenBroker from "./provider/CodexManagedTokenBroker.ts";
-import * as VoiceInputHttpFork from "./voice-input/http.fork.ts"; // fork-hook: voice-input/server-import
 import * as WebhookRoute from "./scheduledTasks/webhookRoute.ts";
 import * as RelayDeliveryProof from "./scheduledTasks/RelayDeliveryProof.ts";
 import * as HeldHooksWaker from "./relay/HeldHooksWaker.ts";
@@ -857,7 +858,6 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerOtlpTracesProxyRoute,
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
-    VoiceInputHttpFork.routeLayer, // fork-hook: voice-input/server-routes
     GuestHttp.layer,
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
@@ -868,6 +868,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ), // fork-hook: device-auth/server-external-mcp
     DeviceAuthorizationRoutes.routeLayer, // fork-hook: device-auth/server-routes
     speechStreamRouteLayer,
+    remoteSpeechModelRoutesFork, // fork-hook: voice-input/speech-remote-model-routes
   ),
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
@@ -906,6 +907,7 @@ const layerMakeRoutes = Layer.mergeAll(
     SpeechService.layer.pipe(
       Layer.provide(layerServerSettings),
       Layer.provide(SpeechModelStore.layer),
+      RemoteSpeechModelFork.wrapSpeechServiceFork, // fork-hook: voice-input/speech-remote-model
     ),
   ),
   Layer.provide(CloudSpeech.layer.pipe(Layer.provide(SecretResolver.layer))),
