@@ -196,6 +196,11 @@ Skip it when the budget is short; the next sync folds further.
 - **Refold:** new tip, **same tree** as its lease
 - **Other markers** stay `already-applied`
 
+**A `hyprws refold` issue** follows each stable cut: refold the tag the trunk is on, with the whole budget.
+
+- **No fold earns it?** Hand off nothing
+- **Landing** closes the issue
+
 ## Hand off
 
 Every rerun writes `refs/fork-sync/resolution`: finished once the rebase ends, partial at every block.
