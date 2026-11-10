@@ -2002,10 +2002,12 @@ it("closes every open block and failure issue with one close-and-comment call", 
         JSON.stringify(
           args[args.indexOf("--search") + 1] === '"hyprws sync failed" in:title'
             ? [{ number: 11, title: "f", body: "z" }]
-            : [
-                { number: 7, title: "a", body: "x" },
-                { number: 9, title: "b", body: "y" },
-              ],
+            : args[args.indexOf("--search") + 1] === '"hyprws refold" in:title'
+              ? [{ number: 13, title: "r", body: "w" }]
+              : [
+                  { number: 7, title: "a", body: "x" },
+                  { number: 9, title: "b", body: "y" },
+                ],
         ),
       );
     },
@@ -2033,6 +2035,11 @@ it("closes every open block and failure issue with one close-and-comment call", 
   assert.notStrictEqual(close, undefined);
   assert.ok(close!.args.includes("--reason"));
   assert.ok(close!.args.includes("--comment"));
+  // only a landing closes the refold issue; a no-op run leaves the fold in flight
+  assert.deepStrictEqual(
+    closeBlocks(recording.runner, "/tmp", "abc1234def", true).map(({ issue }) => issue),
+    [7, 9, 11, 13],
+  );
 });
 
 it("records a refused close per issue and still closes the others", () => {
@@ -2277,7 +2284,7 @@ const openBlocks = (): string =>
 
 /** Each governed search matches only its own phrase; no failure issue exists in these runs. */
 const openBlocksPerPhrase = (args: ReadonlyArray<string>): CommandResult =>
-  ok(args[args.indexOf("--search") + 1] === '"hyprws sync failed" in:title' ? "[]" : openBlocks());
+  ok(args[args.indexOf("--search") + 1] === '"hyprws sync blocked" in:title' ? openBlocks() : "[]");
 
 it("a clean applied run closes its open block issues unaided", () => {
   withFixture(appliedFixture, (f) => {
