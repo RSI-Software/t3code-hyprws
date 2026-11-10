@@ -1,0 +1,55 @@
+name: hyprws Stable
+
+# Cuts fork stable releases. After every upstream sync run, the newest upstream
+# stable without a fork stable is cut from the fork nightly built on exactly that
+# upstream commit. A manual dispatch recuts the trunk tip instead, named after the
+# newest upstream stable it contains. A cut dispatches hyprws-release.yml from the
+# trunk with its tag and sha; the publish creates the tag, so a failed release is
+# retried on the next run. It also files a refold issue for the fork-sync agent
+# unless one is open (docs/fork/operations/fork-sync.md); a landing closes it.
+
+on:
+  workflow_run:
+    workflows: ["hyprws upstream sync"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hyprws-stable
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    name: Cut stable
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+
+      - id: decide
+        name: Pick the stable commit and tag
+        run: node scripts/fork-stable-cut.ts ${{ github.event_name == 'workflow_dispatch' && '--recut' || '' }} --github-output
+
+      - name: Release and request a refold
+        if: steps.decide.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.decide.outputs.tag }}
+          SHA: ${{ steps.decide.outputs.sha }}
+        run: |
+          gh workflow run hyprws-release.yml --ref hyprws -f channel=stable -f tag="$TAG" -f sha="$SHA"
+          open=$(gh issue list --state open --label ci --search '"hyprws refold" in:title' --json number --jq length)
+          [[ "$open" == 0 ]] || exit 0
+          gh issue create --title "hyprws refold ($TAG)" --label ci --label rsi:fork-sync --body "Stable \`$TAG\` is cut, so fold the \`hyprws\` stack now: follow the fork-sync skill's Fold section with \`--refold\`, since the trunk already has its upstream tag. Fold what earns it; when nothing does, hand off nothing."
