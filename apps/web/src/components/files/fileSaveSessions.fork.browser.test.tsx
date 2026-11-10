@@ -1,3 +1,4 @@
+/// <reference lib="es2024.promise" />
 import { render, fakeTimers } from "../../../test/render";
 import { EnvironmentId, ProjectWriteFileError, projectFileRevision } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";

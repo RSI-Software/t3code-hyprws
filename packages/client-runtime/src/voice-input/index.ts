@@ -38,4 +38,3 @@ export {
   type VoiceTranscriptionErrorCode,
   type VoiceTranscriptionOptions,
 } from "./transcription.ts";
-export { resolveTranscriptCommit } from "./controller.ts"; // fork-hook: voice-input/preview-spacing
