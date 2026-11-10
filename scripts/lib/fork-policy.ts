@@ -88,11 +88,24 @@ export const parseNightlyForkTag = (tag: string): NightlyForkTag | null => {
     : { tag, date: match[4] ?? "", runNumber, ...version };
 };
 
-export const isStableUpstreamTag = (tag: string): boolean =>
-  parseUpstreamReleaseTag(tag)?.channel === "stable";
-
-export const isNightlyUpstreamTag = (tag: string): boolean =>
-  parseUpstreamReleaseTag(tag)?.channel === "nightly";
+/** The next `vX.Y.Z-hyprws.<n>` for stable upstream `vX.Y.Z`; null for any other tag. */
+export const resolveNextForkStableTag = (
+  upstreamTag: string,
+  tags: ReadonlyArray<string>,
+): string | null => {
+  const upstream = parseUpstreamReleaseTag(upstreamTag);
+  if (upstream === null || upstream.channel !== "stable") return null;
+  const revision = tags.reduce((highest, tag) => {
+    const parsed = parseStableForkTag(tag);
+    return parsed !== null &&
+      parsed.major === upstream.major &&
+      parsed.minor === upstream.minor &&
+      parsed.patch === upstream.patch
+      ? Math.max(highest, parsed.revision)
+      : highest;
+  }, 0);
+  return `${upstreamTag}-hyprws.${revision + 1}`;
+};
 
 export const forkTargetVersion = (tag: string): string | null => {
   const parsed = parseUpstreamReleaseTag(tag);
@@ -146,20 +159,3 @@ export const positionUpstreamReleaseTags = (
       : [{ tag, sha, position, stable: parsed.channel === "stable" }];
   });
 };
-
-/** The create-only snapshot branch a stable upstream tag is cut from. */
-export const stableSnapshotBranch = (tag: string): string => `release/${tag}-hyprws`;
-
-/**
- * `origin` already carries this stable upstream tag's snapshot branch or a cut
- * fork release tag, so no lane owes it a snapshot.
- */
-export const originHasStableRelease = (git: TagPolicyGit, tag: string): boolean =>
-  git
-    .run([
-      "ls-remote",
-      "origin",
-      `refs/heads/${stableSnapshotBranch(tag)}`,
-      `refs/tags/${tag}-hyprws.*`,
-    ])
-    .trim().length > 0;
