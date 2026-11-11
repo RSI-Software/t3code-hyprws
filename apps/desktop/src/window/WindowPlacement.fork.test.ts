@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import * as NodeEvents from "node:events";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import type * as Electron from "electron";
@@ -10,6 +11,7 @@ import {
   holdWindowTitleFork,
   placeAtMapFork,
   resolveMapPlacementFork,
+  retitleWindowFork,
 } from "./WindowPlacement.fork.ts";
 
 const PID = 4242;
@@ -73,10 +75,10 @@ function makeCompositor(grammar: HyprlandWindowRuleGrammar, outcome: ClaimOutcom
 }
 
 const fakeWindow = () =>
-  ({
+  Object.assign(new NodeEvents.EventEmitter(), {
     isDestroyed: () => false,
     showInactive: () => {},
-    setTitle: () => {},
+    setTitle: (_title: string) => {},
   }) as unknown as Electron.BrowserWindow;
 
 const place = (compositor: ReturnType<typeof makeCompositor>, outcome: ClaimOutcome) =>
@@ -114,6 +116,34 @@ const place = (compositor: ReturnType<typeof makeCompositor>, outcome: ClaimOutc
       yield* Fiber.join(fiber);
     }
   });
+
+it("holds native renderer titles until claimed, then releases the latest resolved title", () => {
+  const window = fakeWindow();
+  const titles: string[] = [];
+  window.setTitle = (title) => void titles.push(title);
+  retitleWindowFork(window, (title) =>
+    title.includes(" | ") ? `T3 Code | ${title.split(" | ")[1]}` : null,
+  );
+  const hold = holdWindowTitleFork(window, "claim-title", "T3 Code");
+  const rendererTitle = (title: string) => {
+    const event = new Event("page-title-updated", { cancelable: true });
+    window.emit("page-title-updated", event, title);
+    if (!event.defaultPrevented) window.setTitle(title);
+    return event.defaultPrevented;
+  };
+
+  assert.isTrue(rendererTitle("Thread One"));
+  assert.isTrue(rendererTitle("Thread Two | Project"));
+  assert.deepEqual(titles, []);
+  hold.pin();
+  assert.deepEqual(titles, ["claim-title"]);
+  hold.release();
+  assert.deepEqual(titles, ["claim-title", "T3 Code | Project"]);
+  assert.isFalse(rendererTitle("Thread Three"));
+  assert.equal(titles.at(-1), "Thread Three");
+  assert.isTrue(rendererTitle("Thread Four | Other"));
+  assert.equal(titles.at(-1), "T3 Code | Other");
+});
 
 describe("placeAtMapFork", () => {
   it.live.each(
@@ -169,6 +199,8 @@ describe("placeAtMapFork", () => {
       if (placement === null) return;
       const record = (step: string) => () => void order.push(step);
       const window = {
+        on: () => {},
+        removeListener: () => {},
         isDestroyed: () => false,
         setTitle: () => {},
         show: record("show"),
