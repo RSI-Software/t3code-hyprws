@@ -568,10 +568,10 @@ export const make = Effect.gen(function* () {
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
     }
-    WindowPlacement.retitleWindowFork(window, environment.displayName, (pageTitle) =>
+    WindowPlacement.retitleWindowFork(window, (pageTitle) =>
       identity.kind === "hub" ? null : pageTitle.trim() || null,
     ); // fork-hook: multi-window/project-title
-    WindowPlacement.retitleWindowFork(window, environment.displayName, (pageTitle) =>
+    WindowPlacement.retitleWindowFork(window, (pageTitle) =>
       hubFilterTitleFork(identity.kind, environment.displayName, pageTitle),
     ); // fork-hook: workspaces/window-title
     const titleHoldFork =

@@ -70,24 +70,17 @@ export const titleOptionFork = (
   title: string,
 ): Pick<Electron.BrowserWindowConstructorOptions, "title"> => ({ title });
 
-/**
- * Rewrites upstream's app-name title from the latest page title (`resolve`
- * returns null to keep it). Install before the title hold, which restores the
- * `setTitle` it found, and before upstream's `page-title-updated` listener, so
- * the page title is current when that listener sets the title.
- */
+/** Installs before the title hold; null leaves the native renderer title unchanged. */
 export const retitleWindowFork = (
   window: Electron.BrowserWindow,
-  appTitle: string,
   resolve: (pageTitle: string) => string | null,
 ): void => {
-  let pageTitle = "";
-  window.on("page-title-updated", (_event, title) => {
-    pageTitle = title;
+  window.on("page-title-updated", (event, title) => {
+    const resolved = resolve(title);
+    if (resolved === null) return;
+    event.preventDefault();
+    window.setTitle(resolved);
   });
-  const setTitle = window.setTitle;
-  window.setTitle = (title: string) =>
-    setTitle.call(window, title === appTitle ? (resolve(pageTitle) ?? title) : title);
 };
 
 export interface TitleHold {
@@ -97,12 +90,7 @@ export interface TitleHold {
   readonly release: () => void;
 }
 
-/**
- * Holds `title` on `window`, which was built with it, until released. Renderer
- * document titles and the load handlers keep calling `setTitle` while the
- * window maps; the hold records each request instead, so the claim title is
- * still what the compositor sees.
- */
+/** Keeps the claim title through both native page updates and explicit setTitle calls. */
 export const holdWindowTitleFork = (
   window: Electron.BrowserWindow,
   title: string,
@@ -113,6 +101,11 @@ export const holdWindowTitleFork = (
   window.setTitle = (next: string) => {
     requested = next;
   };
+  const onPageTitleUpdated = (event: Electron.Event, next: string) => {
+    if (!event.defaultPrevented) requested = next;
+    event.preventDefault();
+  };
+  window.on("page-title-updated", onPageTitleUpdated);
   let held = true;
   return {
     pin: () => {
@@ -121,6 +114,7 @@ export const holdWindowTitleFork = (
     release: () => {
       if (!held) return;
       held = false;
+      window.removeListener("page-title-updated", onPageTitleUpdated);
       window.setTitle = setTitle;
       if (!window.isDestroyed()) setTitle.call(window, requested);
     },
