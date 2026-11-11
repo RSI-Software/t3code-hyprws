@@ -15,7 +15,6 @@ export interface DesktopIpcInvokeEvent {
 
 export interface DesktopIpcSyncEvent extends DesktopIpcInvokeEvent {
   returnValue: unknown;
-  readonly sender?: { readonly id: number }; // fork-hook: multi-window/window-targets-sync-sender
 }
 
 export type DesktopIpcSenderGuard = (event: DesktopIpcInvokeEvent) => Effect.Effect<boolean>;
