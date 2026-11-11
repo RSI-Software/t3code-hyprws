@@ -1,12 +1,11 @@
 import type { ScopedThreadRef, ThreadArtifactLink } from "@t3tools/contracts";
 import { useRender } from "@base-ui/react/use-render";
 import { fileBasename } from "@t3tools/shared/path";
-import { ChevronDown, ChevronUp } from "lucide";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { FileCodeIcon, FileIcon, FileTextIcon } from "lucide-react";
 import type { MouseEvent, ReactElement } from "react";
 import { useState } from "react";
 
-import { MorphIcon } from "~/components/MorphIcon";
 import { RelativeTime } from "~/components/RelativeTime";
 import { cn } from "~/lib/utils";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
@@ -194,11 +193,11 @@ export function ThreadDetailsArtifactRowsFork({
           tone="muted"
           className="w-full active:scale-100"
         >
-          <MorphIcon
-            aria-hidden
-            className="size-4 shrink-0"
-            icon={expanded ? ChevronUp : ChevronDown}
-          />
+          {expanded ? (
+            <ChevronUp aria-hidden className="size-4 shrink-0" />
+          ) : (
+            <ChevronDown aria-hidden className="size-4 shrink-0" />
+          )}
           {expanded ? "Show less" : `Show ${rest.length} more`}
         </ThreadDetailsControl>
       ) : null}
