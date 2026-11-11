@@ -887,8 +887,8 @@ const make = Effect.gen(function* () {
       ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
       ...(input.freshContext ? { freshContext: true } : {}),
       dispatchMode,
-      ...sendGuardFieldsFork(input), // fork-hook: device-auth/send-steer-attempt
       ...(mode === "auto" ? { deliveryIntent: "auto" } : {}),
+      ...sendGuardFieldsFork(input), // fork-hook: device-auth/send-steer-attempt
       createdBy: input.createdBy,
       creationSource: input.creationSource,
     });

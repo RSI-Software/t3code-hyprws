@@ -41,6 +41,8 @@ export const sendGuardFieldsFork = (input: {
   readonly steerTarget?: RunAttemptId | null;
   readonly expectedModes?: ExpectedModesFork;
 }) => ({
+  // A vetted auto send already chose its target; upstream must not resolve its intent again.
+  ...(input.steerTarget === undefined ? {} : { deliveryIntent: undefined }),
   ...(input.steerTarget == null ? {} : { steerAttemptId: input.steerTarget }),
   ...(input.expectedModes === undefined ? {} : { expectedModes: input.expectedModes }),
 });
