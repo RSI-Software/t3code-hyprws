@@ -75,3 +75,17 @@ it.each(["missing", "corrupt", "missing-table"])("fails safe for a %s database",
   if (kind === "missing")
     await expect(NodeFSP.stat(databasePath)).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+it("points a fork version's launcher recovery at the fork installer", () => {
+  const version = "0.1.10-hyprws-nightly.20261111.1344";
+  const result = runServicePreflight({
+    databasePath: "/missing/state.sqlite",
+    launcherProtocol: 0,
+    version,
+  });
+  const reason = result.status === "blocked" ? result.reason : "";
+  expect(reason).toContain(
+    `curl -fsSL https://raw.githubusercontent.com/RSI-Software/t3code-hyprws/hyprws/scripts/install.sh | T3CODE_VERSION=${version} sh`,
+  );
+  expect(reason).not.toContain("t3.codes");
+});
