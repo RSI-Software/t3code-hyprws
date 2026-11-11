@@ -10,7 +10,12 @@ export function nonDefaultAgentLabel(traits: TraitsSelectionInput | null): strin
   if (!traits) return null;
   const descriptor = getTraitsSectionVisibility(traits).agentDescriptor;
   if (!descriptor) return null;
-  const value = getProviderOptionCurrentValue(descriptor);
+  // The picker column's resolution: an explicit pick, else what the session reports.
+  const selection =
+    traits.instanceId && traits.model
+      ? { instanceId: traits.instanceId, model: traits.model, options: traits.modelOptions ?? [] }
+      : null;
+  const value = getProviderOptionCurrentValue(descriptor, selection, traits.reportedModelSelection);
   const option = descriptor.options.find((candidate) => candidate.id === value);
   return option && !option.isDefault ? option.label : null;
 }

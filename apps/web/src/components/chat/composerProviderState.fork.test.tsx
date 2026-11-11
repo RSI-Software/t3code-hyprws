@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
+  ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
   type ServerProviderModel,
@@ -95,11 +96,14 @@ describe("getComposerProviderState plan agent", () => {
   });
 });
 
+const INSTANCE = ProviderInstanceId.make("codex");
 it.each([
-  { agent: "default", label: null },
-  { agent: "fable", label: "fable" },
-  { agent: null, label: null },
-])("names only a non-default agent on the trigger (%o)", ({ agent, label }) => {
+  { agent: "default", reported: null, label: null },
+  { agent: "fable", reported: null, label: "fable" },
+  { agent: null, reported: null, label: null },
+  { agent: undefined, reported: "fable", label: "fable" },
+  { agent: "default", reported: "fable", label: null },
+])("names only a non-default agent on the trigger (%o)", ({ agent, reported, label }) => {
   const models = modelWith(
     agent === null
       ? []
@@ -113,10 +117,14 @@ it.each([
   expect(
     nonDefaultAgentLabel({
       provider: PROVIDER,
+      instanceId: INSTANCE,
       draftId: DraftId.make("draft-agent-trigger"),
       model: MODEL,
       models,
-      modelOptions: agent === null ? [] : selections(["agent", agent]),
+      modelOptions: agent ? selections(["agent", agent]) : [],
+      reportedModelSelection: reported
+        ? { instanceId: INSTANCE, model: MODEL, options: selections(["agent", reported]) }
+        : null,
       promptUltrathink: "none",
       onPromptEdit: () => {},
     }),
