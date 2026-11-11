@@ -21,6 +21,7 @@ import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as DesktopPrimaryPaste from "../app/DesktopPrimaryPaste.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
@@ -79,6 +80,10 @@ function makeWindow(
     loadURL,
     on: vi.fn((event: string, listener: Listener) => void windowListeners.set(event, listener)),
     once: vi.fn((event: string, listener: Listener) => void windowListeners.set(event, listener)),
+    removeListener: (event: string, listener: Listener) => {
+      if (windowListeners.get(event) === listener) windowListeners.delete(event);
+      return window;
+    },
     showInactive: vi.fn(),
     setAutoHideCursor: vi.fn(),
     setBackgroundColor: vi.fn(),
@@ -137,6 +142,7 @@ function makeLayer(
           ),
         ),
         DesktopState.layer,
+        Layer.succeed(DesktopPrimaryPaste.DesktopPrimaryPaste, { enabled: true }),
         Layer.mock(DesktopAssets.DesktopAssets)({
           iconPaths: Effect.succeed({
             ico: Option.none(),
