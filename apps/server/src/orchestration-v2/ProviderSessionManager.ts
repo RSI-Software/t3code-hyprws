@@ -2527,6 +2527,7 @@ export const layerWithOptions = (
                           !current.attachedThreadIds.has(threadId))
                       )
                         return;
+                      if (!current.attachedThreadIds.has(threadId)) return; // fork-hook: upstream-fixes/detached-request-gate
                       yield* providerEventIngestor
                         .ingestNormalized({
                           providerSessionId: entry.runtime.providerSessionId,
