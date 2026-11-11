@@ -147,7 +147,7 @@ spend limit to continue sooner.
 ## Choose a Codex custom agent
 
 T3 Code reads personal Codex agents from `<CODEX_HOME>/agents/*.toml`.
-The Agent picker appears beside the model when at least one valid agent is available.
+The model picker shows an **Agent** option when at least one valid agent is available.
 
 Each file needs `name`, `description`, and `developer_instructions`.
 Other Codex configuration keys form the selected agent's session layer.
