@@ -1,6 +1,7 @@
 import packageJson from "../../package.json" with { type: "json" };
 import { BUILD_MIGRATION_HEAD, recordedMigrations } from "../persistence/databaseMigrationHead.ts";
 import { serviceMigrationPreflightFork } from "./serviceMigrationPreflight.fork.ts"; // fork-hook: upstream-fixes/migration-preflight
+import { forkLauncherProtocolReason } from "./servicePreflight.fork.ts"; // fork-hook: distribution/preflight-install-command-import
 import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
 
 export type ServicePreflightResult =
@@ -34,6 +35,7 @@ export function runServicePreflight(input: {
         `Check that \`t3 --version\` prints ${version} and that \`which -a t3\` lists no older t3 (such as an npm or nvm install) first, then run \`~/.local/bin/t3 service install\` (the installer's default path).`,
         "Updating the desktop app does not update this CLI, and `t3 service update` only repairs the service with whichever CLI runs it.",
       ].join(" "),
+      ...forkLauncherProtocolReason(input.launcherProtocol, SERVICE_LAUNCHER_PROTOCOL, version), // fork-hook: distribution/preflight-install-command
     };
   }
 
