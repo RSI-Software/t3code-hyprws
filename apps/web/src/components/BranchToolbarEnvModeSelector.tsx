@@ -101,7 +101,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           {
             forceNewWorktree
               ? resolveEnvModeLabel("worktree")
-              : resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode, activeWorktrunk) // fork-hook: worktrunk-hooks/locked-worktrunk-label
+              : resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode) // fork-hook: worktrunk-hooks/locked-worktrunk-label
           }
           {/* fork-hook-end */}
         </ComposerContextLabel>

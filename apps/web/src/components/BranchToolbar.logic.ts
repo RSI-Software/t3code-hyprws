@@ -121,7 +121,6 @@ export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null):
 export function resolveLockedWorkspaceLabel(
   activeWorktreePath: string | null,
   effectiveEnvMode: EnvModeFork, // fork-hook: worktrunk-hooks/env-mode-type
-  worktrunk = false, // fork-hook: worktrunk-hooks/locked-label-worktrunk-param
 ): string {
   if (activeWorktreePath) return activeWorktreePath.split(/[\\/]/).findLast(Boolean) ?? "Worktree";
   return isWorktreeEnvMode(effectiveEnvMode)

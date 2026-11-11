@@ -20,8 +20,8 @@ const isEnvModeFork = Schema.is(EnvModeFork);
 
 describe("resolveLockedWorkspaceLabel", () => {
   it("names a worktrunk worktree", () => {
-    expect(resolveLockedWorkspaceLabel("/repo/.t3/worktrees/feature-a", "worktrunk", true)).toBe(
-      "Worktrunk",
+    expect(resolveLockedWorkspaceLabel("/repo/.t3/worktrees/feature-a", "worktrunk")).toBe(
+      "feature-a",
     );
   });
 
