@@ -1,4 +1,3 @@
-import { isValidElement } from "react";
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
@@ -6,31 +5,9 @@ import {
   type ProviderOptionSelection,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import {
-  getComposerProviderState,
-  renderProviderAgentMenuContent,
-  renderProviderAgentPicker,
-} from "./composerProviderState";
+import { getComposerProviderState } from "./composerProviderState";
 import { DraftId } from "../../composerDraftStore";
-import { agentBlockHiddenFork } from "./composerProviderState.fork";
-import { getTraitsSectionVisibility } from "./TraitsPicker";
-
-it.each([
-  { measured: 1, upstream: 1, upstreamHidden: 1, hidden: false },
-  { measured: 2, upstream: 1, upstreamHidden: 1, hidden: true },
-  { measured: 2, upstream: 0, upstreamHidden: 0, hidden: false },
-])(
-  "overflows the agent only after every upstream block (%o)",
-  ({ measured, upstream, upstreamHidden, hidden }) => {
-    expect(
-      agentBlockHiddenFork({
-        measuredHiddenBlockCount: measured,
-        upstreamBlockCount: upstream,
-        upstreamHiddenBlockCount: upstreamHidden,
-      }),
-    ).toBe(hidden);
-  },
-);
+import { nonDefaultAgentLabel } from "./agentTriggerSuffix.fork";
 import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
@@ -117,49 +94,31 @@ describe("getComposerProviderState plan agent", () => {
     });
   });
 });
-describe("provider traits render guards", () => {
-  it("renders an agent-only descriptor in its dedicated control", () => {
-    const models = modelWith([
-      selectDescriptor("agent", [
-        { id: "default", label: "Default", isDefault: true },
-        { id: "fable", label: "fable" },
-      ]),
-    ]);
-    const args = {
+
+it.each([
+  { agent: "default", label: null },
+  { agent: "fable", label: "fable" },
+  { agent: null, label: null },
+])("names only a non-default agent on the trigger (%o)", ({ agent, label }) => {
+  const models = modelWith(
+    agent === null
+      ? []
+      : [
+          selectDescriptor("agent", [
+            { id: "default", label: "Default", isDefault: true },
+            { id: "fable", label: "fable" },
+          ]),
+        ],
+  );
+  expect(
+    nonDefaultAgentLabel({
       provider: PROVIDER,
-      draftId: DraftId.make("draft-agent"),
+      draftId: DraftId.make("draft-agent-trigger"),
       model: MODEL,
       models,
-      modelOptions: selections(["agent", "fable"]),
-      promptUltrathink: "none" as const,
+      modelOptions: agent === null ? [] : selections(["agent", agent]),
+      promptUltrathink: "none",
       onPromptEdit: () => {},
-    };
-    expect(renderProviderAgentPicker(args)).not.toBeNull();
-    expect(renderProviderAgentMenuContent(args)).not.toBeNull();
-    expect(getTraitsSectionVisibility(args).hasAnyControls).toBe(false);
-  });
-
-  // A dropped selection shows every agent as Default and rebuilds the other
-  // traits from defaults on the next pick.
-  it("hands the current selections to both agent controls", () => {
-    const args = {
-      provider: PROVIDER,
-      draftId: DraftId.make("draft-agent-selection"),
-      model: MODEL,
-      models: modelWith([
-        selectDescriptor("agent", [
-          { id: "default", label: "Default", isDefault: true },
-          { id: "fable", label: "fable" },
-        ]),
-      ]),
-      modelOptions: selections(["agent", "fable"]),
-      promptUltrathink: "none" as const,
-      onPromptEdit: () => {},
-    };
-    for (const control of [renderProviderAgentPicker(args), renderProviderAgentMenuContent(args)]) {
-      expect(isValidElement<{ modelOptions?: unknown }>(control)).toBe(true);
-      if (!isValidElement<{ modelOptions?: unknown }>(control)) continue;
-      expect(control.props.modelOptions).toEqual(args.modelOptions);
-    }
-  });
+    }),
+  ).toBe(label);
 });

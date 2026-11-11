@@ -1,9 +1,7 @@
 import type { RuntimeMode } from "@t3tools/contracts";
 import { memo, useRef } from "react";
-import type { ReactNode } from "react"; // fork-hook: custom-agents/compact-menu-agent-prop-type
 import { EllipsisIcon } from "lucide-react";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
-import { MenuSeparator as MenuDivider } from "../ui/menu"; // fork-hook: custom-agents/compact-menu-agent-divider
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
@@ -13,7 +11,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   showPermissions: boolean;
-  agentMenuContent?: ReactNode; // fork-hook: custom-agents/compact-menu-agent-prop
   size?: "sm" | "xs";
   /** Close the portaled popup when its trigger hides. */
   hidden?: boolean;
@@ -44,14 +41,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
-        {/* fork-hook: custom-agents/compact-menu-agent-render */}
-        {props.agentMenuContent ? (
-          <>
-            {props.agentMenuContent}
-            {props.showPermissions ? <MenuDivider /> : null}
-          </>
-        ) : null}
-        {/* fork-hook-end */}
         {props.showPermissions ? (
           <ComposerPermissionsSection
             runtimeMode={props.runtimeMode}

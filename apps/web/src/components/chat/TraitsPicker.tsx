@@ -102,7 +102,6 @@ type TraitsPersistence =
       onDraftModelOptionsChange?: never;
       onModelOptionsChange: (nextOptions: ProviderOptions | undefined) => void;
     };
-export type { TraitsPersistence }; // fork-hook: custom-agents/traits-persistence-export
 
 function DefaultBadge() {
   return (
@@ -111,9 +110,8 @@ function DefaultBadge() {
     </Badge>
   );
 }
-export { DefaultBadge }; // fork-hook: custom-agents/traits-default-badge-export
+export { DefaultBadge }; // fork-hook: github-issues/traits-default-badge-export
 
-export { replaceDescriptorCurrentValue }; // fork-hook: custom-agents/traits-replace-descriptor-export
 function getSelectedTraits(
   provider: ProviderDriverKind,
   models: ReadonlyArray<ServerProviderModel>,
@@ -139,7 +137,7 @@ function getSelectedTraits(
       });
   const selectDescriptors = descriptors.filter(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
-      descriptor.type === "select" && descriptor.id !== "agent",
+      descriptor.type === "select",
   );
   const booleanDescriptors = descriptors.filter(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "boolean" }> =>
@@ -148,11 +146,7 @@ function getSelectedTraits(
   const primarySelectDescriptor = selectDescriptors[0] ?? null;
   const contextWindowDescriptor =
     selectDescriptors.find((descriptor) => descriptor.id === "contextWindow") ?? null;
-  const agentDescriptor =
-    descriptors.find(
-      (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
-        descriptor.type === "select" && descriptor.id === "agent",
-    ) ?? null;
+  const agentDescriptor = selectDescriptors.find((descriptor) => descriptor.id === "agent") ?? null;
   const fastModeDescriptor =
     booleanDescriptors.find((descriptor) => descriptor.id === "fastMode") ?? null;
   const thinkingDescriptor =
@@ -219,6 +213,7 @@ export function getTraitsSectionVisibility(input: {
   const showThinking = selected.thinkingDescriptor !== null;
   const showFastMode = selected.fastModeDescriptor !== null;
   const showContextWindow = selected.contextWindowDescriptor !== null;
+  const showAgent = selected.agentDescriptor !== null;
 
   return {
     ...selected,
@@ -226,13 +221,14 @@ export function getTraitsSectionVisibility(input: {
     showThinking,
     showFastMode,
     showContextWindow,
+    showAgent,
     hasAnyControls:
       showEffort ||
       showThinking ||
       showFastMode ||
       showContextWindow ||
-      (selected.modelIsUnavailable &&
-        selected.descriptors.some((descriptor) => descriptor.id !== "agent")),
+      showAgent ||
+      (selected.modelIsUnavailable && selected.descriptors.length > 0),
   };
 }
 
