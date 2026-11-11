@@ -95,7 +95,17 @@ type DesktopWindowHarnessFork = {
  * share its harness. Each fork domain adds its cases here.
  */
 export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork) => {
-  const { makeFakeBrowserWindow, layerTest } = harness;
+  const { layerTest } = harness;
+  const makeFakeBrowserWindow = () => {
+    const fake = harness.makeFakeBrowserWindow();
+    fake.window.removeListener = (eventName, listener) => {
+      if (fake.windowListeners.get(eventName) === listener) {
+        fake.windowListeners.delete(eventName);
+      }
+      return fake.window;
+    };
+    return fake;
+  };
 
   it.effect("leaves app context menus to the renderer while preserving native text actions", () =>
     Effect.gen(function* () {
