@@ -124,7 +124,7 @@ doesn't support it in WSL.
 
 ## Choose a Claude custom agent
 
-T3 Code shows an Agent picker beside the model when Claude Code reports one or more custom agents.
+When Claude Code reports one or more custom agents, the model picker shows an **Agent** option under the reasoning levels.
 Choose an agent before the first message to run it as the main thread agent.
 
 For example, choosing `fable` has the same launch behavior as this command:

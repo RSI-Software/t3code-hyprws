@@ -31,12 +31,7 @@ import {
 } from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
-import {
-  agentBlockHiddenFork,
-  agentRestingBlockFork,
-  renderProviderAgentMenuContent,
-  renderProviderAgentPicker,
-} from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-agent-render-import
+import { agentTriggerSuffixFork } from "./agentTriggerSuffix.fork"; // fork-hook: custom-agents/composer-agent-trigger-import
 
 /**
  * The composer footer controls: the model picker (which also holds effort, speed and
@@ -171,8 +166,6 @@ export function ComposerControlsBar(props: {
     onPromptEdit,
   });
   const effort = describeComposerEffort(traitsInput, props.effortDisplay, controlSize, m);
-  const providerAgentMenuContent = renderProviderAgentMenuContent(traitsInput); // fork-hook: custom-agents/composer-agent-menu-content
-  const providerAgentPicker = renderProviderAgentPicker(traitsInput); // fork-hook: custom-agents/composer-agent-picker
   const restingBlockDefs = showModeBlock
     ? [
         {
@@ -191,11 +184,6 @@ export function ComposerControlsBar(props: {
         },
       ]
     : [];
-  const agentBlockHidden = agentBlockHiddenFork({
-    measuredHiddenBlockCount,
-    upstreamBlockCount: restingBlockDefs.length,
-    upstreamHiddenBlockCount: restingHiddenBlockCount,
-  }); // fork-hook: custom-agents/composer-agent-ownership
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const composerModelPicker = (
     <ComposerModelPicker
@@ -234,6 +222,7 @@ export function ComposerControlsBar(props: {
       )}
       triggerSuffix={effort.suffix}
       triggerDetail={effort.detail}
+      {...agentTriggerSuffixFork(effort.suffix, traitsInput)} // fork-hook: custom-agents/composer-agent-trigger-suffix
       triggerShortcuts={
         pickerOwnsModeShortcut ? "composer.effort composer.mode" : "composer.effort"
       }
@@ -279,9 +268,6 @@ export function ComposerControlsBar(props: {
   ) : (
     <>
       {composerModelPicker}
-      {/* fork-hook: custom-agents/composer-agent-resting-block */}
-      {agentRestingBlockFork(providerAgentPicker, agentBlockHidden)}
-      {/* fork-hook-end */}
 
       <>
         {restingBlockDefs.map((def, index) => {
@@ -320,7 +306,6 @@ export function ComposerControlsBar(props: {
             runtimeModeOptions={compatibleRuntimeModeOptions}
             size={controlSize}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
-            agentMenuContent={agentBlockHidden ? providerAgentMenuContent : undefined} // fork-hook: custom-agents/composer-agent-compact-menu-prop
             // Permissions join the overflow only when their normal home is in it.
             showPermissions={overflowShowsPermissions}
             onRuntimeModeChange={handleRuntimeModeChange}
