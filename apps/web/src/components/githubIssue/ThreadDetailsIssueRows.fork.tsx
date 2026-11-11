@@ -1,8 +1,7 @@
 import type { ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
-import { ChevronDown, ChevronUp } from "lucide";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 
-import { MorphIcon } from "~/components/MorphIcon";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { cn } from "~/lib/utils";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
@@ -88,11 +87,11 @@ export function ThreadDetailsIssueRowsFork({
           tone="muted"
           className="w-full active:scale-100"
         >
-          <MorphIcon
-            aria-hidden
-            className="size-4 shrink-0"
-            icon={expanded ? ChevronUp : ChevronDown}
-          />
+          {expanded ? (
+            <ChevronUp aria-hidden className="size-4 shrink-0" />
+          ) : (
+            <ChevronDown aria-hidden className="size-4 shrink-0" />
+          )}
           {expanded ? "Show less" : `Show ${rest.length} more`}
         </ThreadDetailsControl>
       ) : null}
