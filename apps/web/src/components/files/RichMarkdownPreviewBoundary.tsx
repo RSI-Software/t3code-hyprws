@@ -1,5 +1,4 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { PenLine, type IconNode } from "lucide";
 import { LoaderCircle } from "lucide-react";
 import { lazy, Suspense, type ReactNode } from "react";
 
@@ -39,14 +38,6 @@ export interface RichMarkdownToggleProps {
   readonly disabled: boolean;
 }
 
-/**
- * Spread over upstream's rendered-preview `MorphIcon`, after its own `icon`, so a rich-editable
- * Markdown source shows the edit glyph instead of upstream's preview eye.
- */
-export interface RichMarkdownIconProps {
-  readonly icon?: IconNode;
-}
-
 export interface RichMarkdownPreviewMode {
   readonly isMarkdown: boolean;
   readonly isRichMarkdown: boolean;
@@ -56,7 +47,6 @@ export interface RichMarkdownPreviewMode {
   readonly toggleLabel: string;
   readonly tooltipLabel: string;
   readonly toggleProps: RichMarkdownToggleProps;
-  readonly iconProps: RichMarkdownIconProps;
 }
 
 export function resolveRichMarkdownPreviewMode(input: {
@@ -97,7 +87,6 @@ export function resolveRichMarkdownPreviewMode(input: {
     toggleProps: isMarkdown
       ? { label: toggleLabel, disabled: toggleDisabled }
       : { disabled: false },
-    iconProps: isRichMarkdown && !rendered ? { icon: PenLine } : {},
   };
 }
 

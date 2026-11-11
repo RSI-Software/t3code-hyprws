@@ -1,4 +1,3 @@
-import { PenLine } from "lucide";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -126,21 +125,6 @@ describe("rich Markdown preview boundary", () => {
         readOnly: false,
       }).toggleProps,
     ).toEqual({ disabled: false });
-  });
-
-  it("shows the edit glyph only on an editable Markdown source", () => {
-    const mode = (relativePath: string, renderPreferred: boolean) =>
-      resolveRichMarkdownPreviewMode({
-        relativePath,
-        fileState: "ready",
-        renderPreferred,
-        revealHandled: true,
-        readOnly: false,
-      });
-
-    expect(mode("docs/guide.md", false).iconProps).toEqual({ icon: PenLine });
-    expect(mode("docs/guide.md", true).iconProps).toEqual({});
-    expect(mode("docs/guide.mdx", false).iconProps).toEqual({});
   });
 
   it("publishes changed Markdown through the optimistic save boundary", () => {
