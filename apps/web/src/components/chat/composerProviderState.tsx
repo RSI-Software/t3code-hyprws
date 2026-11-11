@@ -199,6 +199,3 @@ export function resolveComposerTraitsInput(
   if (!persistence) return null;
   return { ...rest, ...persistence, modelOptions: selections };
 }
-
-export { renderProviderAgentMenuContent } from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-state-agent-menu-content
-export { renderProviderAgentPicker } from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-state-agent-picker
