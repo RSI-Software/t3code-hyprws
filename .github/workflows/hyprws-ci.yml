@@ -5,7 +5,7 @@ name: hyprws CI
 # (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
 # free for a public repository. The pin names the upstream ci.yml commit these steps
 # last matched; fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
-# fork-mirror: .github/workflows/ci.yml@822671581383a357c5dc8d3ea9984b408c3e03c6
+# fork-mirror: .github/workflows/ci.yml@c90b67859a6d85fc957f9ffe25ba95113c6479d3
 
 on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
@@ -190,7 +190,11 @@ jobs:
 
       - name: Install browser secret helper build libraries
         if: needs.changes.outputs.build != 'false'
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config xvfb
+        run: |
+          sudo apt-get update -o Acquire::Languages=none \
+            -o Acquire::IndexTargets::deb::DEP-11::DefaultEnabled=false \
+            -o Acquire::IndexTargets::deb::CNF::DefaultEnabled=false &&
+            sudo apt-get install -y libsecret-1-dev pkg-config xvfb
 
       - name: Build desktop pipeline
         id: build
@@ -336,7 +340,11 @@ jobs:
 
       - name: Install browser secret helper build libraries
         if: steps.select.outputs.run != 'false'
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+        run: |
+          sudo apt-get update -o Acquire::Languages=none \
+            -o Acquire::IndexTargets::deb::DEP-11::DefaultEnabled=false \
+            -o Acquire::IndexTargets::deb::CNF::DefaultEnabled=false &&
+            sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Test
         if: steps.select.outputs.run != 'false'
@@ -469,7 +477,11 @@ jobs:
         run: vp run --filter @t3tools/desktop ensure:electron
 
       - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+        run: |
+          sudo apt-get update -o Acquire::Languages=none \
+            -o Acquire::IndexTargets::deb::DEP-11::DefaultEnabled=false \
+            -o Acquire::IndexTargets::deb::CNF::DefaultEnabled=false &&
+            sudo apt-get install -y libsecret-1-dev pkg-config
 
       # upstream-client-compat.fork.test.ts decodes fork payloads with the
       # contracts at `git merge-base HEAD upstream/main`.
