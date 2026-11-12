@@ -131,6 +131,7 @@ Adaptation the candidate needs (build or test fixes, ports) commits at the tip o
   - Move the hook lines off its changed lines
 - **Mirror:** upstream changed a workflow copy's file
   - Adapt it, or note why not: [copies][copies]
+  - New check agent: convert it, pinned
   - That commit moves its pin to the target
 - **Local checks:** each rerun runs `fork:ci`
   - It names every red step
