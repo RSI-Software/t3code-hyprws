@@ -7,6 +7,7 @@ import {
   LEDGER_PATH,
   matchesScanPattern,
   MIRROR_COPIES,
+  MIRROR_DIRS,
   readMirrorDrift,
   parseArgs,
   parseRebaseScans,
@@ -320,8 +321,9 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
   assert.throws(() => parseArgs(["--since"]), UsageError);
 });
 
-it("fails a workflow copy whose upstream file moved past its pin, or that has no pin", () => {
+it("fails a workflow copy whose upstream file moved past its pin, that has no pin, or that is missing", () => {
   const [ci, release, budget] = MIRROR_COPIES;
+  const [{ source, copies: copyDir }] = MIRROR_DIRS;
   const pinned = (path: string, sha: string) => `name: copy\n# fork-mirror: ${path}@${sha}\n`;
   const current = "c".repeat(40);
   const stale = "5".repeat(40);
@@ -330,10 +332,18 @@ it("fails a workflow copy whose upstream file moved past its pin, or that has no
     [ci, pinned(".github/workflows/ci.yml", current)],
     [release, pinned(".github/workflows/release.yml", stale)],
     [budget, "name: copy\n# Mirror upstream agent-context-budget.yml on every rebase.\n"],
+    [`${copyDir}/ui.md`, pinned(`${source}/ui.md`, current)],
+    [`${copyDir}/fork-only.md`, "---\nname: fork only\n---\n"],
   ]);
+  const tree = (paths: ReadonlyArray<string>) =>
+    paths.map((path) => `100644 blob ${"0".repeat(40)}\t${path}`).join("\n");
   const git = {
     run: (args: ReadonlyArray<string>) => {
       if (args[0] === "rev-parse") return `${target}\n`;
+      if (args[0] === "ls-tree" && args[1] === "HEAD")
+        return tree([`${copyDir}/ui.md`, `${copyDir}/fork-only.md`]);
+      if (args[0] === "ls-tree")
+        return `${tree([`${source}/ui.md`, `${source}/tests.md`])}\n040000 tree ${"0".repeat(40)}\t${source}/github-actions`;
       if (args[0] === "show") return copies.get(String(args[1]).replace("HEAD:", "")) ?? "";
       if (args[0] === "log" && args[2] === `${stale}..${target}`)
         return "e6ca170 fix(release): publish prereleases after assets\n0a1b2c3 ci: bump action\n";
@@ -347,6 +357,7 @@ it("fails a workflow copy whose upstream file moved past its pin, or that has no
     [
       `mirror: ${release}: upstream .github/workflows/release.yml changed in 2 commit(s) since pin ${stale.slice(0, 12)}; adapt the copy or record no change, then pin ${target}\n  e6ca170 fix(release): publish prereleases after assets\n  0a1b2c3 ci: bump action`,
       `mirror: ${budget}: no \`# fork-mirror: <upstream path>@<full sha>\` header pin`,
+      `mirror: ${source}/tests.md: no pinned fork copy; convert it into ${copyDir}/ pinned \`# fork-mirror: ${source}/tests.md@${target}\``,
     ],
   );
 });
