@@ -126,7 +126,8 @@ Options:
   --replay-of <ref>
                   Guard only commits whose added lines differ from the same-subject commit on this ref.
   --no-typecheck  Skip the rehearsed-head typechecks
-  --mirror-pins   Fail a workflow copy whose upstream file changed between its pin and the target
+  --mirror-pins   Fail a workflow copy whose upstream file changed between its pin and the target,
+                  and an upstream review agent with no pinned copy
   -h, --help      Show help
 
 Output is read-only; exit 0 passes, 1 fails, 2 is usage.
@@ -529,7 +530,22 @@ export const MIRROR_COPIES = [
   ".github/workflows/hyprws-agent-context-budget.yml",
 ] as const;
 
+// Upstream review agents rsi-pr-agent runs as converted copies. Every source file needs a pinned
+// copy; a copy file without a pin is fork-only.
+export const MIRROR_DIRS = [
+  { source: ".macroscope/check-run-agents", copies: ".rsi-agent/workflows" },
+] as const;
+
 const MIRROR_PIN = /^# fork-mirror: (?<path>\S+)@(?<sha>[0-9a-f]{40})$/m;
+
+const treeFiles = (git: Pick<GitReader, "run">, ref: string, dir: string): ReadonlyArray<string> =>
+  git
+    .run(["ls-tree", ref, "--", `${dir}/`])
+    .split("\n")
+    .flatMap((line) => {
+      const [meta, path] = line.split("\t");
+      return meta?.split(" ")[1] === "blob" && path !== undefined ? [path] : [];
+    });
 
 export const readMirrorDrift = (
   git: Pick<GitReader, "run">,
@@ -537,11 +553,22 @@ export const readMirrorDrift = (
   target: string,
 ): ReadonlyArray<string> => {
   const targetSha = git.run(["rev-parse", `${target}^{commit}`]).trim();
-  return MIRROR_COPIES.flatMap((copy) => {
+  const copies = [
+    ...MIRROR_COPIES.map((copy) => ({ copy, required: true })),
+    ...MIRROR_DIRS.flatMap((dir) => treeFiles(git, head, dir.copies)).map((copy) => ({
+      copy,
+      required: false,
+    })),
+  ];
+  const pinned = new Set<string>();
+  const drift = copies.flatMap(({ copy, required }) => {
     const pin = MIRROR_PIN.exec(git.run(["show", `${head}:${copy}`]))?.groups;
     if (pin?.path === undefined || pin.sha === undefined) {
-      return [`${copy}: no \`# fork-mirror: <upstream path>@<full sha>\` header pin`];
+      return required
+        ? [`${copy}: no \`# fork-mirror: <upstream path>@<full sha>\` header pin`]
+        : [];
     }
+    pinned.add(pin.path);
     const commits = git
       .run(["log", "--format=%h %s", `${pin.sha}..${targetSha}`, "--", pin.path])
       .split("\n")
@@ -554,6 +581,15 @@ export const readMirrorDrift = (
       ].join("\n"),
     ];
   });
+  const uncovered = MIRROR_DIRS.flatMap((dir) =>
+    treeFiles(git, targetSha, dir.source)
+      .filter((source) => !pinned.has(source))
+      .map(
+        (source) =>
+          `${source}: no pinned fork copy; convert it into ${dir.copies}/ pinned \`# fork-mirror: ${source}@${targetSha}\``,
+      ),
+  );
+  return [...drift, ...uncovered];
 };
 
 export const readScan = (
