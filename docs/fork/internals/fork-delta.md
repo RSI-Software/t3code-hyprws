@@ -377,7 +377,7 @@ It owns the **fork sections** of `README.md`, `AGENTS.md`, and `docs/README.md`,
 It owns `scripts/fork-*.ts`; each **hand-run one gets** a `fork:*` alias.
 It owns the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill and the `hyprws-upstream-sync.yml` and `hyprws-sync-resolution.yml` workflows.
 The PR template's trailer block **points to `FORK_DOMAINS`** for the domain list.
-`.rsi-agent/workflows/*.md` are rsi-pr-agent **copies** of `.macroscope/check-run-agents/`, each **naming its source SHA**.
+`.rsi-agent/workflows/*.md` are rsi-pr-agent **copies** of `.macroscope/check-run-agents/`, each **pinned** as a [workflow copy](../operations/fork-sync.md#workflow-copies).
 Every fork workflow checkout that runs rebased code **scrubs its persisted credential** first, as `hyprws-upstream-sync.yml` does.
 
 ### Retirement condition
