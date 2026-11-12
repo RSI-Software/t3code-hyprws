@@ -5,7 +5,7 @@ name: hyprws CI
 # (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
 # free for a public repository. The pin names the upstream ci.yml commit these steps
 # last matched; fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
-# fork-mirror: .github/workflows/ci.yml@1264c206aee0dce805d6279809118bc091f29d2f
+# fork-mirror: .github/workflows/ci.yml@bc647ed53595888efacdd8ca435967d48888a952
 
 on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
@@ -183,6 +183,9 @@ jobs:
 
       - name: Check
         run: vp check
+
+      - name: Test test-suite growth checks
+        run: node --test .github/scripts/test-delta.test.cjs
 
       - name: Typecheck
         if: needs.changes.outputs.typecheck != 'false'
