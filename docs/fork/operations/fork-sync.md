@@ -66,7 +66,14 @@ The land run is the **only trunk writer**; a [`fork-fold`](../../../.agents/skil
 ### Workflow copies
 
 Each `hyprws-*.yml` copy of an upstream workflow **pins** the upstream file and commit it last matched: `# fork-mirror: <path>@<full sha>`.
-On a candidate, **`fork:scan --mirror-pins` fails** a copy whose upstream file changed since its pin, naming those commits, and a copy with **no pin**.
+Each `.rsi-agent/workflows/` conversion of an upstream `.macroscope/check-run-agents/` file **pins the same way**; one without a pin is fork-only.
+Convert by rsi-pr-agent's [conversion guide](https://github.com/RSI-Software/rsi-pr-agent/blob/main/docs/repo-workflows.md#convert-another-bots-definitions).
+On a candidate, **`fork:scan --mirror-pins` fails**:
+
+- A copy whose **upstream file changed** since its pin
+- A `hyprws-*.yml` copy with **no pin**
+- An upstream check agent with **no pinned copy**
+
 Review each commit at the tip: **adapt the copy**, or **record a one-line no-change reason** in the commit that **moves the pin** to the target's commit.
 
 ## Local trunk
