@@ -10,7 +10,6 @@ import * as NodeUtil from "node:util";
 import { acquireServiceSelectionLock } from "./cloud/serviceSelectionLock.ts";
 import { isNoCopyOnWrite, markNoCopyOnWrite } from "./noCopyOnWrite.ts";
 import { backupDatabaseForMigrationsFork } from "./serviceLauncherBackup.fork.ts"; // fork-hook: upstream-fixes/migration-backup
-import { abortableBackupFork, backupAbortSignalFork } from "./serviceLauncherBackupAbort.fork.ts"; // fork-hook: upstream-fixes/migration-backup-stop
 
 import type {
   PendingServiceUpdate,
@@ -555,7 +554,6 @@ async function backupDatabaseOnce(
       await copyDatabaseFile(source, destination, signal);
       await syncFile(destination);
     }
-    backupAbortSignalFork()?.throwIfAborted(); // fork-hook: upstream-fixes/migration-backup-stop
     await NodeFSP.rename(stagingDir, backupDir);
     await syncDirectory(NodePath.dirname(backupDir));
   } catch (cause) {
@@ -847,7 +845,6 @@ export class Launcher {
   #transitions: Promise<void> = Promise.resolve();
   #stopRequested = false;
   readonly #stopSignal = new AbortController();
-  readonly #stopAbort = new AbortController(); // fork-hook: upstream-fixes/migration-backup-stop
   #stopping = false;
   #done = false;
   readonly #completion = Promise.withResolvers<void>();
@@ -967,7 +964,6 @@ export class Launcher {
     }
     this.#stopRequested = true;
     this.#stopSignal.abort();
-    this.#stopAbort.abort(); // fork-hook: upstream-fixes/migration-backup-stop
     this.#clearTimer();
     this.#enqueue(async () => {
       // Let in-progress updates start replacements first; replacements observe the marker and own pre-activation tunnel cleanup.
@@ -1067,7 +1063,7 @@ export class Launcher {
         this.#baseDir,
         pending,
         runtimePaths(this.#baseDir, pending.targetVersion).entryPath,
-        abortableBackupFork(this.#stopAbort.signal, backupDatabaseOnce),
+        (baseDir, update) => backupDatabaseOnce(baseDir, update, this.#stopSignal.signal),
       ); // fork-hook: upstream-fixes/migration-backup
     } catch {
       // A stop aborts the copy and leaves the update pending for the next start.
