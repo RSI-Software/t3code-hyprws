@@ -67,6 +67,7 @@ import {
   conversationForkContextFork,
   conversationForkNoticeOwedFork,
   appendConversationForkContextFork,
+  conversationForkTurnInputFork,
 } from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-context-import
 import {
   isRestartNoteContinuation,
@@ -1673,11 +1674,13 @@ export const layer: Layer.Layer<
           const text = goalCommand ? userText : withInlineContext(context, userText);
           yield* start({
             ...(noteContinuation ? promptedInput : turnInput),
-            message: {
-              ...turnInput.message,
-              text: goalCommand ? userText : withInlineContext(forkAwareContextFork, userText), // fork-hook: upstream-fixes/conversation-fork-context-text
-            },
+            message: { ...turnInput.message, text },
             ...(text === userText ? {} : { inlineContextLength: text.length - userText.length }),
+            ...conversationForkTurnInputFork(
+              turnInput.message,
+              goalCommand ? userText : withInlineContext(forkAwareContextFork, userText),
+              userText,
+            ), // fork-hook: upstream-fixes/conversation-fork-context-text
           }).pipe(
             // Clear pending handoff markers for refused prompts so the next turn retains the native session.
             Effect.tapError((error) =>

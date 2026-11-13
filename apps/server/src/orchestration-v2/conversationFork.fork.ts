@@ -3,6 +3,7 @@ import type {
   OrchestrationV2ThreadProjection,
   RunId,
 } from "@t3tools/contracts";
+import type { ProviderAdapterV2TurnInput } from "@t3tools/provider-core/server/ProviderAdapter";
 
 /** A fork copies conversation and checkout settings, not the source's live controls. */
 export function freshConversationForkMetadataFork() {
@@ -98,6 +99,18 @@ export function appendConversationForkContextFork(
 ) {
   // Native compact adapters need the original command unchanged.
   return [context, compact ? "" : notice].filter((part) => part !== "").join("\n\n");
+}
+
+export function conversationForkTurnInputFork(
+  message: ProviderAdapterV2TurnInput["message"],
+  text: string,
+  userText: string,
+) {
+  if (text === userText) return {};
+  return {
+    message: { ...message, text },
+    inlineContextLength: text.length - userText.length,
+  };
 }
 
 /**

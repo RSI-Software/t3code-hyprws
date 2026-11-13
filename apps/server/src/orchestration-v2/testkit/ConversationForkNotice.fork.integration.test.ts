@@ -40,6 +40,7 @@ const NOTICE = "[T3 Code conversation fork:";
 interface SentTurn {
   readonly threadId: ThreadId;
   readonly text: string;
+  readonly inlineContextLength: number | undefined;
   readonly nativeThreadId: string | null;
 }
 
@@ -97,6 +98,7 @@ function makeAdapter(sent: Ref.Ref<ReadonlyArray<SentTurn>>, failResume: Ref.Ref
               {
                 threadId: turnInput.threadId,
                 text: turnInput.message.text,
+                inlineContextLength: turnInput.inlineContextLength,
                 nativeThreadId: turnInput.providerThread.nativeThreadRef?.nativeId ?? null,
               },
             ]);
@@ -358,6 +360,11 @@ describe("conversation fork notice", () => {
         yield* send(forkId, "Later");
         const [first, replacement, later] = yield* sentTo(forkId);
         assert.include(first!.text, NOTICE);
+        assert.equal(first!.text.slice(first!.inlineContextLength), "First");
+        assert.equal(
+          replacement!.text.slice(replacement!.inlineContextLength),
+          "On the replacement",
+        );
         assert.notEqual(replacement!.nativeThreadId, first!.nativeThreadId);
         assert.include(replacement!.text, NOTICE);
         assert.equal(later!.nativeThreadId, replacement!.nativeThreadId);
