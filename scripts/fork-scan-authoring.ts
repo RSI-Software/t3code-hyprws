@@ -336,6 +336,42 @@ const declaredSupersededLines = (input: AuthoringGuardInput, path: string): Read
       lines.add(line);
     }
   }
+  const namedImports = (text: string) =>
+    [...text.matchAll(/^import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+["']([^"']+)["'];/gm)].flatMap(
+      ([statement, names, source]) =>
+        names!.split(",").flatMap((name) => {
+          const specifier = name.trim();
+          const binding = specifier
+            .replace(/^type\s+/, "")
+            .split(/\s+as\s+/)
+            .at(-1);
+          return binding ? [{ statement, source, specifier, binding }] : [];
+        }),
+    );
+  const siblingImports = namedImports(siblingText);
+  const upstreamImports = namedImports(upstreamText);
+  for (const imported of upstreamImports) {
+    if (
+      !siblingImports.some(
+        (candidate) =>
+          candidate.source === imported.source && candidate.specifier === imported.specifier,
+      ) ||
+      ![...lines].some((line) => new RegExp(`\\b${imported.binding}\\b`).test(line))
+    )
+      continue;
+    const memberLine = `${imported.specifier},`;
+    if (significantLines(imported.statement).includes(memberLine)) lines.add(memberLine);
+    if (
+      !imported.statement.includes("\n") &&
+      siblingLines.has(imported.statement) &&
+      upstreamImports
+        .filter((candidate) => candidate.statement === imported.statement)
+        .every((candidate) =>
+          [...lines].some((line) => new RegExp(`\\b${candidate.binding}\\b`).test(line)),
+        )
+    )
+      lines.add(imported.statement);
+  }
   return lines;
 };
 
