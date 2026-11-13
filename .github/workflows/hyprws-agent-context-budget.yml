@@ -5,7 +5,7 @@ name: hyprws Agent Context Budget
 # a stack layer is judged against the layer below it. Fails when a PR raises a
 # value in agentContextBudget.json; the agent-context-increase label accepts it.
 # The pin names the upstream commit this copy last matched; fork:scan flags a sync past it.
-# fork-mirror: .github/workflows/agent-context-budget.yml@ae521d1d796c4e21abb49e44d27c23332d1898b9
+# fork-mirror: .github/workflows/agent-context-budget.yml@59e64eef881632a23f89c4138bcf37f23d92bf93
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -28,7 +28,7 @@ jobs:
       ALLOW_INCREASE: ${{ contains(github.event.pull_request.labels.*.name, 'agent-context-increase') }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: apps/server/src/provider/agentContextBudget.json
           sparse-checkout-cone-mode: false
