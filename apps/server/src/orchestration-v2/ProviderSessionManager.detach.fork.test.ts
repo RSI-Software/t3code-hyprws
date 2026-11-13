@@ -77,6 +77,7 @@ const makeLayer = (shared: boolean) => {
             lastError: null,
           },
           events: Stream.fromQueue(events),
+          backgroundTasksEndWithProcess: true,
           ensureThread: () => Effect.die("unused"),
           resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
           startTurn: () => Effect.die("unused"),
@@ -467,7 +468,7 @@ it.effect.each(["manual_shutdown", "runtime_error"] as const)(
       );
       assert.equal(
         afterRelease.turnItems.find((item) => item.id === pendingTool)?.status,
-        reason === "runtime_error" ? "failed" : "interrupted",
+        "interrupted",
       );
       const received = yield* Effect.exit(subscription.events.pipe(Stream.runHead));
       if (reason === "runtime_error") {
