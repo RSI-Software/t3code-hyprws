@@ -57,6 +57,10 @@ describe("ssh tunnel scripts (fork)", () => {
             result.stderr,
             "https://github.com/RSI-Software/t3code-hyprws/releases/download",
           );
+          assert.include(
+            result.stderr,
+            "https://raw.githubusercontent.com/RSI-Software/t3code-hyprws/hyprws/scripts/install.sh",
+          );
         } else {
           assert.notInclude(result.stderr, "download attempt");
           assert.include(result.stderr, "has no t3 release archive.");
