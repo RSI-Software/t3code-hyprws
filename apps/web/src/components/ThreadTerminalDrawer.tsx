@@ -1,6 +1,7 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { contextMenuSourceOf } from "../contextMenuSource";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
+import { resolveShortcutCommand } from "../keybindings"; // fork-hook: upstream-fixes/terminal-composer-shortcut-import
 import { writeToRunningTerminalFork } from "../terminal/terminalInput.fork"; // fork-hook: zmux-estate/failed-terminal-input
 import { copyOsc52ClipboardFork } from "../terminal/osc52Clipboard.fork"; // fork-hook: zmux-estate/osc52-clipboard-import
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
@@ -32,11 +33,9 @@ import {
   AuthOrchestrationOperateScope,
   AuthTerminalOperateScope,
   type ContextMenuItem,
-  type KeybindingCommand,
   type ProviderInstanceId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
-  THREAD_JUMP_KEYBINDING_COMMANDS,
   type ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabelsCopy";
@@ -86,8 +85,6 @@ import {
   isTerminalSplitVerticalShortcut,
   isTerminalToggleShortcut,
   isThreadNavigationShortcut,
-  resolveShortcutCommand,
-  type ShortcutEventLike,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
 } from "../keybindings";
@@ -134,19 +131,6 @@ import {
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
-const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
-  "terminal.toggle",
-  "terminal.new",
-  "terminal.split",
-  "terminal.splitVertical",
-  "terminal.close",
-  "diff.toggle",
-  "chat.focusComposer", // fork-hook: upstream-fixes/thread-terminal-focus-command-set
-  "thread.previous",
-  "thread.next",
-  ...THREAD_JUMP_KEYBINDING_COMMANDS,
-]);
-
 export function isTerminalAttachmentDemanded(
   surfaceVisible: boolean,
   windowDemanded: boolean,
@@ -191,18 +175,6 @@ function useWindowDemand(): boolean {
     windowDemandSnapshot,
     serverWindowDemandSnapshot,
   );
-}
-
-export function shouldForwardThreadTerminalShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  platform?: string,
-): boolean {
-  const command = resolveShortcutCommand(event, keybindings, {
-    ...(platform === undefined ? {} : { platform }),
-    context: { terminalFocus: true, terminalOpen: true },
-  });
-  return command !== null && THREAD_TERMINAL_WINDOW_COMMANDS.has(command);
 }
 
 interface DrawerLayout {
@@ -1194,6 +1166,8 @@ function TerminalSessionViewport({
       function handleBeforeKey(event: KeyboardEvent): boolean {
         const currentKeybindings = readKeybindings();
         const options = { context: { terminalFocus: true, terminalOpen: true } };
+        if (resolveShortcutCommand(event, currentKeybindings, options) === "chat.focusComposer")
+          return false; // fork-hook: upstream-fixes/thread-terminal-focus-command-set
         if (preventTerminalCloseShortcut(event, currentKeybindings)) {
           return false;
         }
