@@ -43,54 +43,6 @@ export const detachedTurnEventsFork = (
     ];
   });
 
-/** A closed native session cannot finish the tool calls it left open. */
-type ReleasedToolEvent =
-  | Omit<Extract<OrchestrationV2DomainEvent, { type: "turn-item.updated" }>, "id">
-  | Omit<Extract<OrchestrationV2DomainEvent, { type: "node.updated" }>, "id">;
-export const releasedToolEventsFork = (
-  threadId: ThreadId,
-  projection: Pick<OrchestrationV2ThreadProjection, "providerThreads" | "turnItems" | "nodes">,
-  sessionId: ProviderSessionId,
-  releasedAt: DateTime.Utc,
-  status: "failed" | "interrupted",
-): ReadonlyArray<ReleasedToolEvent> => {
-  const ownedThreads = new Set(
-    projection.providerThreads.filter((p) => p.providerSessionId === sessionId).map((p) => p.id),
-  );
-  return projection.turnItems.flatMap((item): Array<ReleasedToolEvent> => {
-    if (
-      item.type !== "dynamic_tool" ||
-      item.providerThreadId === null ||
-      !ownedThreads.has(item.providerThreadId) ||
-      !["pending", "running", "waiting"].includes(item.status) ||
-      DateTime.isGreaterThan(item.updatedAt, releasedAt)
-    )
-      return [];
-    const base = { threadId, occurredAt: releasedAt };
-    const node = projection.nodes.find((n) => n.id === item.nodeId);
-    return [
-      {
-        ...base,
-        type: "turn-item.updated",
-        ...(item.runId === null ? {} : { runId: item.runId }),
-        ...(item.nodeId === null ? {} : { nodeId: item.nodeId }),
-        payload: { ...item, status, completedAt: releasedAt, updatedAt: releasedAt },
-      },
-      ...(node === undefined || !["pending", "running", "waiting"].includes(node.status)
-        ? []
-        : [
-            {
-              ...base,
-              type: "node.updated" as const,
-              nodeId: node.id,
-              ...(node.runId === null ? {} : { runId: node.runId }),
-              payload: { ...node, status, completedAt: releasedAt },
-            },
-          ]),
-    ];
-  });
-};
-
 /** Runs that already ended own the stranded requests a Stop or interrupt retires. */
 export const finishedRunIdsFork = (
   runs: ReadonlyArray<Pick<OrchestrationV2ThreadProjection["runs"][number], "id" | "status">>,

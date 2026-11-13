@@ -62,7 +62,7 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import { detachedTurnEventsFork, releasedToolEventsFork } from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/session-detach-import
+import { detachedTurnEventsFork } from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/session-detach-import
 import {
   providerSessionProjectId,
   withThreadProjects,
@@ -803,25 +803,9 @@ export const layerWithOptions = (
         for (const threadId of releasedThreadIds(input)) {
           const projection = yield* projectionStore.getThreadRecords(
             threadId,
-            ["runtimeRequests", "nodes", "turnItems", "providerThreads"], // fork-hook: upstream-fixes/released-tool-owners
-            {
-              runtimeRequestStatuses: ["pending"],
-              turnItemTypes: ["approval_request", "user_input_request", "dynamic_tool"],
-            }, // fork-hook: upstream-fixes/released-tool-items
+            ["runtimeRequests"],
+            { runtimeRequestStatuses: ["pending"] },
           );
-          // fork-hook: upstream-fixes/released-native-tool-cleanup
-          for (const event of releasedToolEventsFork(
-            threadId,
-            projection,
-            providerSessionId,
-            input.releasedAt,
-            input.reason === "runtime_error" ? "failed" : "interrupted",
-          )) {
-            events.push({
-              ...event,
-              id: yield* idAllocator.allocate.event({ threadId, providerSessionId }),
-            });
-          }
           const releasedRequests = projection.runtimeRequests.filter(
             (request) =>
               request.status === "pending" &&
@@ -3521,6 +3505,21 @@ export const layerWithOptions = (
             // fork-hook: upstream-fixes/detached-thread-request-cleanup
             // The runtime teardown below must not hinge on this persistence: a
             // failed write logs and schedules a request-only retry instead.
+            yield* Effect.forEach(
+              detachedProviderThreads,
+              (thread) =>
+                writeReleasedToolCallEvents(
+                  {
+                    threadId: input.threadId,
+                    providerSessionId: input.providerSessionId,
+                    providerThreadId: thread.id,
+                    driver: thread.driver,
+                    taskIds: new Set<string>(),
+                  },
+                  detachedAt,
+                ),
+              { discard: true },
+            ).pipe(logReleaseFailure(input.providerSessionId)); // fork-hook: upstream-fixes/detached-tool-cleanup
             const requestCleanup = {
               entry: { ...detached.value, attachedThreadIds: new Set([input.threadId]) },
               reason: "manual_shutdown" as const,
