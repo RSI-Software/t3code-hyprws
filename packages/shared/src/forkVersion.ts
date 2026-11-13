@@ -32,6 +32,9 @@ export function isForkServiceVersion(version: string): boolean {
  */
 export const FORK_RELEASE_REPOSITORY = "RSI-Software/t3code-hyprws";
 
+/** The `curl | sh` installer for fork releases; `t3.codes/install.sh` installs only upstream ones. */
+export const FORK_INSTALL_SCRIPT_URL = `https://raw.githubusercontent.com/${FORK_RELEASE_REPOSITORY}/hyprws/scripts/install.sh`;
+
 /** The nightly tag the fork release workflow writes: `hyprws-nightly.<date>.<run>`. */
 const FORK_NIGHTLY_VERSION = /^[^-+]+-hyprws-nightly\.\d{8}\.\d+$/;
 
