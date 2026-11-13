@@ -719,9 +719,6 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   }
 
   const worktreePath = yield* resolveGitWorktreePath(yield* HostProcess.WorkingDirectory);
-  // Like T3CODE_HOME below, an ambient T3CODE_PORT belongs to the live install;
-  // a worktree derives its own port. `--port` still wins.
-  const port = input.port ?? (worktreePath ? undefined : yield* optionalPortConfig("T3CODE_PORT"));
 
   const { offset, source } = yield* resolveOffset({
     portOffset,
@@ -732,7 +729,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   const { serverOffset, webOffset } = yield* resolveModePortOffsets({
     mode: input.mode,
     startOffset: offset,
-    hasExplicitServerPort: port !== undefined,
+    hasExplicitServerPort: input.port !== undefined,
     hasExplicitDevUrl: input.devUrl !== undefined,
     checkPortAvailability: makeDefaultCheckPortAvailability(input.host),
   });
@@ -759,7 +756,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     autoBootstrapProjectFromCwd: input.autoBootstrapProjectFromCwd,
     logWebSocketEvents: input.logWebSocketEvents,
     host: input.host,
-    port,
+    port: input.port,
     devUrl: input.devUrl,
   });
 
