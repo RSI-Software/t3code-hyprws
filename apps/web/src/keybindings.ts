@@ -357,20 +357,12 @@ export function modelPickerJumpIndexFromCommand(command: string): number | null 
   return index === -1 ? null : index;
 }
 
-export function isTerminalFocusShortcut(
+export function isTerminalToggleShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
 ): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.focus", options);
-}
-
-export function isChatFocusComposerShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "chat.focusComposer", options);
+  return matchesCommandShortcut(event, keybindings, "terminal.toggle", options);
 }
 
 export function isTerminalSplitShortcut(
@@ -379,6 +371,14 @@ export function isTerminalSplitShortcut(
   options?: ShortcutMatchOptions,
 ): boolean {
   return matchesCommandShortcut(event, keybindings, "terminal.split", options);
+}
+
+export function isTerminalSplitVerticalShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "terminal.splitVertical", options);
 }
 
 export function isTerminalNewShortcut(
