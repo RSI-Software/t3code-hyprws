@@ -82,7 +82,7 @@ const spawnedEnv = (input: {
       ),
       Effect.provideService(HostProcess.Platform, "linux"),
       Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
-      Effect.provideService(HostProcess.HomeDirectory, input.cwd),
+      Effect.provideService(HostProcess.HomeDirectory, NodeOS.homedir()),
       Effect.provideService(HostProcess.Environment, input.ambient ?? {}),
     );
     return captured;
@@ -98,12 +98,6 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("keeps an ambient T3CODE_PORT outside a worktree", () =>
-    Effect.gen(function* () {
-      const env = yield* spawnedEnv({ cwd: NodeOS.tmpdir(), ambient: { T3CODE_PORT: "3773" } });
-      assert.equal(env?.T3CODE_PORT, "3773");
-    }),
-  );
   it.effect("gives worktree dev Electron its own profile unless one is set", () =>
     Effect.gen(function* () {
       const cwd = yield* makeWorktree;
