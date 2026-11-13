@@ -1,9 +1,11 @@
 import { enableCliCompileCache } from "./cliCompileCache.ts";
+import { takeServiceLauncherContextFork } from "./cloud/serviceLauncherContext.fork.ts"; // fork-hook: upstream-fixes/launcher-context-env
 
 // Packaged builds load this graph with require(esm): top-level await anywhere in it breaks them.
 // ACP agents spawn `acp-mcp-bridge` per session and `acp-mcp-call` per tool call, so those fast
 // paths dispatch before the full CLI module graph (seconds of evaluation) loads.
 export async function runCliCommand() {
+  takeServiceLauncherContextFork(); // fork-hook: upstream-fixes/launcher-context-env
   const command = process.argv[2];
   // Install the socket guards before importing code that can open outbound connections.
   // Fast paths such as the Cursor SDK worker never reach runCli, so they need these here too.
