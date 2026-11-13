@@ -3381,6 +3381,7 @@ export const layerWithOptions = (
                 providerSessionId: input.providerSessionId,
                 reason: "manual_shutdown",
                 ...(input.detail === undefined ? {} : { detail: input.detail }),
+                detachedThreadId: input.threadId, // fork-hook: upstream-fixes/detach-last-thread-id
               });
               return;
             }
