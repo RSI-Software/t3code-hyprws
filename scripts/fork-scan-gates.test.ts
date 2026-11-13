@@ -423,52 +423,58 @@ it("passes a declared-superseded deletion of a wrapped case", () => {
   );
 });
 
-it("only permits namespace imports moved verbatim with a declared superseded case", () => {
-  const imported = 'import * as Fixture from "node:fs";';
-  const unused = 'import * as Unrelated from "node:os";';
-  const upstream = [
-    imported,
-    unused,
-    'it("original", () => {',
-    '  expect(Fixture.existsSync("upstream")).toBe(true);',
-    "});",
-  ].join("\n");
-  const declaration =
-    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > original", reason: "fork path", commit: "abc1234" });';
-  const replacement =
-    'it("replacement", () => { expect(Fixture.existsSync("fork")).toBe(true); });';
-  for (const [removed, sibling, passes] of [
-    [imported, [imported, declaration, replacement].join("\n"), true],
-    [imported, [declaration, replacement].join("\n"), false],
-    [unused, [unused, declaration, replacement].join("\n"), false],
-    [imported, [imported, replacement].join("\n"), false],
-  ] as const) {
-    const patch = [
-      "abc1234",
-      "--- a/apps/web/src/thing.test.ts",
-      "+++ b/apps/web/src/thing.test.ts",
-      "@@ -1 +0,0 @@",
-      `-${removed}`,
-      "",
+it("only permits imports moved verbatim with a declared superseded case", () => {
+  for (const imported of [
+    'import * as Fixture from "node:fs";',
+    'import { existsSync as Fixture } from "node:fs";',
+    'import {\n  type Fixture,\n} from "node:fs";',
+  ]) {
+    const unused = 'import * as Unrelated from "node:os";';
+    const upstream = [
+      imported,
+      unused,
+      'it("original", () => {',
+      '  expect(Fixture.existsSync("upstream")).toBe(true);',
+      "});",
     ].join("\n");
-    const result = buildScanResult(
-      baseInput({
-        commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
-        filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
-        patchesBySha: parseCommitPatches(patch),
-        upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
-        upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
-        upstreamTestLines: new Map([
-          ["apps/web/src/thing.test.ts", significantTestLines(upstream)],
-        ]),
-        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstream]]),
-        siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", sibling]]),
-      }),
-    );
-    assert.equal(
-      scanFailures(result).some((failure) => failure.startsWith("upstream-test:")),
-      !passes,
-    );
+    const declaration =
+      'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > original", reason: "fork path", commit: "abc1234" });';
+    const replacement =
+      'it("replacement", () => { expect(Fixture.existsSync("fork")).toBe(true); });';
+    const moved = imported.includes("\n") ? "  type Fixture," : imported;
+    for (const [removed, sibling, passes] of [
+      [moved, [imported, declaration, replacement].join("\n"), true],
+      [moved, [declaration, replacement].join("\n"), false],
+      [unused, [unused, declaration, replacement].join("\n"), false],
+      [moved, [imported, replacement].join("\n"), false],
+    ] as const) {
+      const patch = [
+        "abc1234",
+        "--- a/apps/web/src/thing.test.ts",
+        "+++ b/apps/web/src/thing.test.ts",
+        "@@ -1 +0,0 @@",
+        ...removed.split("\n").map((line) => `-${line}`),
+        "",
+      ].join("\n");
+      const result = buildScanResult(
+        baseInput({
+          commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+          filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+          patchesBySha: parseCommitPatches(patch),
+          upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+          upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+          upstreamTestLines: new Map([
+            ["apps/web/src/thing.test.ts", significantTestLines(upstream)],
+          ]),
+          upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstream]]),
+          siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", sibling]]),
+        }),
+      );
+      assert.equal(
+        scanFailures(result).some((failure) => failure.startsWith("upstream-test:")),
+        !passes,
+      );
+    }
   }
 });
 
