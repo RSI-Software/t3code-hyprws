@@ -9,6 +9,7 @@ import {
   type ModelSelection,
   NodeId,
   type OrchestrationV2Command,
+  type OrchestrationV2DomainEvent,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
@@ -25,6 +26,7 @@ import {
   TurnItemId,
   ProviderDriverKind,
 } from "@t3tools/contracts";
+import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
