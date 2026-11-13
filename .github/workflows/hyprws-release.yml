@@ -13,7 +13,7 @@ name: hyprws Release
 # setup, and action versions. The pin names the upstream commit it last matched;
 # fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
 # Its release test jobs stay out: the gate requires a green hyprws CI instead.
-# fork-mirror: .github/workflows/release.yml@4099e62767f725937aea6ab2f43ba44b8e4b651e
+# fork-mirror: .github/workflows/release.yml@59e64eef881632a23f89c4138bcf37f23d92bf93
 
 on:
   workflow_run:
@@ -158,7 +158,7 @@ jobs:
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'hyprws' }}
           fetch-depth: 0
@@ -184,7 +184,7 @@ jobs:
       # Only a push run counts: a pull_request run may skip unaffected jobs.
       - id: release_gate
         name: Gate the cut on the lease push and a green hyprws CI
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
           RELEASE_CHANNEL: ${{ steps.release_channel.outputs.channel }}
@@ -248,7 +248,7 @@ jobs:
             await core.summary.addHeading('Release gate: open').addRaw(reason).write();
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -327,7 +327,7 @@ jobs:
       T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.preflight.outputs.ref }}
           sparse-checkout: |
@@ -336,7 +336,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -347,8 +347,9 @@ jobs:
               - --filter=@t3tools/scripts...
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: stable
           targets: x86_64-unknown-linux-gnu
 
       - name: Align package versions to release version
@@ -429,7 +430,7 @@ jobs:
           echo "expected_assets=$(jq -cn --args '$ARGS.positional' "${assets[@]}")" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-linux-x64
           path: release-publish/*
@@ -447,7 +448,7 @@ jobs:
       contents: write
     steps:
       - name: Download desktop artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: desktop-*
           merge-multiple: true
@@ -470,7 +471,7 @@ jobs:
           cat SHA256SUMS
 
       - name: Publish release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
           target_commitish: ${{ needs.preflight.outputs.ref }}
