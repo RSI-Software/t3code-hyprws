@@ -5,7 +5,7 @@ name: hyprws Agent Context Budget
 # a stack layer is judged against the layer below it. Fails when a PR raises a
 # value in agentContextBudget.json; the agent-context-increase label accepts it.
 # The pin names the upstream commit this copy last matched; fork:scan flags a sync past it.
-# fork-mirror: .github/workflows/agent-context-budget.yml@59e64eef881632a23f89c4138bcf37f23d92bf93
+# fork-mirror: .github/workflows/agent-context-budget.yml@7e1a05808aaf5df39fe9d20cc5c3603f3978696a
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -13,9 +13,7 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: hyprws-agent-context-budget-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+# No concurrency group: label events arrive in bursts, and a cancelled run reports as a failed check.
 
 jobs:
   budget:
