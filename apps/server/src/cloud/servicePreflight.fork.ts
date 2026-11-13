@@ -1,6 +1,4 @@
-import { FORK_RELEASE_REPOSITORY, isForkServiceVersion } from "@t3tools/shared/forkVersion";
-
-const FORK_INSTALL_SCRIPT_URL = `https://raw.githubusercontent.com/${FORK_RELEASE_REPOSITORY}/hyprws/scripts/install.sh`;
+import { FORK_INSTALL_SCRIPT_URL, isForkServiceVersion } from "@t3tools/shared/forkVersion";
 
 /** Upstream's recovery names `t3.codes/install.sh`, which installs only upstream releases. */
 export function forkLauncherProtocolReason(
