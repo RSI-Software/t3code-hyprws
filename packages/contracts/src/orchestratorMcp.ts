@@ -593,8 +593,7 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
   /** With untilDelegatedWorkSettled, once settled: the run whose reply is the thread's result. */
   resultRun: Schema.optional(Schema.Struct({ runId: RunId, status: OrchestrationV2RunStatus })),
-  /** Pending runtime requests on the thread; the wait also returns while this is positive. */
-  pendingRequestCount: NonNegativeInt,
+  pendingRequestCount: Schema.optional(NonNegativeInt), // fork-hook: upstream-fixes/thread-wait-pending-request-count
   work: Schema.optional(McpThreadWorkFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
