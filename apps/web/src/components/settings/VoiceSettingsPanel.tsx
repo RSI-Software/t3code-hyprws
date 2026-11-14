@@ -137,7 +137,7 @@ import { searchableSetting } from "./settingsSearch";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
-import { VoiceSettingsFork } from "./VoiceSettings.fork"; // fork-hook: voice-input/settings-sections-import
+import * as VoiceSettingsFork from "./VoiceSettings.fork"; // fork-hook: voice-input/settings-sections-import
 
 const OFF = "off";
 function CloudSpeechLogo({ provider }: { provider: CloudSpeechProvider }) {
@@ -1250,6 +1250,12 @@ export function VoiceSettingsPanel() {
       })),
     }));
   const cloudChoices = cloudGroups.flatMap((group) => group.choices);
+  const customFork = VoiceSettingsFork.useCustomTranscriptionFork({
+    destination,
+    environments,
+    status: modelStatus,
+    run: catalog.run,
+  }); // fork-hook: voice-input/custom-destination
   const destinationValue = destination.cloudProvider
     ? JSON.stringify(["cloud", destination.environmentId, destination.cloudProvider])
     : destination.environmentId
@@ -1365,8 +1371,10 @@ export function VoiceSettingsPanel() {
             <div className="flex w-full min-w-0 items-center gap-1.5 @min-[32rem]/settings-row:w-auto">
               <Select
                 value={destinationValue}
+                {...customFork.selectProps} // fork-hook: voice-input/custom-destination-value
                 onValueChange={(value) => {
                   if (!value) return;
+                  if (customFork.select(value)) return; // fork-hook: voice-input/custom-destination-select
                   const cloud = cloudChoices.find((choice) => choice.value === value);
                   if (cloud) {
                     setPendingCloud({
@@ -1391,6 +1399,7 @@ export function VoiceSettingsPanel() {
                   className="min-w-0 @min-[32rem]/settings-row:w-auto @min-[32rem]/settings-row:max-w-72"
                 >
                   <SelectValue>
+                    {customFork.label /* fork-hook: voice-input/custom-destination-label */}
                     <span className="flex min-w-0 items-center gap-2">
                       {destination.cloudProvider ? (
                         <CloudSpeechLogo provider={destination.cloudProvider} />
@@ -1452,6 +1461,7 @@ export function VoiceSettingsPanel() {
                       ))}
                     </SelectGroup>
                   ))}
+                  {customFork.items /* fork-hook: voice-input/custom-destination-items */}
                   {destination.environmentId &&
                   (!chosenEnvironment ||
                     (destination.cloudProvider &&
@@ -1462,6 +1472,7 @@ export function VoiceSettingsPanel() {
                   ) : null}
                 </SelectPopup>
               </Select>
+              {customFork.controls /* fork-hook: voice-input/custom-destination-controls */}
               {destination.cloudProvider &&
                 chosenEnvironment &&
                 (canManageKey || destination.cloudProvider === "openrouter") && (
@@ -1574,6 +1585,7 @@ export function VoiceSettingsPanel() {
             key={prepared.environmentId}
             prepared={prepared}
             catalog={catalog}
+            {...VoiceSettingsFork.speechModelBrowserPropsFork(catalog)} // fork-hook: voice-input/custom-model-listing
             testEnvironmentId={
               project?.environmentId ?? target?.environmentId ?? prepared.environmentId
             }
@@ -1694,7 +1706,7 @@ export function VoiceSettingsPanel() {
         ) : null}
       </SettingsSection>
       {/* fork-hook: voice-input/settings-sections */}
-      <VoiceSettingsFork prepared={prepared} run={catalog.run} />
+      <VoiceSettingsFork.VoiceSettingsFork />
       {/* fork-hook-end */}
     </SettingsPageContainer>
   );
