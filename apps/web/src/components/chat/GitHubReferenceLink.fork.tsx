@@ -8,7 +8,6 @@ import { issueEnvironment } from "~/state/issues";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
-import { ContextChip, ContextChipLabel } from "../ContextChip";
 import {
   ISSUE_NOT_PLANNED_PRESENTATION,
   ISSUE_STATE_PRESENTATION,
@@ -18,6 +17,7 @@ import { PullRequestActorAvatar } from "../pullRequest/pullRequestPresentation";
 import { InlineButton } from "../ui/button";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import type { GitHubLinkDestination, GitHubLinkTarget } from "./GitHubDestinationLink.fork";
+import { referenceAnchorProps, referenceTrigger } from "./referenceTrigger.fork";
 
 function statePresentation(summary: GitHubReferenceSummary) {
   if (summary.kind === "pull-request") {
@@ -29,10 +29,6 @@ function statePresentation(summary: GitHubReferenceSummary) {
   return summary.state === "closed"
     ? ISSUE_STATE_PRESENTATION.closed
     : ISSUE_NOT_PLANNED_PRESENTATION;
-}
-
-function hasModifier(event: MouseEvent<HTMLElement>): boolean {
-  return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
 }
 
 export interface GitHubReferenceLinkProps extends Omit<
@@ -121,48 +117,22 @@ export function GitHubReferenceLink({
       onOpen(destination, event, panelHref(result._tag === "Success" ? result.value : null));
     });
   };
-  const anchorProps = {
-    ...props,
-    href,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-      if (event.defaultPrevented || hasModifier(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      open_(preferredDestination, event);
-    },
-  } satisfies ComponentPropsWithoutRef<"a">;
-
   const Icon = state?.Icon ?? (numbered ? GithubIcon : FolderGit2Icon);
-  const trigger =
-    writtenText === null ? (
-      <a {...anchorProps} className={className} data-github-reference="link">
-        {children}
-      </a>
-    ) : referenceStyle === "chip" ? (
-      <ContextChip
-        kind="pull-request"
-        render={<a {...anchorProps} />}
-        className="no-underline"
-        data-github-reference="chip"
-        aria-label={summary ? `${shortReference}, ${summary.title}` : shortReference}
-      >
-        <Icon aria-hidden className={state?.toneClassName} />
-        <ContextChipLabel className="max-w-[28rem]">
-          {summary?.title ?? written ?? shortReference}
-        </ContextChipLabel>
-        {summary || written ? (
-          <span className="shrink-0 text-xs font-normal text-muted-foreground">
-            {shortReference}
-          </span>
-        ) : null}
-      </ContextChip>
-    ) : (
-      <a {...anchorProps} className={className} data-github-reference="link">
-        {written ?? shortReference}
-      </a>
-    );
+  const trigger = referenceTrigger({
+    tracker: "github",
+    anchor: referenceAnchorProps(props, href, (event) => open_(preferredDestination, event)),
+    className,
+    children,
+    writtenText,
+    referenceStyle,
+    linkLabel: written ?? shortReference,
+    chip: {
+      icon: <Icon aria-hidden className={state?.toneClassName} />,
+      label: summary?.title ?? written ?? shortReference,
+      detail: summary || written ? shortReference : null,
+      ariaLabel: summary ? `${shortReference}, ${summary.title}` : shortReference,
+    },
+  });
 
   return (
     <PreviewCard open={open} onOpenChange={setOpen}>

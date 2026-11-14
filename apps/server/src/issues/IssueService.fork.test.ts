@@ -134,42 +134,49 @@ describe("IssueService summaries", () => {
 });
 
 describe("IssueService isPullRequest", () => {
-  it.effect("is true only for a confirmed pull request, false when GitHub cannot answer", () =>
-    Effect.gen(function* () {
-      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
-        call.variables?.["number"] === 3
-          ? Effect.fail(
-              new GitHubRequestPolicy.GitHubApiResponseError({
-                host: "ghe.acme.test",
-                operation: "isPullRequest",
-                status: 502,
-              }),
-            )
-          : Effect.succeed(
-              JSON.stringify({
-                data: {
-                  repository: {
-                    issueOrPullRequest: {
-                      __typename: call.variables?.["number"] === 1 ? "PullRequest" : "Issue",
+  it.effect(
+    "is true only for a confirmed pull request, false when GitHub cannot answer or on Linear",
+    () =>
+      Effect.gen(function* () {
+        const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(
+          (call) =>
+            call.variables?.["number"] === 3
+              ? Effect.fail(
+                  new GitHubRequestPolicy.GitHubApiResponseError({
+                    host: "ghe.acme.test",
+                    operation: "isPullRequest",
+                    status: 502,
+                  }),
+                )
+              : Effect.succeed(
+                  JSON.stringify({
+                    data: {
+                      repository: {
+                        issueOrPullRequest: {
+                          __typename: call.variables?.["number"] === 1 ? "PullRequest" : "Issue",
+                        },
+                      },
                     },
-                  },
-                },
-              }),
-            ),
-      );
-      const service = yield* makeService([], graphql);
-      const kinds = yield* Effect.forEach([1, 2, 3], (number) =>
-        service.isPullRequest({ host: "ghe.acme.test", repository: "acme/web", number }),
-      );
+                  }),
+                ),
+        );
+        const service = yield* makeService([], graphql);
+        const kinds = yield* Effect.forEach([1, 2, 3], (number) =>
+          service.isPullRequest({ host: "ghe.acme.test", repository: "acme/web", number }),
+        );
 
-      assert.deepStrictEqual(kinds, [true, false, false]);
-      assert.strictEqual(graphql.mock.calls[0]?.[0].host, "ghe.acme.test");
-      assert.deepStrictEqual(graphql.mock.calls[0]?.[0].variables, {
-        owner: "acme",
-        name: "web",
-        number: 1,
-      });
-    }),
+        assert.deepStrictEqual(kinds, [true, false, false]);
+        assert.isFalse(
+          yield* service.isPullRequest({ host: "linear.app", repository: "acme/eng", number: 1 }),
+        );
+        assert.strictEqual(graphql.mock.calls.length, 3);
+        assert.strictEqual(graphql.mock.calls[0]?.[0].host, "ghe.acme.test");
+        assert.deepStrictEqual(graphql.mock.calls[0]?.[0].variables, {
+          owner: "acme",
+          name: "web",
+          number: 1,
+        });
+      }),
   );
 });
 
