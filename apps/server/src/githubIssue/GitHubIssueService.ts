@@ -47,13 +47,11 @@ const DETAIL_COMMENT_LIMIT = 100;
 const SEARCH_PAGE_MAX = 100;
 
 /**
- * The issue fields the panels read, selected from GitHub's GraphQL schema. Actor unions expose
- * `login` everywhere and a real name only on some members, so `name` and `avatarUrl` sit inside
- * member fragments: an absent key decodes as the null the wire contract allows, and a future
- * union member cannot fail the whole read.
+ * The issue fields the panels read, selected from GitHub's GraphQL schema. The `Actor` interface
+ * carries `login` and `avatarUrl` on every member, bots included; a real name exists only on some,
+ * so `name` sits inside member fragments, and an absent key decodes as the null the wire allows.
  */
-const ISSUE_ACTOR_SELECTION =
-  "login ... on User { name avatarUrl } ... on Organization { name avatarUrl }";
+const ISSUE_ACTOR_SELECTION = "login avatarUrl ... on User { name } ... on Organization { name }";
 const ISSUE_BASE_SELECTION = `number title url author { ${ISSUE_ACTOR_SELECTION} } assignees(first: 100) { nodes { login name avatarUrl } } labels(first: 100) { nodes { name color } } issueType { name color } state stateReason createdAt updatedAt reactionGroups { content users { totalCount } }`;
 // GitHub caps `subIssues` at `first: 100`; asking for more fails the whole query.
 const ISSUE_HIERARCHY_SELECTION =

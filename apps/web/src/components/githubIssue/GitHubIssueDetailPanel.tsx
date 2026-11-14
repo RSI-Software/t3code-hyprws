@@ -1,4 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import {
   githubIssueLinkTarget,
   type EnvironmentId,
@@ -9,7 +10,6 @@ import {
 } from "@t3tools/contracts";
 import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts/settings";
 import {
-  ChevronRightIcon,
   ExternalLinkIcon,
   LinkIcon,
   ShapesIcon,
@@ -17,7 +17,7 @@ import {
   UsersIcon,
   WrenchIcon,
 } from "lucide-react";
-import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 
 import {
   composerDraftHasUserContent,
@@ -29,21 +29,27 @@ import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { githubIssueEnvironment } from "../../state/githubIssues";
 import { useEnvironmentQuery } from "../../state/query";
-import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { RelativeTime } from "../RelativeTime";
+import { PullRequestDetailCrumbs } from "../pullRequest/PullRequestDetailCrumbs";
+import { CrumbsSubjectForkProvider } from "../pullRequest/PullRequestDetailCrumbs.fork";
+import { PullRequestDetailTitleRow } from "../pullRequest/PullRequestDetailLayout";
+import { openOnHostLabel } from "../pullRequest/pullRequestLinkContextMenu";
 import {
   PULL_REQUEST_ROW_CLASS,
   PULL_REQUEST_ROW_NUMBER_CLASS,
 } from "../pullRequest/PullRequestListRow";
 import { PullRequestMarkdown } from "../pullRequest/PullRequestMarkdown";
+import { MetaRow, Section } from "../pullRequest/PullRequestSummaryTab";
 import { PullRequestActorLabel, PullRequestMetaLine } from "../pullRequest/pullRequestPresentation";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { GitHubIssueActionsMenu } from "./GitHubIssueActionsMenu";
 import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
-import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
+import { GitHubIssueStateGlyph, githubIssueStatePresentation } from "./githubIssuePresentation";
 import { githubIssueHandoffs } from "./githubIssueHandoff";
 import {
   GitHubIssueLinkedThreadList,
@@ -79,11 +85,13 @@ export function seedGitHubIssueDraftIfEmpty(
 export function GitHubIssueDetailPanel({
   environmentId,
   composerTarget,
+  onBack,
   onSelectSubIssue,
   reference,
 }: {
   readonly environmentId: EnvironmentId;
   readonly composerTarget: ScopedThreadRef | null;
+  readonly onBack?: (() => void) | undefined;
   readonly onSelectSubIssue: (child: GitHubSubIssue) => void;
   readonly reference: GitHubIssueRef;
 }) {
@@ -104,10 +112,11 @@ export function GitHubIssueDetailPanel({
     issueKey,
   ]);
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col">
       <EnvironmentGitHubIssueDetailContent
         environmentId={environmentId}
         composerTarget={composerTarget}
+        onBack={onBack}
         detail={query.data}
         error={query.error}
         loading={query.isPending}
@@ -148,6 +157,7 @@ export function GitHubIssueDetailContent({
   handoffPromptTemplate = DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE,
   loading,
   refreshing = false,
+  onBack,
   onRefresh,
   onStateChanged,
   onRetry,
@@ -164,6 +174,8 @@ export function GitHubIssueDetailContent({
   readonly loading: boolean;
   /** True while the header refresh is running: the glyph holds the panel's place until it answers. */
   readonly refreshing?: boolean;
+  /** Returns to the issue list the detail was opened from, as the pull request crumbs do. */
+  readonly onBack?: (() => void) | undefined;
   /** Re-reads the issue on demand. Absent where the panel owns no read, like the empty state. */
   readonly onRefresh?: () => void;
   /** Called once the issue has closed or reopened, for a list beside the panel to re-read. */
@@ -176,6 +188,21 @@ export function GitHubIssueDetailContent({
   const [preparing, setPreparing] = useState(false);
   const threadLinks = useGitHubIssueThreadLinks(environmentId, detail);
   const [pickingThread, setPickingThread] = useState(false);
+  // The pull request header's fold: condensed per issue, so another issue opens unfolded.
+  const [condensedUrl, setCondensedUrl] = useState<string | null>(null);
+  const condensed = detail !== null && condensedUrl === detail.url;
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const foldRef = useRef<HTMLDivElement | null>(null);
+  const condensedRowRef = useRef<HTMLDivElement | null>(null);
+  // Saved before the fold collapses: the browser may clamp scrollTop as the viewport grows.
+  const compensationRef = useRef<number | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores the scroller's scrollTop before paint after the header condenses
+  useLayoutEffect(() => {
+    const target = compensationRef.current;
+    compensationRef.current = null;
+    if (target === null || !condensed || scrollerRef.current === null) return;
+    scrollerRef.current.scrollTop = Math.max(0, target);
+  }, [condensed]);
 
   const workOnIssue = async () => {
     if (!detail || !environmentId || preparing) return;
@@ -239,17 +266,56 @@ export function GitHubIssueDetailContent({
   // An environment on an older server omits the key rather than sending an empty list.
   const subIssues = detail.subIssues ?? [];
   const closedSubIssues = subIssues.filter((child) => child.state === "closed").length;
+  const authorProfileUrl = gitHubProfileUrl(detail.author?.login, detail.url);
+  const workLabel = preparing ? "Preparing..." : "Work on this issue";
+  const statePresentation = githubIssueStatePresentation(detail.state, detail.closeReason);
 
   return (
-    <article className="min-w-0">
-      <header className="min-w-0 px-4 pt-3 pb-4">
-        <div className="flex min-h-7 min-w-0 items-center gap-2">
-          <GitHubIssueStateGlyph state={detail.state} closeReason={detail.closeReason ?? null} />
-          <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{detail.number}</span>
-          <span className="min-w-0 truncate font-mono text-2xs text-muted-foreground/70">
-            {detail.repository}
-          </span>
-          <div className="ml-auto flex shrink-0 items-center gap-1">
+    <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
+      {/* The pull request detail header: crumbs and actions, then a fold that swaps for one
+          compact row once the reader scrolls the title away. */}
+      <div className="@container/pr-header grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 border-b border-border/60">
+        <CrumbsSubjectForkProvider value={ISSUE_SUBJECT}>
+          <PullRequestDetailCrumbs
+            detail={{ ...detail, provider: "github" }}
+            toneClassName={statePresentation.toneClassName}
+            condensed={condensed}
+            repositoryUrl={gitHubRepositoryUrl(detail.url)}
+            openOnHostText={openOnHostLabel(sourceControlClients.get("github"))}
+            onBack={onBack}
+          />
+        </CrumbsSubjectForkProvider>
+        <div className="mr-4 flex h-7 shrink-0 select-none items-center justify-end gap-1">
+          <TooltipProvider delay={150} closeDelay={150} timeout={400}>
+            {detail.state === "open" ? (
+              <span className="sr-only">{statePresentation.label}</span>
+            ) : (
+              <Badge size="control" variant="outline">
+                <span className={cn("flex items-center gap-1", statePresentation.toneClassName)}>
+                  <statePresentation.Icon aria-hidden className="size-3.5" />
+                  {statePresentation.label}
+                </span>
+              </Badge>
+            )}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex shrink-0">
+                    <Button
+                      size="xs"
+                      variant="default"
+                      disabled={preparing}
+                      onClick={() => void workOnIssue()}
+                      aria-label={workLabel}
+                    >
+                      <WrenchIcon aria-hidden className="size-3.5" />
+                      <span className="@max-[30rem]/pr-header:hidden">{workLabel}</span>
+                    </Button>
+                  </span>
+                }
+              />
+              <TooltipPopup side="top">{workLabel}</TooltipPopup>
+            </Tooltip>
             <GitHubIssueActionsMenu
               environmentId={environmentId}
               detail={detail}
@@ -261,183 +327,277 @@ export function GitHubIssueDetailContent({
               threadLinks={threadLinks}
               onPickThread={() => setPickingThread(true)}
             />
-            <Button size="xs" onClick={() => void workOnIssue()} disabled={preparing}>
-              <WrenchIcon className="size-3" />
-              {preparing ? "Preparing..." : "Work on this issue"}
-            </Button>
+          </TooltipProvider>
+        </div>
+
+        <div
+          className={cn(
+            "col-span-2 grid",
+            condensed
+              ? "grid-rows-[1fr]"
+              : "grid-rows-[0fr] transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
+          )}
+        >
+          <div
+            ref={condensedRowRef}
+            className={cn(
+              "min-h-0 overflow-hidden transition-[opacity,transform] duration-150 ease-out motion-reduce:transform-none motion-reduce:transition-none",
+              condensed
+                ? "translate-y-0 opacity-100 delay-50"
+                : "translate-y-1 opacity-0 duration-100",
+            )}
+            inert={!condensed}
+          >
+            <div className="min-w-0 px-4 pt-1 pb-2">
+              <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
+                <PullRequestActorLabel
+                  actor={detail.author}
+                  profileUrl={authorProfileUrl}
+                  variant="avatar"
+                  className="shrink-0"
+                />
+                <span className="shrink-0">
+                  <RelativeTime timestamp={detail.updatedAt} />
+                </span>
+              </span>
+            </div>
           </div>
         </div>
-        <h1 className="mt-1 text-balance font-semibold text-base leading-snug">{detail.title}</h1>
-        <div className="mt-2 flex min-h-5 min-w-0 items-center text-xs text-muted-foreground">
-          <PullRequestMetaLine className="min-w-0 whitespace-nowrap">
-            <PullRequestActorLabel
-              key="author"
-              actor={detail.author}
-              profileUrl={gitHubProfileUrl(detail.author?.login, detail.url)}
-            />
-            <span key="opened">opened {formatRelativeTimeLabel(detail.createdAt)}</span>
-            {detail.closedAt ? (
-              <span key="closed">closed {formatRelativeTimeLabel(detail.closedAt)}</span>
-            ) : (
-              <span key="updated">updated {formatRelativeTimeLabel(detail.updatedAt)}</span>
+
+        <div
+          className={cn(
+            "col-span-2 grid",
+            condensed
+              ? "grid-rows-[0fr]"
+              : "grid-rows-[1fr] transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
+          )}
+        >
+          <div
+            ref={foldRef}
+            className={cn(
+              "min-h-0 overflow-hidden transition-[opacity,transform] duration-150 ease-out motion-reduce:transform-none motion-reduce:transition-none",
+              condensed
+                ? "-translate-y-1 opacity-0 duration-100"
+                : "translate-y-0 opacity-100 delay-50",
             )}
-          </PullRequestMetaLine>
-        </div>
-      </header>
-
-      <section aria-label="Issue facts" className="space-y-2 px-4 pt-2.5 pb-1">
-        {detail.issueType == null ? null : (
-          <GitHubIssueMetaRow icon={<ShapesIcon className="size-3.5" />} label="Type">
-            <GitHubIssueTypeChip issueType={detail.issueType} size="default" />
-          </GitHubIssueMetaRow>
-        )}
-        <GitHubIssueMetaRow icon={<TagIcon className="size-3.5" />} label="Labels">
-          {detail.labels.length === 0 ? (
-            <span className="text-muted-foreground">None</span>
-          ) : (
-            <span className="flex min-w-0 flex-wrap items-center gap-1">
-              {detail.labels.map((label) => (
-                <GitHubIssueLabelChip
-                  key={label.name}
-                  label={label}
-                  size="default"
-                  className="max-w-48"
-                />
-              ))}
-            </span>
-          )}
-        </GitHubIssueMetaRow>
-        <GitHubIssueMetaRow icon={<UsersIcon className="size-3.5" />} label="Assignees">
-          {detail.assignees.length === 0 ? (
-            <span className="text-muted-foreground">None</span>
-          ) : (
-            <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              {detail.assignees.map((assignee) => (
-                <PullRequestActorLabel
-                  key={assignee.login}
-                  actor={assignee}
-                  profileUrl={gitHubProfileUrl(assignee.login, detail.url)}
-                />
-              ))}
-            </span>
-          )}
-        </GitHubIssueMetaRow>
-      </section>
-
-      <GitHubIssueSection key={`description:${detail.url}`} title="Description">
-        <PullRequestMarkdown
-          text={detail.body.trim().length > 0 ? detail.body : "_No description provided._"}
-          cwd={detail.workspaceRoot}
-          environmentId={environmentId}
-        />
-      </GitHubIssueSection>
-
-      {detail.parent ? (
-        <GitHubIssueSection key={`parent:${detail.url}`} title="Parent">
-          <GitHubSubIssueRow
-            child={detail.parent}
-            repository={gitHubSubIssueRepository(detail.parent.url) ?? detail.repository}
-            {...(onSelectSubIssue ? { onSelect: onSelectSubIssue } : {})}
-          />
-        </GitHubIssueSection>
-      ) : null}
-
-      {subIssues.length > 0 ? (
-        <GitHubIssueSection
-          key={`sub-issues:${detail.url}`}
-          title="Sub-issues"
-          count={`${closedSubIssues} of ${subIssues.length} closed`}
-        >
-          <ul className="space-y-0.5">
-            {subIssues.map((child) => (
-              <li key={child.url}>
-                <GitHubSubIssueRow
-                  child={child}
-                  repository={detail.repository}
-                  {...(onSelectSubIssue ? { onSelect: onSelectSubIssue } : {})}
-                />
-              </li>
-            ))}
-          </ul>
-        </GitHubIssueSection>
-      ) : null}
-
-      {threadLinks.supported ? (
-        <GitHubIssueSection
-          key={`threads:${detail.url}`}
-          title="Linked threads"
-          {...(threadLinks.threads === null ? {} : { count: String(threadLinks.threads.length) })}
-        >
-          <GitHubIssueLinkedThreadList links={threadLinks} environmentId={environmentId} />
-          <Button
-            size="xs"
-            variant="ghost"
-            className="mt-1"
-            disabled={threadLinks.pending}
-            onClick={() => setPickingThread(true)}
+            inert={condensed}
           >
-            <LinkIcon className="size-3" />
-            Link to a thread
-          </Button>
-        </GitHubIssueSection>
-      ) : null}
-      {pickingThread && threadLinks.supported ? (
-        <GitHubIssueThreadPicker
-          links={threadLinks}
-          environmentId={environmentId}
-          onOpenChange={setPickingThread}
-        />
-      ) : null}
-
-      <GitHubIssueSection
-        key={`discussion:${detail.url}`}
-        title="Discussion"
-        count={String(detail.commentCount)}
-      >
-        <div className="space-y-3">
-          {detail.commentCount > detail.comments.length ? (
-            <p className="text-muted-foreground text-xs">
-              Showing the newest {detail.comments.length} of {detail.commentCount}
-            </p>
-          ) : null}
-          {detail.comments.map((comment) => (
-            <article
-              key={comment.id}
-              // Offscreen comments skip style, layout and paint, as the pull request's do.
-              className="rounded-lg border border-border/60 bg-background [contain-intrinsic-block-size:160px] [content-visibility:auto]"
-            >
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-t-lg bg-muted/25 px-3 py-2.5 text-xs">
-                <PullRequestActorLabel
-                  actor={comment.author}
-                  profileUrl={gitHubProfileUrl(comment.author?.login, detail.url)}
-                  className="max-w-full"
-                />
-                <a
-                  href={comment.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  <time dateTime={comment.createdAt}>
-                    {formatRelativeTimeLabel(comment.createdAt)}
-                  </time>
-                </a>
+            <div className="mt-1 min-w-0 px-4 pb-4">
+              <PullRequestDetailTitleRow>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <h1 className="min-w-0 flex-1 truncate text-base font-semibold leading-snug">
+                        {detail.title}
+                      </h1>
+                    }
+                  />
+                  <TooltipPopup side="top">{detail.title}</TooltipPopup>
+                </Tooltip>
+              </PullRequestDetailTitleRow>
+              <div className="mt-2 flex min-h-5 min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <PullRequestMetaLine className="min-w-0 whitespace-nowrap">
+                  <PullRequestActorLabel
+                    key="author"
+                    actor={detail.author}
+                    profileUrl={authorProfileUrl}
+                  />
+                  <span key="opened">
+                    opened <RelativeTime timestamp={detail.createdAt} />
+                  </span>
+                  {detail.closedAt ? (
+                    <span key="closed">
+                      closed <RelativeTime timestamp={detail.closedAt} />
+                    </span>
+                  ) : (
+                    <span key="updated">
+                      updated <RelativeTime timestamp={detail.updatedAt} />
+                    </span>
+                  )}
+                </PullRequestMetaLine>
               </div>
-              <PullRequestMarkdown
-                className="px-3 py-3"
-                text={comment.body}
-                cwd={detail.workspaceRoot}
-                environmentId={environmentId}
-              />
-            </article>
-          ))}
-          {detail.comments.length === 0 ? (
-            <p className="py-6 text-center text-muted-foreground text-xs">No comments yet.</p>
-          ) : null}
+            </div>
+          </div>
         </div>
-      </GitHubIssueSection>
-    </article>
+      </div>
+
+      <div
+        ref={scrollerRef}
+        className="min-h-0 flex-1 overflow-y-auto"
+        data-pull-request-summary-scroll
+        onScroll={(event) => {
+          const scroller = event.currentTarget;
+          const top = scroller.scrollTop;
+          const foldHeight = foldRef.current?.scrollHeight ?? 0;
+          if (condensed) {
+            if (top < 4 && foldHeight > 0) setCondensedUrl(null);
+          } else if (foldHeight > 0 && top > foldHeight + 32) {
+            const chromeDelta = foldHeight - (condensedRowRef.current?.scrollHeight ?? 0);
+            compensationRef.current = top - chromeDelta;
+            setCondensedUrl(detail.url);
+          }
+        }}
+      >
+        <section aria-label="Issue facts" className="space-y-2 px-4 pt-2.5 pb-1">
+          {detail.issueType == null ? null : (
+            <MetaRow icon={<ShapesIcon className="size-3.5" />} label="Type">
+              <GitHubIssueTypeChip issueType={detail.issueType} size="default" />
+            </MetaRow>
+          )}
+          <MetaRow icon={<TagIcon className="size-3.5" />} label="Labels">
+            {detail.labels.length === 0 ? (
+              <span className="text-muted-foreground">None</span>
+            ) : (
+              <span className="flex min-w-0 flex-wrap items-center gap-1">
+                {detail.labels.map((label) => (
+                  <GitHubIssueLabelChip
+                    key={label.name}
+                    label={label}
+                    size="default"
+                    className="max-w-48"
+                  />
+                ))}
+              </span>
+            )}
+          </MetaRow>
+          <MetaRow icon={<UsersIcon className="size-3.5" />} label="Assignees">
+            {detail.assignees.length === 0 ? (
+              <span className="text-muted-foreground">None</span>
+            ) : (
+              <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                {detail.assignees.map((assignee) => (
+                  <PullRequestActorLabel
+                    key={assignee.login}
+                    actor={assignee}
+                    profileUrl={gitHubProfileUrl(assignee.login, detail.url)}
+                  />
+                ))}
+              </span>
+            )}
+          </MetaRow>
+        </section>
+
+        <Section key={`description:${detail.url}`} title="Description" keepMounted>
+          <PullRequestMarkdown
+            text={detail.body.trim().length > 0 ? detail.body : "_No description provided._"}
+            cwd={detail.workspaceRoot}
+            environmentId={environmentId}
+          />
+        </Section>
+
+        {detail.parent ? (
+          <Section key={`parent:${detail.url}`} title="Parent">
+            <GitHubSubIssueRow
+              child={detail.parent}
+              repository={gitHubSubIssueRepository(detail.parent.url) ?? detail.repository}
+              {...(onSelectSubIssue ? { onSelect: onSelectSubIssue } : {})}
+            />
+          </Section>
+        ) : null}
+
+        {subIssues.length > 0 ? (
+          <Section
+            key={`sub-issues:${detail.url}`}
+            title={`Sub-issues (${closedSubIssues} of ${subIssues.length} closed)`}
+          >
+            <ul className="space-y-0.5">
+              {subIssues.map((child) => (
+                <li key={child.url}>
+                  <GitHubSubIssueRow
+                    child={child}
+                    repository={detail.repository}
+                    {...(onSelectSubIssue ? { onSelect: onSelectSubIssue } : {})}
+                  />
+                </li>
+              ))}
+            </ul>
+          </Section>
+        ) : null}
+
+        {threadLinks.supported ? (
+          <Section
+            key={`threads:${detail.url}`}
+            title={
+              threadLinks.threads === null
+                ? "Linked threads"
+                : `Linked threads (${threadLinks.threads.length})`
+            }
+          >
+            <GitHubIssueLinkedThreadList links={threadLinks} environmentId={environmentId} />
+            <Button
+              size="xs"
+              variant="ghost"
+              className="mt-1"
+              disabled={threadLinks.pending}
+              onClick={() => setPickingThread(true)}
+            >
+              <LinkIcon className="size-3" />
+              Link to a thread
+            </Button>
+          </Section>
+        ) : null}
+        {pickingThread && threadLinks.supported ? (
+          <GitHubIssueThreadPicker
+            links={threadLinks}
+            environmentId={environmentId}
+            onOpenChange={setPickingThread}
+          />
+        ) : null}
+
+        <Section key={`comments:${detail.url}`} title={`Comments (${detail.commentCount})`}>
+          <div className="space-y-3">
+            {detail.commentCount > detail.comments.length ? (
+              <p className="text-muted-foreground text-xs">
+                Showing the newest {detail.comments.length} of {detail.commentCount}
+              </p>
+            ) : null}
+            {detail.comments.map((comment) => (
+              <article
+                key={comment.id}
+                // Offscreen comments skip style, layout and paint, as the pull request's do.
+                className="rounded-lg border border-border/60 bg-background [contain-intrinsic-block-size:160px] [content-visibility:auto]"
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-t-lg bg-muted/25 px-3 py-2.5 text-xs">
+                  <PullRequestActorLabel
+                    actor={comment.author}
+                    profileUrl={gitHubProfileUrl(comment.author?.login, detail.url)}
+                    className="max-w-full"
+                  />
+                  <a
+                    href={comment.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    <time dateTime={comment.createdAt}>
+                      <RelativeTime timestamp={comment.createdAt} />
+                    </time>
+                  </a>
+                </div>
+                <PullRequestMarkdown
+                  className="px-3 py-3"
+                  text={comment.body}
+                  cwd={detail.workspaceRoot}
+                  environmentId={environmentId}
+                />
+              </article>
+            ))}
+            {detail.comments.length === 0 ? (
+              <p className="py-2 text-xs text-muted-foreground">No comments yet.</p>
+            ) : null}
+          </div>
+        </Section>
+      </div>
+    </div>
   );
+}
+
+const ISSUE_SUBJECT = { singular: "issue", plural: "issues" } as const;
+
+const ISSUE_REPOSITORY_URL = /^(https?:\/\/[^/]+\/[^/]+\/[^/]+)\/issues\/\d+/;
+
+function gitHubRepositoryUrl(issueUrl: string): string | null {
+  return ISSUE_REPOSITORY_URL.exec(issueUrl)?.[1] ?? null;
 }
 
 /** GitHub attributes work from a deleted account to "ghost", which has no profile; nor do bots. */
@@ -448,63 +608,6 @@ function gitHubProfileUrl(login: string | undefined, issueUrl: string): string |
   } catch {
     return null;
   }
-}
-
-/** The pull request summary's fact row: a fixed label column, then the value. */
-function GitHubIssueMetaRow({
-  icon,
-  label,
-  children,
-}: {
-  readonly icon: ReactNode;
-  readonly label: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <div className="grid min-h-7 min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-center gap-2 text-xs sm:min-h-6">
-      <span className="flex items-center gap-1.5 text-muted-foreground">
-        {icon}
-        {label}
-      </span>
-      <span className="min-w-0 text-foreground">{children}</span>
-    </div>
-  );
-}
-
-/**
- * The pull request summary's section: a heading that rides the top of the scroll box and folds
- * the body away, so a long discussion can be collapsed from wherever it has been read to.
- */
-function GitHubIssueSection({
-  title,
-  count,
-  children,
-}: {
-  readonly title: string;
-  readonly count?: string;
-  readonly children: ReactNode;
-}) {
-  const [open, setOpen] = useState(true);
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} render={<section aria-label={title} />}>
-      <div className="sticky top-0 z-10 flex w-full items-center bg-background pr-4">
-        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left font-medium text-muted-foreground text-xs hover:text-foreground">
-          <span>{title}</span>
-          {count ? <span className="tabular-nums text-muted-foreground/60">{count}</span> : null}
-          <ChevronRightIcon
-            aria-hidden
-            className={cn(
-              "size-3.5 text-muted-foreground/60 transition-transform",
-              open && "rotate-90",
-            )}
-          />
-        </CollapsibleTrigger>
-      </div>
-      <CollapsiblePanel keepMounted>
-        <div className="px-4 pb-4">{children}</div>
-      </CollapsiblePanel>
-    </Collapsible>
-  );
 }
 
 /**
