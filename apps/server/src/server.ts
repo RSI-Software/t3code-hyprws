@@ -768,7 +768,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(SecretResolver.layer),
   // Above the settings it writes when a theme is applied.
   Layer.provideMerge(EnvironmentTheme.layer),
-  Layer.provideMerge(Layer.merge(layerServerSettings, ZmuxSessionBinderLayerLive)), // fork-hook: zmux-estate/session-binder-layer
+  Layer.provideMerge(ZmuxSessionBinderLayerLive), // fork-hook: zmux-estate/session-binder-layer
+  Layer.provideMerge(layerServerSettings),
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(layerGit),
   Layer.provideMerge(layerVcs),
