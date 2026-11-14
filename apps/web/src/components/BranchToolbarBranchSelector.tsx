@@ -558,6 +558,7 @@ export function BranchToolbarBranchSelector({
 
   const selectBranch = async (listedRef: VcsRef) => {
     if (!canUpdateThreadBranch || !branchCwd || !activeProjectCwd || isBranchActionPending) return;
+    if (checkoutMoveControlsLocked) return; // fork-hook: zmux-estate/checkout-move-lock
     const selectionId = ++latestSelectionIdRef.current;
 
     let latest = readLatestThreadState();

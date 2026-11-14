@@ -12,6 +12,7 @@ import * as ServerConfig from "../config.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { repointLaunchersFork } from "./launcherRepoint.fork.ts";
+import { posixLauncherScript } from "./pinnedRuntime.ts";
 import * as ServerSelfUpdate from "./selfUpdate.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
@@ -128,7 +129,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ManagedPolicy.layerTest()))(
         yield* selfUpdate
           .update({ targetVersion: "1.1.0" })
           .pipe(Effect.provideService(HostProcess.Environment, { PATH: home.binDir }));
-        expect(yield* home.fs.readLink(home.launcher)).toBe(home.target("1.1.0"));
+        expect(yield* home.fs.readFileString(home.launcher)).toBe(
+          posixLauncherScript(home.target("1.1.0")),
+        );
       }),
     );
 
@@ -153,8 +156,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ManagedPolicy.layerTest()))(
         expect(yield* repoint(home, { HOME: home.root, PATH: "/nonexistent" })).toEqual([
           home.path.join(defaultBin, "t3"),
         ]);
-        expect(yield* home.fs.readLink(home.path.join(defaultBin, "t3"))).toBe(
-          home.target("1.1.0"),
+        expect(yield* home.fs.readFileString(home.path.join(defaultBin, "t3"))).toBe(
+          posixLauncherScript(home.target("1.1.0")),
         );
       }),
     );
