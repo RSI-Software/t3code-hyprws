@@ -49,7 +49,7 @@ describe("terminal focus requests", () => {
 
 describe("terminal session generations", () => {
   it("forces a full renderer reset when the attached PTY generation changes", () => {
-    const cursor = { generation: 4, resetVersion: 7, offset: 99 };
+    const cursor = { generation: 4, resetVersion: 7, offset: 99, sequenceState: 2 };
 
     expect(lifecycleCursorFork(cursor, { lifecycleVersion: 2 }, { lifecycleVersion: 2 })).toBe(
       cursor,
@@ -58,6 +58,7 @@ describe("terminal session generations", () => {
       generation: -1,
       resetVersion: -1,
       offset: 0,
+      sequenceState: 0,
     });
   });
 });
