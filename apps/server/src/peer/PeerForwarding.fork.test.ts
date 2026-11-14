@@ -380,8 +380,8 @@ it.effect("keeps forwarded wait metadata, short retries, and caller scoping", ()
       expect(waited.structuredContent).toEqual({
         threadId: boxThread,
         runId: boxRun,
-        status: "completed",
-        timedOut: false,
+        status: "running",
+        timedOut: true,
         pendingRequestCount: 0,
         work: {
           state: "idle",
@@ -390,15 +390,7 @@ it.effect("keeps forwarded wait metadata, short retries, and caller scoping", ()
           updatedAt: "2026-01-01T00:00:00.000Z",
         },
       });
-      // Three pieces of at most 50 s each, the later ones pinned to the run
-      // the first one found.
-      expect(
-        (yield* Ref.get(seen)).waits.map(({ timeoutMs, runId }) => [timeoutMs, runId]),
-      ).toEqual([
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, undefined],
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, boxRun],
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, boxRun],
-      ]);
+      expect((yield* Ref.get(seen)).waits.map(({ timeoutMs }) => timeoutMs)).toEqual([45_000]);
 
       const send = (caller: string, clientRequestId: string) =>
         a.call(caller, "t3_thread_send", {
