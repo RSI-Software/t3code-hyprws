@@ -739,9 +739,6 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     ...baseConfig,
     args: [
       ...distroArgs,
-      // WSL otherwise inherits the Windows-mounted desktop working directory.
-      "--cd",
-      "~",
       "--exec",
       "env",
       `PATH=${launchPath}`,

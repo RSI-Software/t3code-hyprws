@@ -6,7 +6,7 @@ import { APP_VERSION } from "../../branding";
 import { AnchoredToastProvider } from "../ui/toast";
 import { AboutVersionTitle } from "./AboutVersionTitle";
 
-it("copies the version without a notification", async () => {
+it("shows copy confirmation when the version is clicked without waiting for a hover tooltip", async () => {
   await using screen = await render(
     <AnchoredToastProvider>
       <AboutVersionTitle />
@@ -17,5 +17,5 @@ it("copies the version without a notification", async () => {
   await screen.getByRole("button", { name: `Copy version ${APP_VERSION}` }).click();
 
   expect(write).toHaveBeenCalledWith(APP_VERSION);
-  await expect.element(page.getByText(/^Copied!?$/)).not.toBeInTheDocument();
+  await expect.element(page.getByText(/^Copied!?$/)).toBeVisible();
 });

@@ -86,12 +86,7 @@ export const make = Effect.gen(function* () {
       id,
       kind: config.kind,
       label: sourceLabel(id, config),
-      ...(url && /^https?:$/.test(url.protocol)
-        ? {
-            origin: url.origin,
-            endpoint: `${url.origin}${url.pathname.replace(/(\/management\.html)?\/*$/i, "")}`,
-          }
-        : {}),
+      ...(url && /^https?:$/.test(url.protocol) ? { origin: url.origin } : {}),
       checkedAt,
     } as const;
     const managementKey = yield* readManagementKey(config);

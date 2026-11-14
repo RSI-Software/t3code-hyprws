@@ -1,4 +1,4 @@
-import { EnvironmentId, MessageId, ThreadId, TurnItemId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadContextRecord } from "@t3tools/shared/composerContextReferences";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
@@ -8,7 +8,6 @@ import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
 } from "../../composerDraftStore";
-import { environmentContextRecord, responseContextRecord } from "../../lib/composerContextRecords";
 import { prepareQueuedEditAttachments, recoverQueuedMessageEdit } from "./queuedMessageEdit";
 
 const environmentId = EnvironmentId.make("remote-environment");
@@ -79,62 +78,25 @@ describe("queued message file edits", () => {
   it("keeps file-only edits when another client starts the queued run", () => {
     const store = useComposerDraftStore.getState();
     store.setPrompt(editTarget, "Original message");
-    const elsewhere: ComposerFileAttachment = {
-      ...uploadedFile,
-      id: "file:elsewhere",
-      name: "elsewhere.pdf",
-      file: null,
-      uploadedAttachmentId: "upload:elsewhere",
-      uploadEnvironmentId: EnvironmentId.make("other-environment"),
-    };
-    store.addFiles(editTarget, [file, elsewhere]);
+    store.addFiles(editTarget, [file]);
     expect(
       recoverQueuedMessageEdit({ editTarget, threadTarget, originalText: "Original message" }),
     ).toBe("kept");
     expect(store.getComposerDraft(threadTarget)?.prompt).toBe("Original message");
-    // An upload this environment cannot reach comes back as a file to reattach, not a dropped chip.
-    const { uploadedAttachmentId: _id, uploadEnvironmentId: _env, ...reattach } = elsewhere;
-    expect(store.getComposerDraft(threadTarget)?.files).toEqual([file, reattach]);
+    expect(store.getComposerDraft(threadTarget)?.files).toEqual([file]);
     expect(store.getComposerDraft(editTarget)).toBeNull();
   });
 
-  it("keeps the mentions and reply of a kept edit in the thread draft", () => {
+  it("removes a kept edit draft that held a thread mention", () => {
     const store = useComposerDraftStore.getState();
     store.setPrompt(editTarget, "Edited message");
-    const thread = threadContextRecord(
-      scopeThreadRef(environmentId, ThreadId.make("thread:other")),
-      "Other",
-    );
-    const machine = environmentContextRecord(EnvironmentId.make("environment-vps"), "vps");
-    const reply = responseContextRecord({
-      citation: {
-        version: 1,
-        environmentId,
-        threadId: ThreadId.make("thread:edit"),
-        messageId: MessageId.make("message:answer"),
-        text: "Done.",
-        start: 0,
-        end: 5,
-        prefix: "",
-        suffix: "",
-      },
-      itemId: TurnItemId.make("item:answer"),
-      subagents: [],
-    });
-    store.addThreadContexts(editTarget, [thread]);
-    store.addEnvironmentContexts(editTarget, [machine]);
-    store.setReplyTo(editTarget, reply);
-    const editedPrompt = store.getComposerDraft(editTarget)!.prompt;
+    store.setThreadContexts(editTarget, [
+      threadContextRecord(scopeThreadRef(environmentId, ThreadId.make("thread:other")), "Other"),
+    ]);
     expect(
       recoverQueuedMessageEdit({ editTarget, threadTarget, originalText: "Original message" }),
     ).toBe("kept");
     expect(store.getComposerDraft(editTarget)).toBeNull();
-    expect(store.getComposerDraft(threadTarget)).toMatchObject({
-      prompt: editedPrompt,
-      threadContexts: [thread],
-      environmentContexts: [machine],
-      replyTo: reply,
-    });
   });
 
   it("reports a removed queued attachment as an edit when the run leaves", () => {

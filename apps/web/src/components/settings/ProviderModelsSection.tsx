@@ -1,5 +1,5 @@
 import { ArrowDownIcon, ArrowUpIcon, PencilIcon, PlusIcon, StarIcon, XIcon } from "lucide-react";
-import { memo, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ProviderDriverKind,
   type ProviderInstanceId,
@@ -447,7 +447,7 @@ export function ProviderModelsSection({
   );
 }
 
-const ProviderModelRow = memo(function ProviderModelRow({
+function ProviderModelRow({
   model,
   isHidden,
   isFavorite,
@@ -633,4 +633,4 @@ const ProviderModelRow = memo(function ProviderModelRow({
       </Tooltip>
     </div>
   );
-});
+}

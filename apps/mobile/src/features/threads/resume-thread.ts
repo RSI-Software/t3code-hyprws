@@ -69,7 +69,7 @@ export async function resumeThread<E>(input: {
         message: {
           messageId: input.messageId,
           role: "user",
-          text: "",
+          text: "Continue where you left off.",
           attachments: [],
         },
         runtimeMode,

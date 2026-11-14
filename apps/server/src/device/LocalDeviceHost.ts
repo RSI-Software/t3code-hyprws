@@ -270,16 +270,8 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
   const environment = yield* HostProcess.Environment;
   const workingDirectory = yield* HostProcess.WorkingDirectory;
   const hostPlatform = yield* HostProcess.Platform;
-  // Resolved per use: the desktop shell snapshot can select another SDK after the host exists.
-  const currentSdk = androidSdk.pipe(
-    Effect.provideService(FileSystem.FileSystem, fs),
-    Effect.provideService(Path.Path, path),
-    Effect.provideService(HostProcess.Environment, environment),
-    Effect.provideService(HostProcess.Platform, hostPlatform),
-  );
-  const currentHostEnvironment = currentSdk.pipe(
-    Effect.map((sdk) => deviceHostEnvironment(environment, sdk.root, hostPlatform, path)),
-  );
+  const sdk = yield* androidSdk;
+  const hostEnvironment = deviceHostEnvironment(environment, sdk.root, hostPlatform, path);
   const startLock = yield* Semaphore.make(1);
   const runningRef = yield* Ref.make<RunningHost | null>(null);
   const restartDelayRef = yield* Ref.make(0);
@@ -441,7 +433,7 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
               shell: false,
               stdout: "pipe",
               stderr: "pipe",
-              env: yield* hubEnvironment(yield* currentHostEnvironment).pipe(
+              env: yield* hubEnvironment(hostEnvironment).pipe(
                 Effect.provideService(FileSystem.FileSystem, fs),
                 Effect.provideService(Path.Path, path),
                 Effect.provideService(ProcessRunner.ProcessRunner, runner),
@@ -544,7 +536,7 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
     yield* fs.makeDirectory(stateDir, { recursive: true }).pipe(Effect.ignore);
     const existing = yield* readDaemonFile().pipe(Effect.option);
     const daemonEnvironment: NodeJS.ProcessEnv = {
-      ...(yield* currentHostEnvironment),
+      ...hostEnvironment,
       AGENT_DEVICE_STATE_DIR: stateDir,
       AGENT_DEVICE_DAEMON_SERVER_MODE: "http",
       // Disable the five-minute idle timeout; the server owns shutdown.
@@ -651,7 +643,6 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
       AGENT_DEVICE_VERSION,
     ]);
     if (!entryPath) return;
-    const hostEnvironment = yield* currentHostEnvironment;
     const nodePath = yield* resolveNodeExecutable("Local device support", hostEnvironment).pipe(
       Effect.provideService(HostProcess.Platform, hostPlatform),
     );
@@ -684,10 +675,7 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
       const alive = yield* running.hub.child.isRunning.pipe(Effect.orElseSucceed(() => false));
       if (alive) return running;
     }
-    const nodePath = yield* resolveNodeExecutable(
-      "Local device support",
-      yield* currentHostEnvironment,
-    ).pipe(
+    const nodePath = yield* resolveNodeExecutable("Local device support", hostEnvironment).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),
       Effect.provideService(HostProcess.Platform, hostPlatform),
@@ -819,35 +807,34 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
   };
 
   const run: DeviceHost.DeviceHostReady["run"] = (command, args, options) =>
-    currentSdk.pipe(
-      Effect.flatMap((sdk) =>
-        runner.run({
-          command:
-            command === "emulator" && sdk.root
-              ? path.join(
-                  sdk.root,
-                  "emulator",
-                  hostPlatform === "win32" ? "emulator.exe" : "emulator",
-                )
-              : command,
-          args,
-          cwd: workingDirectory,
-          env: deviceHostEnvironment(environment, sdk.root, hostPlatform, path),
-          timeout: Duration.millis(options?.timeoutMs ?? 20_000),
-          timeoutBehavior: "timedOutResult",
-          ...(options?.stdin === undefined ? {} : { stdin: options.stdin }),
-          ...(options?.maxOutputBytes === undefined
-            ? {}
-            : { maxOutputBytes: options.maxOutputBytes }),
-        }),
-      ),
-      Effect.map((result) => ({
-        stdout: result.stdout,
-        stderr: result.stderr,
-        code: result.timedOut ? 124 : Number(result.code ?? 127),
-      })),
-      Effect.catch((cause) => Effect.succeed({ stdout: "", stderr: String(cause), code: 127 })),
-    );
+    runner
+      .run({
+        command:
+          command === "emulator" && sdk.root
+            ? path.join(
+                sdk.root,
+                "emulator",
+                hostPlatform === "win32" ? "emulator.exe" : "emulator",
+              )
+            : command,
+        args,
+        cwd: workingDirectory,
+        env: hostEnvironment,
+        timeout: Duration.millis(options?.timeoutMs ?? 20_000),
+        timeoutBehavior: "timedOutResult",
+        ...(options?.stdin === undefined ? {} : { stdin: options.stdin }),
+        ...(options?.maxOutputBytes === undefined
+          ? {}
+          : { maxOutputBytes: options.maxOutputBytes }),
+      })
+      .pipe(
+        Effect.map((result) => ({
+          stdout: result.stdout,
+          stderr: result.stderr,
+          code: result.timedOut ? 124 : Number(result.code ?? 127),
+        })),
+        Effect.catch((cause) => Effect.succeed({ stdout: "", stderr: String(cause), code: 127 })),
+      );
 
   const toReady = (running: RunningHost): DeviceHost.DeviceHostReady => ({
     hub: { origin: running.hub.origin } satisfies DeviceHost.DeviceHubEndpoint,

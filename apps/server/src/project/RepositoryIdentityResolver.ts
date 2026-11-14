@@ -126,12 +126,7 @@ function pickPrimaryRemote(
 function repositoryPathOf(canonicalKey: string, remoteUrl: string): string {
   const canonicalPath = canonicalKey.split("/").slice(1).join("/");
   const displayPath = repositoryPathFromRemoteUrl(remoteUrl);
-  if (displayPath === null) return canonicalPath;
-  // A host that names repositories literally keeps the `.git` the display path drops.
-  return (
-    [displayPath, `${displayPath}.git`].find((path) => path.toLowerCase() === canonicalPath) ??
-    canonicalPath
-  );
+  return displayPath?.toLowerCase() === canonicalPath ? displayPath : canonicalPath;
 }
 
 function buildRepositoryOrigin(

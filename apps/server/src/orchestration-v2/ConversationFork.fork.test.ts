@@ -19,7 +19,6 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import {
   appendConversationForkContextFork,
-  conversationForkBudgetFork,
   conversationForkContextFork,
   withoutConversationForkNoticeFork,
 } from "./conversationFork.fork.ts";
@@ -330,11 +329,6 @@ it.effect("a conversation fork resets source controls and keeps source children"
     assert.include(notice, "shares the source checkout");
     assert.include(appendConversationForkContextFork("Portable history", notice, false), notice);
     assert.equal(appendConversationForkContextFork("", notice, true), "");
-    assert.deepEqual(conversationForkBudgetFork("Portable history", notice, false), {
-      userText: `Portable history\n\n${notice}`,
-    });
-    assert.deepEqual(conversationForkBudgetFork("Portable history", "", false), {});
-    assert.deepEqual(conversationForkBudgetFork("/compact", notice, true), {});
     // Replays compare the turn text recorded before the notice existed.
     assert.equal(withoutConversationForkNoticeFork(`${notice}\n\nUser message:\nhello.`), "hello.");
     assert.equal(

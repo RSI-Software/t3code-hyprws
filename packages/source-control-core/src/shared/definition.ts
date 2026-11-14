@@ -338,9 +338,10 @@ export interface SourceControlDefinition {
    */
   readonly repositorySelector?: (identity: RepositorySelectorIdentity) => string | null;
   /**
-   * The key of a remote's lower case `host/path`, `.git` suffix kept, for a host that spells it
-   * apart from `normalizeGitRemoteUrl`: over SSH and the web, or with `.git` as part of the name.
-   * Null when the key is not this host's. Persisted keys are built with it: output must not change.
+   * For a host that spells one repository differently over SSH and on the web: the web spelling
+   * of the `host/path` key `normalizeGitRemoteUrl` made from a remote that names a host. Null when
+   * the key is not this host's. Persisted repository keys are built with it, so its output must
+   * not change.
    */
   readonly repositoryKeyFromRemote?: (key: string) => string | null;
   /**
@@ -803,10 +804,9 @@ export function makeSourceControlDefinitionRegistry(
     },
     repositoryKeyFromRemote: (remoteUrl) => {
       const key = normalizeGitRemoteUrl(remoteUrl);
-      const written = parseGitRemoteRepository(remoteUrl, { keepGitSuffix: true });
-      if (written === null) return key;
+      if (parseGitRemoteRepository(remoteUrl) === null) return key;
       for (const definition of definitions) {
-        const spelled = definition.repositoryKeyFromRemote?.(`${written.host}/${written.path}`);
+        const spelled = definition.repositoryKeyFromRemote?.(key);
         if (spelled != null) return spelled;
       }
       return key;

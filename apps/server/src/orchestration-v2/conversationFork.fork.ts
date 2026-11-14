@@ -101,12 +101,6 @@ export function appendConversationForkContextFork(
   return [context, compact ? "" : notice].filter((part) => part !== "").join("\n\n");
 }
 
-export function conversationForkBudgetFork(context: string, notice: string, compact: boolean) {
-  const userText = appendConversationForkContextFork(context, notice, compact);
-  if (userText === context) return {};
-  return { userText };
-}
-
 export function conversationForkTurnInputFork(
   message: ProviderAdapterV2TurnInput["message"],
   text: string,

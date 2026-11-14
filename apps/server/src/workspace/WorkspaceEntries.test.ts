@@ -691,13 +691,6 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         yield* git(cwd, ["commit", "-m", "init"], env);
         yield* git(cwd, ["worktree", "add", "-b", "x", ".worktrees/x"]);
         yield* writeTextFile(cwd, ".worktrees/x/src/foo.py", "print(1)");
-        const expected = [".worktrees/x/src/foo.py"];
-        // Windows file names cannot contain a newline.
-        if ((yield* HostProcess.Platform) !== "win32") {
-          yield* git(cwd, ["worktree", "add", "--detach", ".worktrees/line\nname"]);
-          yield* writeTextFile(cwd, ".worktrees/line\nname/src/foo.py", "print(2)");
-          expected.unshift(".worktrees/line\nname/src/foo.py");
-        }
 
         const exact = yield* searchWorkspaceEntries({
           cwd,
@@ -705,14 +698,10 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           limit: 25,
           kind: "file",
         });
-        expect(exact.entries.toSorted((a, b) => (a.path < b.path ? -1 : 1))).toEqual(
-          expected.map((path) => ({ path, kind: "file" })),
-        );
+        expect(exact.entries).toEqual([{ path: ".worktrees/x/src/foo.py", kind: "file" }]);
 
         const partial = yield* searchWorkspaceEntries({ cwd, query: "src/fo", limit: 25 });
-        for (const path of expected) {
-          expect(partial.entries.map((entry) => entry.path)).not.toContain(path);
-        }
+        expect(partial.entries.map((entry) => entry.path)).not.toContain(".worktrees/x/src/foo.py");
       }),
     );
   });

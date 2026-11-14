@@ -2,12 +2,9 @@ import { usePullRequestConnected } from "./usePullRequestConnected";
 import { RegistryContext, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { PullRequestDetail } from "@t3tools/contracts";
+import { AsyncResult } from "effect/reactivity";
 import { use, useState } from "react";
-import {
-  composerPullRequests,
-  filesViewedReadsFamily,
-  filesViewedReadsKey,
-} from "../../state/pull-requests";
+import { composerPullRequests } from "../../state/pull-requests";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff";
@@ -26,13 +23,11 @@ export function usePullRequestFilesViewed(params: PullRequestParams, pr: PullReq
   const allowed = connected && permission;
   const query = useEnvironmentQuery(supported ? composerPullRequests.filesViewed(target) : null);
   const refresh = useAtomRefresh(composerPullRequests.filesViewed(target));
-  const readsAtom = filesViewedReadsFamily(filesViewedReadsKey(target));
-  const reads = useAtomValue(readsAtom);
   const write = useAtomCommand(composerPullRequests.setFilesViewed, { reportFailure: false });
   const [state, setState] = useState<ViewedState>({ key: scopeKey, presses: {}, error: null });
   const presses = state.key === scopeKey ? state.presses : {};
   const error = state.key === scopeKey ? state.error : null;
-  const overlay = viewedOverlay(presses, reads);
+  const overlay = viewedOverlay(presses, query.data);
   const update = (change: (current: ViewedState) => ViewedState) =>
     setState((current) =>
       change(current.key === scopeKey ? current : { key: scopeKey, presses: {}, error: null }),
@@ -53,8 +48,11 @@ export function usePullRequestFilesViewed(params: PullRequestParams, pr: PullReq
       ...target,
       input: { ...target.input, files: [{ path, viewed }] },
     });
-    // A read completed by the time the write lands may predate it; the next one carries it.
-    const readsAtWrite = registry.get(readsAtom);
+    // The read that is current once the write lands still predates it; a newer one carries it.
+    const readAtWrite = AsyncResult.getOrElse(
+      registry.get(composerPullRequests.filesViewed(target)),
+      () => null,
+    );
     setState((current) => {
       if (current.key !== scopeKey || current.presses[path]?.version !== version) return current;
       if (response._tag === "Success")
@@ -62,7 +60,7 @@ export function usePullRequestFilesViewed(params: PullRequestParams, pr: PullReq
           ...current,
           presses: {
             ...current.presses,
-            [path]: { viewed, version, awaitingReadAfter: readsAtWrite },
+            [path]: { viewed, version, awaitingReadAfter: { read: readAtWrite } },
           },
         };
       const rest = { ...current.presses };

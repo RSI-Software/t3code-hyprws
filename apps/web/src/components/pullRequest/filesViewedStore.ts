@@ -8,12 +8,10 @@ import type {
   PullRequestFilesViewedResult,
   PullRequestRef,
 } from "@t3tools/contracts";
+import { AsyncResult } from "effect/reactivity";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import {
-  pullRequestEnvironment,
-  subscribePullRequestFilesViewedAnswers,
-} from "~/state/pullRequests";
+import { pullRequestEnvironment } from "~/state/pullRequests";
 
 import { toastManager } from "../ui/toast";
 import {
@@ -38,7 +36,7 @@ type FilesViewedBatch = ReadonlyArray<{
 
 export interface FilesViewedStoreDeps {
   readonly flushDelayMs: number;
-  /** Calls `onAnswer` only after completed server reads, excluding persisted values. */
+  /** Calls `onAnswer` with the host's current answer at once, then with every later one. */
   readonly subscribeAnswers: (
     target: FilesViewedTarget,
     onAnswer: (answer: PullRequestFilesViewedResult | null) => void,
@@ -70,8 +68,13 @@ interface FilesViewedScope {
   readonly sentBy: Map<string, number>;
   requests: number;
   timer: ReturnType<typeof setTimeout> | null;
-  // Completed reads retire acknowledged presses even when equal data is structurally shared.
-  readonly answeredFrom: Set<string>;
+  answer: PullRequestFilesViewedResult | null;
+  /**
+   * The host's answer as it stood when a completed write was acknowledged, per path. The first
+   * answer that differs from it is the first read that could have seen the write, which is what
+   * retires the press rather than the host happening to agree with it.
+   */
+  readonly answeredFrom: Map<string, PullRequestFilesViewedResult | null>;
 }
 
 /**
@@ -92,11 +95,12 @@ export function createFilesViewedStore(deps: FilesViewedStoreDeps) {
   const isLive = (key: string, scope: FilesViewedScope) => scopes.get(key) === scope;
 
   const settle = (scope: FilesViewedScope, answer: PullRequestFilesViewedResult | null) => {
-    if (answer === null) return;
+    if (answer === scope.answer) return;
+    scope.answer = answer;
     const pending = new Set([...scope.queued.keys(), ...scope.sentBy.keys()]);
     const answered = new Set<string>();
-    for (const path of scope.answeredFrom) {
-      if (pending.has(path)) continue;
+    for (const [path, from] of scope.answeredFrom) {
+      if (pending.has(path) || from === answer) continue;
       answered.add(path);
       scope.answeredFrom.delete(path);
     }
@@ -137,7 +141,7 @@ export function createFilesViewedStore(deps: FilesViewedStoreDeps) {
       }
       // Answered for from the next read on, whatever it says. A push landing between the write
       // and that read comes back as `dismissed`, and the press must not stand over it.
-      for (const path of mine) scope.answeredFrom.add(path);
+      for (const path of mine) scope.answeredFrom.set(path, scope.answer);
       deps.refresh(scope.target);
     });
   };
@@ -156,8 +160,10 @@ export function createFilesViewedStore(deps: FilesViewedStoreDeps) {
     if (scope === undefined) {
       const listeners = new Set<() => void>();
       let created: FilesViewedScope | undefined;
+      let initial: PullRequestFilesViewedResult | null = null;
       const unsubscribeAnswers = deps.subscribeAnswers(target, (answer) => {
-        if (created !== undefined) settle(created, answer);
+        if (created === undefined) initial = answer;
+        else settle(created, answer);
       });
       created = {
         target,
@@ -168,7 +174,8 @@ export function createFilesViewedStore(deps: FilesViewedStoreDeps) {
         sentBy: new Map(),
         requests: 0,
         timer: null,
-        answeredFrom: new Set(),
+        answer: initial,
+        answeredFrom: new Map(),
       };
       scope = created;
       scopes.set(key, scope);
@@ -233,8 +240,12 @@ const filesViewedAtom = ({ environmentId, reference }: FilesViewedTarget) =>
 
 const filesViewedStore = createFilesViewedStore({
   flushDelayMs: 400,
-  subscribeAnswers: ({ environmentId, reference }, onAnswer) =>
-    subscribePullRequestFilesViewedAnswers({ environmentId, input: reference }, onAnswer),
+  subscribeAnswers: (target, onAnswer) =>
+    appAtomRegistry.subscribe(
+      filesViewedAtom(target),
+      (result) => onAnswer(AsyncResult.getOrElse(result, () => null)),
+      { immediate: true },
+    ),
   send: ({ environmentId, reference }, files) =>
     runAtomCommand(
       appAtomRegistry,

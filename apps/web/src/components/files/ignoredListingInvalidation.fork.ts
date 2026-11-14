@@ -1,14 +1,4 @@
 import { useEffect, useEffectEvent, useRef } from "react";
-import type { projectEnvironment } from "~/state/projects";
-
-export function ignoredListingEnvironmentFork(
-  environment: typeof projectEnvironment,
-  includeIgnored: boolean,
-) {
-  const listEntries: typeof environment.listEntries = (request) =>
-    environment.listEntries({ ...request, input: { ...request.input, includeIgnored } });
-  return () => ({ ...environment, listEntries });
-}
 
 export function useIgnoredListingInvalidationFork(includeIgnored: boolean, invalidate: () => void) {
   const loadedPreference = useRef(includeIgnored);

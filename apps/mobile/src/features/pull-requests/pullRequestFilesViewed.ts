@@ -1,8 +1,12 @@
+import type { PullRequestFilesViewedResult } from "@t3tools/contracts";
+
+export type FilesViewedRead = PullRequestFilesViewedResult | null;
+
 export interface ViewedPress {
   readonly viewed: boolean;
   readonly version: number;
-  /** Completed reads when the write landed: the press yields once a later read completes. */
-  readonly awaitingReadAfter: number | undefined;
+  /** Set once the write lands: the press yields to the server once a read newer than this lands. */
+  readonly awaitingReadAfter: { readonly read: FilesViewedRead } | undefined;
 }
 
 export interface ViewedState {
@@ -14,11 +18,11 @@ export interface ViewedState {
 /** The pressed states the server's read has not caught up with yet. */
 export function viewedOverlay(
   presses: Readonly<Record<string, ViewedPress>>,
-  reads: number,
+  read: FilesViewedRead,
 ): Record<string, boolean> {
   const overlay: Record<string, boolean> = {};
   for (const [path, press] of Object.entries(presses))
-    if (press.awaitingReadAfter === undefined || press.awaitingReadAfter === reads)
+    if (press.awaitingReadAfter === undefined || press.awaitingReadAfter.read === read)
       overlay[path] = press.viewed;
   return overlay;
 }

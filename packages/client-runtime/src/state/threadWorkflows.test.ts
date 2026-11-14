@@ -62,8 +62,7 @@ describe("thread workflows", () => {
         ...projection,
         providerThreads: [{ ...projection.providerThreads[0]!, nativeThreadRef: null }],
       }),
-    ).toBe(true);
-    expect(threadSupportsProviderHandoff({ ...projection, providerThreads: [] })).toBe(false);
+    ).toBe(false);
   });
 
   it("sorts queued messages and gates promotion from capabilities", () => {

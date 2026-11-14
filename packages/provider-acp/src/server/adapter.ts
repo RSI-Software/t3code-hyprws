@@ -1734,7 +1734,6 @@ type PendingRuntimeRequest = {
     }
 );
 
-/** Writers update `order` and `messages` in place; readers copy them out. */
 interface SnapshotMessageState {
   readonly order: Array<string>;
   readonly messages: Map<string, OrchestrationV2ConversationMessage>;
@@ -2789,9 +2788,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const rememberSnapshotMessage = (message: OrchestrationV2ConversationMessage) =>
           Ref.update(snapshot, (current) => {
             const key = String(message.id);
-            if (!current.messages.has(key)) current.order.push(key);
-            current.messages.set(key, message);
-            return current;
+            const exists = current.messages.has(key);
+            const messages = new Map(current.messages);
+            messages.set(key, message);
+            return {
+              ...current,
+              order: exists ? current.order : [...current.order, key],
+              messages,
+            };
           });
 
         const textStreamFor = (
@@ -4667,8 +4671,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               const messageId = providerMessageId(nativeItemId);
               const key = String(messageId);
               const previous = current.messages.get(key);
-              if (previous === undefined) current.order.push(key);
-              current.messages.set(key, {
+              const messages = new Map(current.messages);
+              messages.set(key, {
                 createdBy: previous?.createdBy ?? (role === "user" ? "user" : "agent"),
                 creationSource: previous?.creationSource ?? "provider",
                 id: messageId,
@@ -4683,7 +4687,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 updatedAt: now,
               });
               return {
-                ...current,
+                order: current.order.includes(key) ? current.order : [...current.order, key],
+                messages,
                 reasoningIds:
                   role === "thought" && !current.reasoningIds.has(messageId)
                     ? new Set(current.reasoningIds).add(messageId)
@@ -9519,10 +9524,6 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     yield* Ref.set(activeInteractionMode, null);
                   }
                   const state = yield* Ref.get(snapshot);
-                  const messages = state.order.flatMap((key) => {
-                    const message = state.messages.get(key);
-                    return message === undefined ? [] : [message];
-                  });
                   const now = yield* DateTime.now;
                   return {
                     providerThread: {
@@ -9532,7 +9533,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       updatedAt: now,
                     },
                     providerTurns: [...(yield* Ref.get(providerTurns)).values()],
-                    messages,
+                    messages: state.order.flatMap((key) => {
+                      const message = state.messages.get(key);
+                      return message === undefined ? [] : [message];
+                    }),
                     reasoningMessageIds: [...state.reasoningIds],
                     runtimeRequests: [],
                     providerPayload: { protocol: ACP_PROTOCOL, sessionId },

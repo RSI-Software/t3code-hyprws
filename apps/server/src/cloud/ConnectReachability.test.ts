@@ -25,14 +25,8 @@ import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 vi.mock("node:net", { spy: true });
 
 const checkedAt = "2026-10-19T00:00:00.000Z";
-const connected = {
-  pid: 1,
-  readyConnections: 4,
-  hostname: "env.example.test",
-  origin: null,
-  protocol: "quic",
-};
-const notConnected = { pid: 1, readyConnections: 0, hostname: null, origin: null, protocol: null };
+const connected = { pid: 1, readyConnections: 4, hostname: "env.example.test", protocol: "quic" };
+const notConnected = { pid: 1, readyConnections: 0, hostname: null, protocol: null };
 const facts = (overrides: Partial<ReachabilityFacts>): ReachabilityFacts => ({
   managedTunnelConfigured: true,
   connector: connected,
@@ -70,7 +64,6 @@ describe("classifyReachability", () => {
             pid: 1,
             readyConnections: null,
             hostname: "env.example.test",
-            origin: null,
             protocol: null,
           },
           endpoint: { kind: "status", status: 502 },
@@ -87,7 +80,6 @@ describe("classifyReachability", () => {
             pid: 1,
             readyConnections: null,
             hostname: "env.example.test",
-            origin: null,
             protocol: null,
           },
           endpoint: { kind: "dns_failed" },

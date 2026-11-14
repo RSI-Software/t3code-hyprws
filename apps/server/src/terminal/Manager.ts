@@ -2278,19 +2278,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     );
   }; // fork-hook: zmux-estate/attachment-history-path-fork
 
-  const legacyHistoryName = (threadId: string) => `${legacySafeThreadId(threadId)}.log`;
-  // Legacy names in the current "terminal_" namespace would alias another thread's history,
-  // case-insensitively on some filesystems.
-  const hasLegacyHistoryName = (threadId: string) =>
-    !legacySafeThreadId(threadId).toLowerCase().startsWith("terminal_");
+  const legacyHistoryPath = (threadId: string) =>
+    path.join(logsDir, `${legacySafeThreadId(threadId)}.log`);
 
   const historyPaths = (threadId: string, terminalId: string) => [
     ...new Set([
       historyPath(threadId, terminalId),
       encodedHistoryPath(threadId, terminalId),
-      ...(terminalId === DEFAULT_TERMINAL_ID && hasLegacyHistoryName(threadId)
-        ? [path.join(logsDir, legacyHistoryName(threadId))]
-        : []),
+      ...(terminalId === DEFAULT_TERMINAL_ID ? [legacyHistoryPath(threadId)] : []),
     ]),
   ];
 
@@ -2805,7 +2800,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     yield* Effect.forEach(
       entries.filter(
         (name) =>
-          (hasLegacyHistoryName(threadId) && name === legacyHistoryName(threadId)) ||
+          name === `${legacySafeThreadId(threadId)}.log` ||
           threadParts.some((part) => name === `${part}.log` || name.startsWith(`${part}_`)),
       ),
       (name) =>

@@ -10,8 +10,7 @@ T3 Code has one server-side observability model:
 
 The local trace file is the persisted source of truth for normal local launches. Those launches do not
 write a separate server log file, but SSH-managed launches also persist the remote process's
-stdout/stderr at `~/.t3/ssh-launch/<state>/server.log`. Each managed launch starts that file
-empty, so it holds only the latest launch's output.
+stdout/stderr at `~/.t3/ssh-launch/<state>/server.log`.
 
 ## Where To Find Things
 

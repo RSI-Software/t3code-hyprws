@@ -27,7 +27,7 @@ import {
   ToolCallVisibility,
 } from "@t3tools/contracts/settings";
 import { desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
-import { createModelSelection, pickModelSelection } from "@t3tools/shared/model";
+import { createModelSelection } from "@t3tools/shared/model";
 import { resolvePastedPath } from "@t3tools/shared/path";
 import { fromWireThreadEnvModeFields } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/settings-env-mode-import
 import * as Equal from "effect/Equal";
@@ -2087,11 +2087,7 @@ export function ThreadsSettingsPanel() {
                       textGenerationModelSelection: resolveAppModelSelectionState(
                         {
                           ...settings,
-                          textGenerationModelSelection: pickModelSelection(
-                            textGenerationModelSelection,
-                            instanceId,
-                            model,
-                          ),
+                          textGenerationModelSelection: createModelSelection(instanceId, model),
                         },
                         textGenerationProviders,
                       ),

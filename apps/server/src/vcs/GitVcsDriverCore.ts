@@ -69,9 +69,6 @@ const branchBaseConfigKey = (branch: string) => `branch.${branch}.t3-merge-base`
 const legacyBranchBaseConfigKey = (branch: string) => `branch.${branch}.gh-merge-base`;
 const gitProcesses = Semaphore.makeUnsafe(8);
 const backgroundGitProcesses = Semaphore.makeUnsafe(2);
-// The fetch before `git worktree add` downloads everything the remote gained since
-// the last fetch; on busy repositories that alone outlasts the 30s default.
-const FETCH_REMOTE_TIMEOUT_MS = Duration.toMillis(Duration.minutes(5));
 const WORKTREE_INDEX_REFRESH_TIMEOUT_MS = Duration.toMillis(Duration.minutes(5));
 const WORKTREE_REMOVE_TIMEOUT_MS = Duration.toMillis(Duration.minutes(5));
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
@@ -194,7 +191,6 @@ interface GitRepositoryPaths {
 }
 
 interface GitRefsSnapshot {
-  readonly defaultBranch: string | null;
   readonly localBranches: ReadonlyArray<VcsRef>;
   readonly remoteBranches: ReadonlyArray<VcsRef>;
   readonly hasPrimaryRemote: boolean;
@@ -1820,7 +1816,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ),
     );
 
-  const resolveConfiguredPushRemoteName = Effect.fn("resolveConfiguredPushRemoteName")(function* (
+  const resolvePushRemoteName = Effect.fn("resolvePushRemoteName")(function* (
     cwd: string,
     refName: string,
   ) {
@@ -1840,31 +1836,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ["config", "--get", "remote.pushDefault"],
       true,
     ).pipe(Effect.map((stdout) => stdout.trim()));
-    return pushDefaultRemote.length > 0 ? pushDefaultRemote : null;
-  });
-
-  const resolvePushRemoteName = Effect.fn("resolvePushRemoteName")(function* (
-    cwd: string,
-    refName: string,
-  ) {
-    const configuredRemote = yield* resolveConfiguredPushRemoteName(cwd, refName);
-    if (configuredRemote) {
-      return configuredRemote;
+    if (pushDefaultRemote.length > 0) {
+      return pushDefaultRemote;
     }
 
     return yield* resolvePrimaryRemoteName(cwd).pipe(Effect.orElseSucceed(() => null));
   });
-
-  const remoteRefContainsHead = (cwd: string, remoteRef: string) =>
-    executeGit(
-      "GitVcsDriver.pushCurrentBranch.publishContainsHead",
-      cwd,
-      ["merge-base", "--is-ancestor", "HEAD", `refs/remotes/${remoteRef}`],
-      { allowNonZeroExit: true },
-    ).pipe(
-      Effect.map((result) => result.exitCode === 0),
-      Effect.orElseSucceed(() => false),
-    );
 
   const ensureRemote: GitVcsDriver.GitVcsDriver["Service"]["ensureRemote"] = Effect.fn(
     "ensureRemote",
@@ -2866,7 +2843,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const remoteName = yield* resolvePushRemoteName(cwd, branch);
       if (!remoteName) return null;
       const branchName = yield* resolvePublishBranchName(cwd, branch);
-      return { remoteName, branchName, publishes: true, upstream: null, pushRemote: null };
+      return { remoteName, branchName, publishes: true, upstream: null };
     }
 
     if ((yield* readConfigValue(cwd, `branch.${branch}.remote`)) === ".") {
@@ -2884,7 +2861,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         branchName: branch,
         publishes: true,
         upstream: { remoteName: ".", branchName: localUpstream, upstreamRef: localUpstream },
-        pushRemote: null,
       };
     }
 
@@ -2895,20 +2871,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       branch === upstream.branchName ||
       (branch.endsWith(`/${upstream.branchName}`) && upstream.upstreamRef.endsWith(`/${branch}`));
     if (isAliasOfUpstreamHead) {
-      // A fork workflow pushes to the configured push remote and keeps the upstream for pulls, as plain `git push` does.
-      const configuredPushRemote = yield* resolveConfiguredPushRemoteName(cwd, branch).pipe(
-        Effect.orElseSucceed(() => null),
-      );
-      const pushRemote =
-        configuredPushRemote && configuredPushRemote !== upstream.remoteName
-          ? configuredPushRemote
-          : null;
       return {
-        remoteName: pushRemote ?? upstream.remoteName,
+        remoteName: upstream.remoteName,
         branchName: upstream.branchName,
         publishes: false,
         upstream,
-        pushRemote,
       };
     }
     const publishRemoteName = yield* resolvePushRemoteName(cwd, branch).pipe(
@@ -2920,7 +2887,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       branchName,
       publishes: true,
       upstream,
-      pushRemote: null,
     };
   });
 
@@ -2929,11 +2895,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   )(function* (cwd, current) {
     const destination = yield* resolvePushDestination(cwd, current.branch, current.hasUpstream);
     return destination
-      ? {
-          remoteName: destination.remoteName,
-          branchName: destination.branchName,
-          viaPushRemote: destination.pushRemote !== null,
-        }
+      ? { remoteName: destination.remoteName, branchName: destination.branchName }
       : null;
   });
 
@@ -2971,35 +2933,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
 
     const hasNoLocalDelta = details.aheadCount === 0 && details.behindCount === 0;
-    const destination = yield* resolvePushDestination(cwd, branch, details.hasUpstream);
     if (hasNoLocalDelta && details.hasUpstream) {
-      if (!destination?.pushRemote) {
-        return {
-          status: "skipped_up_to_date" as const,
-          branch,
-          ...(details.upstreamRef ? { upstreamBranch: details.upstreamRef } : {}),
-        };
-      }
-      const { pushRemote, branchName } = destination;
-      const pushRemoteRef = `${pushRemote}/${branchName}`;
-      // The local ref can be stale when the branch was deleted or rewound elsewhere.
-      const pushRemoteHasHead = yield* fetchRemoteTrackingBranch({
-        cwd,
-        remoteName: pushRemote,
-        remoteBranch: branchName,
-      }).pipe(
-        Effect.andThen(remoteRefContainsHead(cwd, pushRemoteRef)),
-        Effect.orElseSucceed(() => false),
-      );
-      if (pushRemoteHasHead) {
-        return {
-          status: "skipped_up_to_date" as const,
-          branch,
-          upstreamBranch: pushRemoteRef,
-          pushRemote,
-        };
-      }
-    } else if (hasNoLocalDelta) {
+      return {
+        status: "skipped_up_to_date" as const,
+        branch,
+        ...(details.upstreamRef ? { upstreamBranch: details.upstreamRef } : {}),
+      };
+    }
+
+    const destination = yield* resolvePushDestination(cwd, branch, details.hasUpstream);
+    if (hasNoLocalDelta) {
       const comparableBaseBranch = yield* resolveBaseBranchForNoUpstream(cwd, branch).pipe(
         Effect.orElseSucceed(() => null),
       );
@@ -3012,9 +2955,21 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         }
 
         // The configured diff base can contain HEAD while the publish branch is still behind.
-        if (
-          yield* remoteRefContainsHead(cwd, `${destination.remoteName}/${destination.branchName}`)
-        ) {
+        const publishContainsHead = yield* executeGit(
+          "GitVcsDriver.pushCurrentBranch.publishContainsHead",
+          cwd,
+          [
+            "merge-base",
+            "--is-ancestor",
+            "HEAD",
+            `refs/remotes/${destination.remoteName}/${destination.branchName}`,
+          ],
+          { allowNonZeroExit: true },
+        ).pipe(
+          Effect.map((result) => result.exitCode === 0),
+          Effect.orElseSucceed(() => false),
+        );
+        if (publishContainsHead) {
           return {
             status: "skipped_up_to_date" as const,
             branch,
@@ -3083,12 +3038,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       return {
         status: "pushed" as const,
         branch,
-        ...(destination.pushRemote
-          ? {
-              upstreamBranch: `${destination.remoteName}/${destination.branchName}`,
-              pushRemote: destination.pushRemote,
-            }
-          : { upstreamBranch: destination.upstream.upstreamRef }),
+        upstreamBranch: destination.upstream.upstreamRef,
         setUpstream: false,
       };
     }
@@ -4388,7 +4338,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         : left.ref.name.localeCompare(right.ref.name);
 
     return {
-      defaultBranch,
       localBranches: localBranches.toSorted(byRecencyThenName).map(({ ref }) => ref),
       remoteBranches: remoteBranches.toSorted(byRecencyThenName).map(({ ref }) => ref),
       hasPrimaryRemote: remoteNames.length > 0,
@@ -4529,24 +4478,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         { concurrency: 2 },
       );
       const { worktreeRoot } = repositoryPaths;
-      // The snapshot misses a branch created outside T3 Code until it refreshes. An unborn HEAD
-      // names a branch with no ref yet, so the ref must exist before it is listed.
-      const currentBranchUnlisted =
-        currentBranch !== null && !snapshot.localBranches.some((ref) => ref.name === currentBranch);
-      const unlistedCurrentBranch: ReadonlyArray<VcsRef> =
-        currentBranchUnlisted &&
-        (yield* branchExists(input.cwd, currentBranch).pipe(Effect.orElseSucceed(() => false)))
-          ? [
-              {
-                name: currentBranch,
-                current: true,
-                isRemote: false,
-                isDefault: currentBranch === snapshot.defaultBranch,
-                worktreePath: worktreeRoot,
-              },
-            ]
-          : [];
-      const listedBranches = snapshot.localBranches.map((ref) => {
+      const localBranches = snapshot.localBranches.map((ref) => {
         const current = ref.name === currentBranch;
         return {
           ...ref,
@@ -4561,7 +4493,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           current,
         };
       });
-      const localBranches = [...unlistedCurrentBranch, ...listedBranches];
       const combinedBranches = input.includeMatchingRemoteRefs
         ? [...localBranches, ...snapshot.remoteBranches]
         : dedupeRemoteBranchesWithLocalMatches([...localBranches, ...snapshot.remoteBranches]);
@@ -5009,7 +4940,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const options = {
       env: STATUS_UPSTREAM_REFRESH_ENV,
       fallbackErrorDetail: `git fetch ${input.remoteName} failed`,
-      timeoutMs: FETCH_REMOTE_TIMEOUT_MS,
     };
     // Another fetch in the same repository, such as the background status
     // poll, can win the race for a remote-tracking ref. The loser fails, but

@@ -255,20 +255,13 @@ export function WorkspaceBrowserPreview(props: {
     workspaceRoot: props.workspaceRoot,
     absolutePath: props.absolutePath,
   });
-  // Each workspace mutation re-mints the URL: a file outside the workspace is signed by its
-  // inode, which an atomic replace changes.
-  const assetUrl = useAssetUrlState(props.environmentId, resource, props.workspaceMutationId);
-  // The HTML frame keeps its first URL per key, so the key moves only once the re-minted URL arrives.
-  const [settledMutationId, setSettledMutationId] = useState(props.workspaceMutationId);
-  if (
-    assetUrl._tag === "Success" &&
-    !assetUrl.waiting &&
-    settledMutationId !== props.workspaceMutationId
-  ) {
-    setSettledMutationId(props.workspaceMutationId);
-  }
+  const assetUrl = useAssetUrlState(
+    props.environmentId,
+    resource,
+    pdf ? props.workspaceMutationId : undefined,
+  );
   const fileRevision = pdf && assetUrl._tag === "Success" ? assetUrl.fileRevision : undefined;
-  const revision = fileRevision ?? (pdf ? props.workspaceMutationId : settledMutationId);
+  const revision = fileRevision ?? props.workspaceMutationId;
   const revisionSuffix =
     revision === null
       ? ""

@@ -456,8 +456,6 @@ function taskStatusForRun(
   switch (run === undefined ? undefined : runOutcome(run)) {
     case "queued":
       return "queued";
-    case "starting":
-      return "starting";
     case "waiting":
       return "waiting";
     case "completed":
@@ -470,6 +468,7 @@ function taskStatusForRun(
     case "interrupted":
       return "interrupted";
     case "preparing":
+    case "starting":
     case "running":
     case undefined:
       return "running";
@@ -864,18 +863,11 @@ function threadPullRequests(
 }
 
 // Awaited background work keeps a thread live after its turn ends, as auto-settle and the sidebar treat it.
-function threadStatus(
-  activeStatus: OrchestratorMcpThreadListItem["status"] | null | undefined,
-  settledStatus: OrchestratorMcpThreadListItem["status"],
-  pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"],
-) {
-  if (activeStatus != null) return activeStatus;
-  if (settledStatus === "failed") return settledStatus;
-  return backgroundWorkHoldsCompletion(pendingBackgroundTasks ?? []) ? "waiting" : settledStatus;
-}
-
 function listedThreadStatus(shell: OrchestrationV2ThreadShell) {
-  return threadStatus(shell.activityRunStatus, shell.status, shell.pendingBackgroundTasks);
+  if (shell.activityRunStatus != null) return shell.activityRunStatus;
+  return backgroundWorkHoldsCompletion(shell.pendingBackgroundTasks ?? [])
+    ? "waiting"
+    : shell.status;
 }
 
 function listItemFromShell(
@@ -926,7 +918,7 @@ function threadDetail(
     link: threadLinkFor(scope, projection.thread.id, projection.thread.title),
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
-    status: threadStatus(active?.status, latest?.status ?? "idle", shell.pendingBackgroundTasks),
+    status: active?.status ?? latest?.status ?? "idle",
     latestRunId: latest?.id ?? null,
     activeRunId: active?.id ?? null,
     providerInstanceId: projection.thread.modelSelection.instanceId,
@@ -1674,7 +1666,6 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(threadManagementFailure)));
     const workState =
       task.result !== null ? "result_available" : heldForRestart ? "working" : taskWorkState;
-    const runStatus = taskStatusForRun(taskResultRun ?? childRun);
     const status =
       task.result !== null
         ? taskStatusForRun(
@@ -1687,11 +1678,12 @@ const make = Effect.gen(function* () {
           )
         : workState === "result_available"
           ? // A cancelled task's finished turn settles it as interrupted.
-            task.cancelledRunId !== undefined && runStatus === "completed"
+            task.cancelledRunId !== undefined &&
+            taskStatusForRun(taskResultRun ?? childRun) === "completed"
             ? "interrupted"
-            : runStatus
-          : runStatus === "queued" || runStatus === "starting"
-            ? runStatus
+            : taskStatusForRun(taskResultRun ?? childRun)
+          : taskStatusForRun(taskResultRun ?? childRun) === "queued"
+            ? "queued"
             : "running";
     const derivedResult =
       task.result !== null
@@ -1886,9 +1878,7 @@ const make = Effect.gen(function* () {
   ): Effect.fn.Return<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure> {
     const status: OrchestratorMcpDelegateTaskResult["status"] =
       task.result === null
-        ? (yield* remoteDelegation.runStatus(scope, task)) === "starting"
-          ? "starting"
-          : "running"
+        ? "running"
         : task.status === "completed" ||
             task.status === "failed" ||
             task.status === "cancelled" ||
@@ -2673,7 +2663,7 @@ const make = Effect.gen(function* () {
               ? threadManagementFailure(error)
               : failure(
                   "orchestration_error",
-                  `Unable to create delegated task: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                  `Unable to create delegated task: ${errorMessage(error)}`,
                 ),
           ),
         );
@@ -2781,7 +2771,7 @@ const make = Effect.gen(function* () {
                 Effect.mapError((error) =>
                   failure(
                     "orchestration_error",
-                    `Unable to dispose delegated task ${input.taskId} completion delivery: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                    `Unable to dispose delegated task ${input.taskId} completion delivery: ${errorMessage(error)}`,
                   ),
                 ),
               );
@@ -2812,7 +2802,7 @@ const make = Effect.gen(function* () {
             Effect.mapError((error) =>
               failure(
                 "task_not_cancellable",
-                `Unable to stop delegated task ${input.taskId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                `Unable to stop delegated task ${input.taskId}: ${errorMessage(error)}`,
               ),
             ),
           );
@@ -3016,7 +3006,7 @@ const make = Effect.gen(function* () {
                   Effect.mapError((error) =>
                     failure(
                       "orchestration_error",
-                      `Unable to create thread ${index + 1}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                      `Unable to create thread ${index + 1}: ${errorMessage(error)}`,
                     ),
                   ),
                 );
@@ -3055,7 +3045,7 @@ const make = Effect.gen(function* () {
                         ? threadManagementFailure(error)
                         : failure(
                             "orchestration_error",
-                            `Unable to start thread ${index + 1}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                            `Unable to start thread ${index + 1}: ${errorMessage(error)}`,
                           ),
                     ),
                   );
@@ -3081,7 +3071,7 @@ const make = Effect.gen(function* () {
                   Effect.mapError((error) =>
                     failure(
                       "orchestration_error",
-                      `Unable to record thread ${index + 1} in the parent timeline: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                      `Unable to record thread ${index + 1} in the parent timeline: ${errorMessage(error)}`,
                     ),
                   ),
                 );
@@ -3483,7 +3473,7 @@ const make = Effect.gen(function* () {
               ? threadManagementFailure(error)
               : failure(
                   "orchestration_error",
-                  `Unable to interrupt thread ${input.threadId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
+                  `Unable to interrupt thread ${input.threadId}: ${errorMessage(error)}`,
                 ),
           ),
         );

@@ -35,7 +35,6 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./stderr.ts";
-import { providerSpawnOptionsFork } from "./AcpSpawnEnvironment.fork.ts"; // fork-hook: upstream-fixes/acp-spawn-options-import
 import {
   type ProviderSessionIdentity,
   withSessionIdentityWhenKnown,
@@ -1263,7 +1262,6 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
 > {
   const random = yield* SecureRandom.SecureRandom;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const hostPlatform = yield* HostProcess.Platform;
   const runtimeScope = yield* Scope.fork(yield* Scope.Scope);
   const eventQueue = yield* Queue.unbounded<AcpSessionRuntimeEvent>();
   const modeStateRef = yield* Ref.make<AcpSessionModeState | undefined>(undefined);
@@ -1398,14 +1396,12 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
     ),
     ...options.spawn.env,
   }; // fork-hook: upstream-fixes/acp-spawn-scrub
-  const forkSpawnPolicy = providerSpawnOptionsFork(spawnEnv); // fork-hook: upstream-fixes/acp-spawn-environment
   const spawnCommand =
     options.spawn.shell === false
       ? { command: options.spawn.command, args: options.spawn.args, shell: false }
       : yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
-          ...(options.spawn.env ? { env: options.spawn.env } : {}),
-          extendEnv: options.spawn.extendEnv ?? true,
-          ...forkSpawnPolicy, // fork-hook: upstream-fixes/acp-spawn-environment
+          env: spawnEnv, // fork-hook: upstream-fixes/acp-spawn-environment
+          extendEnv: false, // fork-hook: upstream-fixes/acp-spawn-environment
         });
   const linuxCgroupLease =
     options.ownDescendantProcessGroups === true && options.processGroupPlatform === "linux"
@@ -1480,19 +1476,15 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
     spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment },
     options.sessionIdentity,
   ); // fork-hook: upstream-fixes/acp-session-identity
-  const forkChildSpawnPolicy = providerSpawnOptionsFork(forkSpawnEnv); // fork-hook: upstream-fixes/acp-spawn-environment
   const child = yield* spawner
     .spawn(
       ChildProcess.make(containedSpawnCommand.command, containedSpawnCommand.args, {
         ...(options.spawn.cwd ? { cwd: options.spawn.cwd } : {}),
-        ...(spawnEnvironment ? { env: spawnEnvironment } : {}),
-        extendEnv: options.spawn.extendEnv ?? true,
-        ...forkChildSpawnPolicy, // fork-hook: upstream-fixes/acp-session-identity-env
-        // Windows `detached` gives the child its own console, which breaks stdio pipes through
-        // `.cmd` shims; taskkill /T cleans up the tree there without it.
+        env: forkSpawnEnv, // fork-hook: upstream-fixes/acp-session-identity-env
+        extendEnv: false, // fork-hook: upstream-fixes/acp-spawn-environment
         ...(options.ownDetachedProcessGroup === undefined
           ? {}
-          : { detached: options.ownDetachedProcessGroup && hostPlatform !== "win32" }),
+          : { detached: options.ownDetachedProcessGroup }),
         shell: containedSpawnCommand.shell,
       }),
     )
@@ -1654,6 +1646,7 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
     Effect.uninterruptible(terminateOwnedProcessGroupImpl),
   );
   if (options.ownDetachedProcessGroup === true) {
+    const hostPlatform = yield* HostProcess.Platform;
     const forceTerminateOwnedProcessGroup =
       hostPlatform === "win32"
         ? terminateWindowsProcessTreeWithTaskkill(Number(child.pid)).pipe(

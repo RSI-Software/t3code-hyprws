@@ -9,11 +9,12 @@ const FOCUSABLE_SELECTOR =
   'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [contenteditable="true"], [tabindex]';
 
 /** Props that make an element one stop in the F6 cycle; `order` sets its place in the cycle. */
-export function workspaceAreaProps(name: string, order: number, label?: string) {
+export function workspaceAreaProps(name: string, order: number, label: string) {
   return {
     "data-workspace-area": name,
     "data-workspace-order": order,
-    ...(label ? { "aria-label": label, role: "region" } : {}),
+    "aria-label": label,
+    role: "region",
     tabIndex: -1,
   } as const;
 }

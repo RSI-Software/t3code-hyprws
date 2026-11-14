@@ -71,8 +71,7 @@ function setup(initial: PullRequestFilesViewedResult | null = answer(false)) {
 
 describe("createFilesViewedStore", () => {
   it("batches presses and holds them until a read that could have seen them", async () => {
-    const unchanged = { files: [{ path: "a.ts", state: "dismissed" as const }], truncated: false };
-    using t = setup(unchanged);
+    using t = setup();
     const scope = t.store.scope(first);
     const release = scope.subscribe(() => {});
     scope.setViewed("a.ts", true, "shown-a");
@@ -89,7 +88,10 @@ describe("createFilesViewedStore", () => {
     expect(scope.getSnapshot().get("a.ts")).toBe(true);
 
     // A push landed between the write and the next read: the host's answer wins.
-    t.answerFor(first, unchanged);
+    t.answerFor(first, {
+      files: [{ path: "a.ts", state: "dismissed" }],
+      truncated: false,
+    });
     expect(scope.getSnapshot().size).toBe(0);
     release();
   });
@@ -203,6 +205,9 @@ describe("createFilesViewedStore", () => {
     await vi.advanceTimersByTimeAsync(400);
     t.settles[0]?.(AsyncResult.success(undefined));
     await vi.advanceTimersByTimeAsync(0);
+    // The same answer published again is not a new read.
+    t.answerFor(first, agreeing);
+    expect(scope.getSnapshot().get("a.ts")).toBe(true);
     t.answerFor(first, answer(false));
     expect(scope.getSnapshot().size).toBe(0);
     release();

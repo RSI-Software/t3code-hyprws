@@ -48,13 +48,12 @@ export class ProviderEventNormalizeError extends Schema.TaggedError<ProviderEven
   {
     providerSessionId: ProviderSessionId,
     threadId: ThreadId,
-    // The rejected payload cannot be validated again while reporting its normalization failure.
-    eventType: Schema.String,
+    providerEvent: ProviderAdapter.ProviderAdapterV2Event,
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
-    return `Failed to normalize provider event ${this.eventType} for thread ${this.threadId}.`;
+    return `Failed to normalize provider event ${this.providerEvent.type} for thread ${this.threadId}.`;
   }
 }
 
@@ -732,7 +731,7 @@ export const layer: Layer.Layer<
                 new ProviderEventNormalizeError({
                   providerSessionId: input.providerSessionId,
                   threadId: input.threadId,
-                  eventType: input.event.type,
+                  providerEvent: input.event,
                   cause,
                 }),
             ),

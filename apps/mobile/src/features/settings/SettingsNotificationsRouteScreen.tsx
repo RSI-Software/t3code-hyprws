@@ -202,7 +202,9 @@ function ConfiguredSettingsNotificationsRouteScreen() {
     }
     if (result.value.type === "granted") {
       setNotificationStatus("enabled");
-      if (!agentAwarenessNotificationsReady()) {
+      if (agentAwarenessNotificationsReady()) {
+        Dialog.alert("Notifications enabled", "Agent notifications are enabled for this device.");
+      } else {
         Dialog.alert(
           "Couldn't finish enabling notifications",
           "Notification access was granted, but this device could not be registered with T3 Connect. Notifications will start once registration succeeds.",

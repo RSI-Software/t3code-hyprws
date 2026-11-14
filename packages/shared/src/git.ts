@@ -122,29 +122,30 @@ export function isTemporaryWorktreeBranch(refName: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
 }
 
-const stripGitSuffix = (path: string) => path.replace(/\.git$/i, "");
-
-function lowerCaseRemote(value: string, dropSuffix = stripGitSuffix): string {
-  return dropSuffix(value.trim().replace(/\/+$/g, "")).toLowerCase();
+function lowerCaseRemote(value: string): string {
+  return value
+    .trim()
+    .replace(/\/+$/g, "")
+    .replace(/\.git$/i, "")
+    .toLowerCase();
 }
 
 /**
  * The host and repository path a remote names, lower case and without a port, or null for a
- * remote that names no host, such as a local path. Most hosts serve `name.git` as `name`, so the
- * path drops that suffix unless `keepGitSuffix` asks for the name as written.
+ * remote that names no host, such as a local path.
  */
 export function parseGitRemoteRepository(
   value: string,
-  options?: { readonly keepGitSuffix?: boolean },
 ): { readonly host: string; readonly path: string } | null {
-  const dropSuffix = options?.keepGitSuffix ? (path: string) => path : stripGitSuffix;
-  const normalized = lowerCaseRemote(value, dropSuffix);
+  const normalized = lowerCaseRemote(value);
 
   if (/^(?:ssh|https?|git):\/\//i.test(normalized)) {
     try {
-      // Apply suffix policy to the path: `.git` may sit before a query or fragment.
+      // Parse the raw remote: `.git` may sit before a query or fragment, so strip it from the path once.
       const url = new URL(value.trim().toLowerCase());
-      const repositorySegments = dropSuffix(url.pathname.replace(/\/+$/, ""))
+      const repositorySegments = url.pathname
+        .replace(/\/+$/, "")
+        .replace(/\.git$/, "")
         .split("/")
         .filter((segment) => segment.length > 0);
       if (url.hostname && repositorySegments.length > 1) {
@@ -158,24 +159,15 @@ export function parseGitRemoteRepository(
   // A userless one-letter prefix is a Windows drive, not an SCP host.
   const scpStyleHostAndPath = /^[a-z]:/i.test(normalized)
     ? null
-    : /^(?:[a-zA-Z0-9._-]+@)?(\[[0-9a-f:.]+\]|[^@:/\\\s[\]]+):\/?([^/\s]+(?:\/[^/\s]+)+)$/i.exec(
-        normalized,
-      );
+    : /^(?:[a-zA-Z0-9._-]+@)?([^@:/\\\s]+):\/?([^/\s]+(?:\/[^/\s]+)+)$/i.exec(normalized);
   const scpHost = scpStyleHostAndPath?.[1];
   const scpPath = scpStyleHostAndPath?.[2];
-  if (!scpHost || !scpPath) return null;
-  if (!scpHost.startsWith("[")) return { host: scpHost, path: scpPath };
-  try {
-    // Spell an IPv6 host as the URL branch does, so `[::1]:a/b` and `ssh://[::1]/a/b` share a key.
-    return { host: new URL(`ssh://${scpHost}`).hostname, path: scpPath };
-  } catch {
-    return null;
-  }
+  return scpHost && scpPath ? { host: scpHost, path: scpPath } : null;
 }
 
 /**
  * `host/path` for a remote that names a host, otherwise the remote itself, lower case. A host that
- * spells repositories differently over SSH or treats `.git` literally has its source control registry's
+ * spells repositories differently over SSH has its source control registry's
  * `repositoryKeyFromRemote` rewrite this, so persisted keys come from that, not from here.
  */
 export function normalizeGitRemoteUrl(value: string): string {

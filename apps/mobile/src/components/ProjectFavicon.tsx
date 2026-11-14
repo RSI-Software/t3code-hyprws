@@ -1,7 +1,7 @@
 import { SymbolView } from "./ui/AppSymbol";
 import { AppText } from "./ui/AppText";
 import { Image } from "expo-image";
-import { memo, useLayoutEffect, useMemo, useState } from "react";
+import { memo, useLayoutEffect, useState } from "react";
 import { View } from "react-native";
 import type { EnvironmentId, ProjectIconOverride } from "@t3tools/contracts";
 import {
@@ -11,7 +11,6 @@ import {
 } from "@t3tools/shared/projectFavicon";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { projectFaviconUrlAtom } from "../state/assets";
 import {
   countGlyphs,
@@ -21,7 +20,6 @@ import {
   resolveProjectIconSymbol,
   type ProjectIconGlyph,
 } from "../lib/projectIcon";
-import { resolveProjectFaviconColorScheme } from "../lib/projectFaviconColorScheme";
 
 import {
   beginProjectFaviconRequest,
@@ -162,16 +160,6 @@ function ProjectFaviconImage(props: {
       : "loading",
   );
 
-  const { themeAppearance } = useAppearancePreferences();
-  const requestFaviconUrl = faviconRequest?.faviconUrl;
-  const inlineFaviconUrl = useMemo(
-    () =>
-      requestFaviconUrl?.startsWith("data:")
-        ? resolveProjectFaviconColorScheme(requestFaviconUrl, themeAppearance)
-        : null,
-    [requestFaviconUrl, themeAppearance],
-  );
-
   const showImage = faviconRequest !== null && status === "loaded";
   const fallbackGlyph = showImage ? null : projectAutoMonogram(props.projectTitle);
 
@@ -199,11 +187,11 @@ function ProjectFaviconImage(props: {
         <Image
           key={faviconRequest.faviconUrl}
           source={
-            inlineFaviconUrl !== null
-              ? { uri: inlineFaviconUrl }
+            faviconRequest.faviconUrl.startsWith("data:")
+              ? { uri: faviconRequest.faviconUrl }
               : { uri: faviconRequest.faviconUrl, cacheKey: faviconRequest.cacheKey }
           }
-          cachePolicy={inlineFaviconUrl !== null ? "memory" : "memory-disk"}
+          cachePolicy={faviconRequest.faviconUrl.startsWith("data:") ? "memory" : "memory-disk"}
           recyclingKey={faviconRequest.cacheKey}
           accessibilityLabel={`${props.projectTitle} favicon`}
           style={{

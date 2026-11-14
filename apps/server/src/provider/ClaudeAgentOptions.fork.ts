@@ -83,22 +83,17 @@ export function applyClaudeAgentLaunchArg(
   if (selectedAgent !== "default") extraArgs.agent = selectedAgent;
 }
 
-export function canApplyClaudeAgentSelectionLiveFork(
-  live: { readonly queryIdentity: string; readonly agentFork?: string },
-  next: { readonly queryIdentity: string; readonly agentFork?: string },
-): boolean {
-  return live.agentFork === next.agentFork;
-}
-
-// Agent changes require a new process; live model/effort changes keep the agent unchanged.
+/**
+ * Folds the agent selection into a compiled selection's query identity, so a
+ * changed agent reopens the thread's query with resume. Without a selection
+ * the identity is upstream's.
+ */
 export function applyClaudeAgentQueryIdentity(
-  compiled: { queryIdentity: string; agentFork?: string },
+  compiled: { queryIdentity: string },
   modelSelection: ModelSelection,
 ): void {
   const agent = getModelSelectionStringOptionValue(modelSelection, "agent");
   if (agent !== undefined) {
-    // Upstream clears queryIdentity after a failed live update; the running agent is unchanged.
-    compiled.agentFork = agent;
     compiled.queryIdentity = JSON.stringify([compiled.queryIdentity, { agent }]);
   }
 }

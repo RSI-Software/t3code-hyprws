@@ -471,7 +471,7 @@ describe("ExternalMcpServiceFork work", () => {
     return harness.withService((service) =>
       Effect.gen(function* () {
         const read = yield* service.readThread(principal, { threadId: owner });
-        assert.strictEqual(read.thread.status, "waiting");
+        assert.strictEqual(read.thread.status, "completed");
         assert.strictEqual(read.thread.pendingRequestCount, 0);
         assert.strictEqual(read.thread.work.state, "waiting_on_background");
         assert.strictEqual(read.thread.work.background.length, 5);
@@ -723,7 +723,7 @@ describe("in-thread MCP thread work", () => {
       const read = yield* ThreadWorkFork.readThreadFork(scope, { threadId: owner });
       assert.deepStrictEqual(
         [read.thread.status, read.thread.work.state],
-        ["waiting", "waiting_on_background"],
+        ["completed", "waiting_on_background"],
       );
     }).pipe(inThread(harness));
   });

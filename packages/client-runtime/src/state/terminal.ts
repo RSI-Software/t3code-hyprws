@@ -31,7 +31,6 @@ import {
   type TerminalBufferState,
 } from "./terminalSession.ts";
 import { terminalOutputText } from "./terminalOutput.ts";
-import { terminalAttachmentInputFork } from "./terminalSessionManaged.fork.ts"; // fork-hook: zmux-estate/terminal-session-attachment
 
 export function createTerminalEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -240,7 +239,7 @@ export interface TerminalSessionOptions {
     readonly terminalId: string;
   };
   readonly gridSize: TerminalGridSize;
-  /** Written once, after the first attachment snapshot lands and the shell has the measured grid. */
+  /** Written once, as soon as the first attachment snapshot lands. */
   readonly initialInput?: string | undefined;
   /** Read right before every command, so revoking operate stops them at once. */
   readonly canOperate: () => boolean;
@@ -266,7 +265,7 @@ export interface TerminalSession {
  * Owns one shown terminal's lifecycle: it reopens an ended shell on an explicit
  * visit, closes and reports a shell that exits while attached, replays the
  * measured grid whenever the server starts a new output generation, and writes
- * the launch's initial input once that grid has reached the shell.
+ * the launch's initial input once.
  */
 export function createTerminalSession(
   atoms: TerminalSessionAtoms,
@@ -275,44 +274,19 @@ export function createTerminalSession(
   const { environmentId, threadId, terminalId } = options.target;
   let lifecycle = INITIAL_TERMINAL_LIFECYCLE;
   let gridSize = options.gridSize;
-  // The seeded grid is a cache or default guess; launch input waits for the surface's own measurement.
-  let gridMeasured = false;
   let generation: number | null = null;
   let liveLifecycleVersion: number | null = null;
   let initialInputPending = Boolean(options.initialInput);
   let lastStatus: TerminalBufferState["status"] | null = null;
   let loggedFirstOutput = false;
-  let commandRegistry: AtomRegistry.AtomRegistry | null = null;
-  // Only a successful resize of the current measured grid may release initial input.
-  let shellResized: ReturnType<typeof runAtomCommand> | null = null;
+  let resizeRegistry: AtomRegistry.AtomRegistry | null = null;
   let attachmentFork: { readonly attachmentId?: string } = {}; // fork-hook: zmux-estate/terminal-session-attachment
 
   const sendResize = () => {
-    const registry = commandRegistry;
-    if (generation === null || registry === null || !options.canOperate()) return;
-    const resized = runAtomCommand(registry, atoms.resize, {
+    if (generation === null || resizeRegistry === null || !options.canOperate()) return;
+    void runAtomCommand(resizeRegistry, atoms.resize, {
       environmentId,
       input: { threadId, terminalId, ...attachmentFork, cols: gridSize.cols, rows: gridSize.rows }, // fork-hook: zmux-estate/terminal-session-attachment
-    });
-    shellResized = resized;
-    void resized.then((result) => {
-      const data = options.initialInput;
-      if (
-        result._tag !== "Success" ||
-        resized !== shellResized ||
-        !gridMeasured ||
-        generation === null ||
-        !initialInputPending ||
-        !data ||
-        !options.canOperate()
-      )
-        return;
-      initialInputPending = false;
-      void runAtomCommand(registry, atoms.write, {
-        environmentId,
-        input: { threadId, terminalId, data },
-        ...terminalAttachmentInputFork({ threadId, terminalId, data }, attachmentFork), // fork-hook: zmux-estate/terminal-session-attachment
-      });
     });
   };
 
@@ -367,7 +341,7 @@ export function createTerminalSession(
     input: TerminalAttachInput,
     result: AsyncResult.AsyncResult<TerminalBufferState, unknown>,
   ) => {
-    commandRegistry = registry;
+    resizeRegistry = registry;
     const buffer = AsyncResult.getOrElse(result, () => EMPTY_TERMINAL_BUFFER_STATE);
     const status = result._tag === "Failure" ? "error" : buffer.status;
     if (status !== lastStatus) {
@@ -398,8 +372,15 @@ export function createTerminalSession(
       buffer.version > 0 && status === "running" ? buffer.output.generation : null;
     if (nextGeneration !== generation) {
       generation = nextGeneration;
-      shellResized = null;
       sendResize();
+    }
+
+    if (initialInputPending && buffer.version > 0 && options.initialInput && options.canOperate()) {
+      initialInputPending = false;
+      void runAtomCommand(registry, atoms.write, {
+        environmentId,
+        input: { threadId, terminalId, ...attachmentFork, data: options.initialInput }, // fork-hook: zmux-estate/terminal-session-attachment
+      });
     }
 
     apply({ type: "status", status, version: buffer.version }, registry, input);
@@ -426,7 +407,6 @@ export function createTerminalSession(
       attachmentFork = input.attachmentId ? { attachmentId: input.attachmentId } : {}; // fork-hook: zmux-estate/terminal-session-attachment
       get.addFinalizer(() => {
         generation = null;
-        shellResized = null;
         lastStatus = null;
         setLive(null);
         lifecycle = transitionTerminalLifecycle(lifecycle, {
@@ -450,8 +430,7 @@ export function createTerminalSession(
       return attached;
     },
     reportGridSize: (size) => {
-      if (gridMeasured && size.cols === gridSize.cols && size.rows === gridSize.rows) return;
-      gridMeasured = true;
+      if (size.cols === gridSize.cols && size.rows === gridSize.rows) return;
       gridSize = size;
       sendResize();
     },
