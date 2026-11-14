@@ -576,20 +576,20 @@ export function GitHubIssuesPage({
             issuesAvailable={false}
             deviceAvailable={false}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto">{detail}</div>
+            <div className="flex min-h-0 flex-1 flex-col">{detail}</div>
           </RightPanelTabs>
         ) : null}
       </div>
 
       {selectedRef !== null && isMobile ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-background pb-safe">
+        <div className="fixed inset-0 z-50 flex flex-col bg-background pb-safe">
           <div className="sticky top-0 z-20 flex min-h-12 items-center border-b border-border bg-background/95 px-3 pt-safe backdrop-blur">
             <Button variant="ghost" size="sm" onClick={closeDetail}>
               <ArrowLeftIcon />
               Back to issues
             </Button>
           </div>
-          {detail}
+          <div className="flex min-h-0 flex-1 flex-col">{detail}</div>
         </div>
       ) : null}
     </SidebarInset>
