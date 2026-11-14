@@ -67,6 +67,40 @@ describe("GitHub references written as text", () => {
     },
   );
 
+  it("resolves a short reference to the thread's linked pull request or issue first", () => {
+    const pullRequest = "https://github.com/RSI-Software/rsi-pr-agent/pull/781";
+    const linked = [
+      {
+        host: "github.com",
+        repository: "rsi-software/rsi-pr-agent",
+        number: 781,
+        url: pullRequest,
+      },
+      {
+        host: "github.com",
+        repository: "acme/a",
+        number: 5,
+        url: "https://github.com/acme/a/issues/5",
+      },
+      {
+        host: "github.com",
+        repository: "acme/b",
+        number: 5,
+        url: "https://github.com/acme/b/issues/5",
+      },
+    ];
+    const resolve = (text: string) =>
+      resolveGitHubReferenceHref(findGitHubReferences(text)[0]!.url, thread, linked);
+
+    expect(resolve("#781")).toBe(pullRequest);
+    expect(resolve("rsi-pr-agent#781")).toBe(pullRequest);
+    expect(resolve("rsi#781")).toBe("https://github.com/RSI-Software/rsi/issues/781");
+    expect(resolve("#5")).toBe("https://github.com/RSI-Software/donjor-skills/issues/5");
+    expect(resolveGitHubReferenceHref(findGitHubReferences("#781")[0]!.url, null, linked)).toBe(
+      pullRequest,
+    );
+  });
+
   it("links a short reference only when the thread has a GitHub repository", () => {
     const [short, full] = findGitHubReferences("rsi#1 and acme/repo#2");
     expect(resolveGitHubReferenceHref(short!.url, null)).toBeNull();
