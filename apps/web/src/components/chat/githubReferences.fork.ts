@@ -27,19 +27,42 @@ export const GITHUB_REFERENCE_REMARK_PLUGINS_FORK: PluggableList = [
   [remarkPullRequestAutolinks, { autolinks: findGitHubReferences }],
 ];
 
+/** A pull request or issue the thread links, which a short reference names before its project. */
+export interface LinkedGitHubReference {
+  readonly host: string;
+  readonly repository: string;
+  readonly number: number;
+  readonly url: string;
+}
+
 /**
- * The GitHub URL a placeholder names: a bare `#12` is the thread repository's, `repo#12` a
- * sibling under the same owner. Null when the thread has no GitHub repository to resolve against.
+ * The GitHub URL a placeholder names. A bare `#12` or `repo#12` is first the thread's own linked
+ * pull request or issue, since agents often work outside the project's repository; failing a
+ * single match, `#12` is the thread repository's and `repo#12` a sibling under the same owner.
+ * Null when nothing resolves it.
  */
 export function resolveGitHubReferenceHref(
   href: string,
   repository: { readonly owner: string; readonly name: string } | null,
+  linked: ReadonlyArray<LinkedGitHubReference> = [],
 ): string | null {
   const parts = href.slice(GITHUB_REFERENCE_HREF_PREFIX.length).split("/");
   const number = parts.pop();
   const qualifier = parts.filter(Boolean);
   if (qualifier.length === 2) return `https://github.com/${qualifier.join("/")}/issues/${number}`;
+  const name = qualifier[0]?.toLowerCase();
+  const matches = linked.filter(
+    (link) =>
+      link.host === "github.com" &&
+      String(link.number) === number &&
+      (name === undefined || link.repository.split("/")[1]?.toLowerCase() === name),
+  );
+  const [match] = matches;
+  if (
+    match &&
+    matches.every((link) => link.repository.toLowerCase() === match.repository.toLowerCase())
+  )
+    return match.url;
   if (repository === null) return null;
-  const name = qualifier[0] ?? repository.name;
-  return `https://github.com/${repository.owner}/${name}/issues/${number}`;
+  return `https://github.com/${repository.owner}/${qualifier[0] ?? repository.name}/issues/${number}`;
 }
