@@ -6,7 +6,7 @@ import type {
   GitHubIssueDetail,
   ScopedThreadRef,
 } from "@t3tools/contracts";
-import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import {
   ArrowUpRightIcon,
   BookOpenIcon,
@@ -81,13 +81,6 @@ export function GitHubIssueActionsMenu({
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const [asking, setAsking] = useState<AskKind | null>(null);
   const runSetState = useAtomCommand(githubIssueEnvironment.setState, { reportFailure: false });
-  // Chips and the issue tab read state from the long-cached reference; a change here re-reads it.
-  const refreshReference = useAtomRefresh(
-    githubIssueEnvironment.reference({
-      environmentId,
-      input: { host: "github.com", repository: detail.repository, number: detail.number },
-    }),
-  );
   const [changingState, setChangingState] = useState(false);
   // A server that predates `githubIssues.setState` still lists issues; offer nothing it cannot do.
   const canChangeState =
@@ -175,7 +168,6 @@ export function GitHubIssueActionsMenu({
             : "Issue closed as completed",
     });
     onRefresh?.();
-    refreshReference();
     onStateChanged?.();
   };
 

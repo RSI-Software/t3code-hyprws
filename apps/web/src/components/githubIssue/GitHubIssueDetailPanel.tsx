@@ -51,6 +51,7 @@ import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
 import { GitHubIssueStateGlyph, githubIssueStatePresentation } from "./githubIssuePresentation";
 import { githubIssueHandoffs } from "./githubIssueHandoff";
+import { useGitHubIssueReferenceInvalidate } from "./githubIssueReference.fork";
 import {
   GitHubIssueLinkedThreadList,
   GitHubIssueThreadPicker,
@@ -139,6 +140,21 @@ export function EnvironmentGitHubIssueDetailContent({
     environmentId,
     (settings) => settings.githubIssueHandoffPromptTemplate,
   );
+  const { detail } = props;
+  const invalidateReference = useGitHubIssueReferenceInvalidate({
+    environmentId,
+    projectId: detail?.projectId ?? "",
+    repository: detail?.repository ?? "",
+    number: detail?.number ?? 0,
+  });
+  const invalidateReferenceEvent = useEffectEvent(invalidateReference);
+  const shownState = detail
+    ? `${detail.url} ${detail.state} ${detail.closeReason} ${detail.updatedAt}`
+    : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the tab's cached reference in step with each detail this panel shows.
+  useEffect(() => {
+    if (shownState !== null) invalidateReferenceEvent();
+  }, [shownState]);
   return (
     <GitHubIssueDetailContent
       // Per issue, as upstream keys the pull request detail: another issue opens unfolded.
