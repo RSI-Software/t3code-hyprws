@@ -338,6 +338,10 @@ With proactive panels on, a newly linked issue opens **Linked issues**, as a lin
 
 A linked issue shows its **type and labels**, and with **sub-issues**, how many are closed. Its chevron **expands or collapses** them; one that has a **linked sub-issue** starts expanded.
 
+**Linear issues** link by **URL only**, from the link dialog or by an agent.
+T3 Code **never reads Linear**: a Linear link shows its identifier and its URL's title, never its state.
+In chat, a **Linear URL** shows as a chip; a **bare `ENG-123`** links once the thread links that issue.
+
 The issue panel's menu closes an issue as completed or not planned, and reopens a closed one, which
 needs write access to the repository. Commenting, labeling, and assigning stay on GitHub. Each server
 holding a project needs GitHub CLI installed and authenticated — `gh auth login` for GitHub.com, or

@@ -219,11 +219,16 @@ describe("ThreadIssueSyncReactor", () => {
             makeLink(2, { state: "open", syncedAt: "2026-09-30T11:59:00.000Z" }),
             makeLink(3, { state: "closed", syncedAt: "2026-09-30T11:00:00.000Z" }),
             makeLink(4, { state: "open", syncedAt: LONG_AGO }),
+            // Never read: the server has no Linear access.
+            makeLink(5, null, "acme/ENG", "linear.app"),
           ],
           { archived: true },
         );
         // A live twin's sweep read writes nothing here, so #4 stays stale for this thread.
-        yield* insertThread("live", [makeLink(4, { state: "open", syncedAt: LONG_AGO })]);
+        yield* insertThread("live", [
+          makeLink(4, { state: "open", syncedAt: LONG_AGO }),
+          makeLink(5, null, "acme/ENG", "linear.app"),
+        ]);
         const fixture = yield* makeHarness();
         yield* fixture.activate;
         yield* Queue.take(fixture.started);
@@ -244,6 +249,7 @@ describe("ThreadIssueSyncReactor", () => {
           (yield* Ref.get(fixture.reads)).map((read) => read.numbers),
           [[4], [1, 3, 4], [1, 2, 3, 4]],
         );
+        assert.isFalse((yield* Ref.get(fixture.reads)).some((read) => read.host === "linear.app"));
       }),
     ),
   );

@@ -25,7 +25,7 @@ export const issueSurfaceActionsFork = (props: IssueSurfaceLauncherPropsFork) =>
     },
     {
       label: "Linked issues",
-      description: "Every GitHub issue this thread has linked.",
+      description: "Every issue this thread has linked.",
       icon: Link2Icon,
       shortcut: "K",
       available: props.issueLinksAvailable === true,

@@ -20,6 +20,12 @@ describe("resolveIssueReference", () => {
     expect(resolveIssueReference("", project)).toBeNull();
     expect(resolveIssueReference("issue forty", project)).toHaveProperty("error");
     expect(resolveIssueReference("42", null)).toHaveProperty("error");
+    expect(resolveIssueReference("ENG-42", project)).toEqual({
+      error: "Paste the Linear issue's full URL.",
+    });
+    expect(
+      resolveIssueReference("https://linear.app/acme/issue/ENG-42/fix-login", null),
+    ).toHaveProperty("target.repository", "acme/ENG");
     expect(resolveIssueReference("https://github.com/other/repo/issues/3", null)).toHaveProperty(
       "target.repository",
       "other/repo",

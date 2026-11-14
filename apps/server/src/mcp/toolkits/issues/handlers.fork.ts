@@ -5,6 +5,9 @@
 import {
   CommandId,
   githubIssueLinkTarget,
+  isLinearIssueKey,
+  LINEAR_ISSUE_HOST,
+  linearIssueLinkTarget,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -72,6 +75,10 @@ function projectGitHubHost(project: OrchestrationProjectShell | undefined): stri
 
 /** The web URL of an issue, carrying nothing of the text it was read from. */
 function canonicalIssueUrl(key: ThreadIssueKey, protocol = "https:"): string {
+  if (isLinearIssueKey(key)) {
+    const [workspace, team] = key.repository.split("/");
+    return `https://${LINEAR_ISSUE_HOST}/${workspace}/issue/${team?.toUpperCase()}-${key.number}`;
+  }
   return `${protocol}//${key.host}/${key.repository}/issues/${key.number}`;
 }
 
@@ -106,6 +113,8 @@ const resolveIssueTarget = Effect.fn("IssuesToolkitFork.resolveTarget")(function
 ) {
   const projectHost = projectGitHubHost(project);
   if (input.url !== undefined) {
+    const linear = linearIssueLinkTarget(input.url);
+    if (linear !== null) return { ...normalizeThreadIssueKey(linear), url: linear.url };
     const parsed = parseGitHubIssueUrlFork(input.url, projectHost);
     if (parsed === null) {
       return yield* new IssueUrlInvalidError({});
@@ -239,7 +248,7 @@ const make = Effect.gen(function* () {
         const project = yield* projectOf(thread, IssueLinkFailedError);
         const target = yield* resolveIssueTarget(input, project);
         // GitHub serves a pull request at its /issues/ URL too.
-        if (yield* issueService.isPullRequest(target)) {
+        if (!isLinearIssueKey(target) && (yield* issueService.isPullRequest(target))) {
           return yield* new IssueIsPullRequestError({
             url: target.url.replace(/\/issues\/(\d+)$/u, "/pull/$1"),
           });

@@ -3,7 +3,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { issueKeyLabel, issueKeySource, type ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { Atom } from "effect/reactivity";
 import { useState } from "react";
@@ -118,9 +118,10 @@ function LinkIssueDialog({
     <Dialog open onOpenChange={(next) => (pending || next ? undefined : onClose())}>
       <DialogPopup className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Link GitHub issue</DialogTitle>
+          <DialogTitle>Link issue</DialogTitle>
           <DialogDescription>
-            Attach an issue to this thread. A bare number means this thread's repository.
+            Attach a GitHub or Linear issue to this thread. A bare number means this thread's
+            repository.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -140,7 +141,7 @@ function LinkIssueDialog({
           />
           {resolved !== null && "target" in resolved ? (
             <p className="truncate text-muted-foreground text-xs">
-              {resolved.target.host}/{resolved.target.repository} #{resolved.target.number}
+              {issueKeySource(resolved.target)} {issueKeyLabel(resolved.target)}
             </p>
           ) : null}
           {attempted && resolved !== null && "error" in resolved ? (
