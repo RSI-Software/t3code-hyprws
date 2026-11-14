@@ -7,6 +7,11 @@ import { readLocalApi } from "~/localApi";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
+import {
+  CrumbsBackButtonFork,
+  crumbsNumberLabelFork,
+  useCrumbsSubjectFork,
+} from "./PullRequestDetailCrumbs.fork"; // fork-hook: github-issues/detail-crumbs-import
 
 interface CrumbsPullRequest {
   readonly url: string;
@@ -30,6 +35,9 @@ const ROW_CLASS_NAME =
   "col-start-1 row-start-1 flex min-w-0 items-center gap-1 text-sm text-muted-foreground transition-[opacity,transform] ease-out motion-reduce:transform-none motion-reduce:transition-none sm:text-xs";
 
 function BackButton({ onBack, focusable }: { onBack: () => void; focusable: boolean }) {
+  const forkSubject = useCrumbsSubjectFork(); // fork-hook: github-issues/detail-crumbs-back-subject
+  if (forkSubject)
+    return <CrumbsBackButtonFork onBack={onBack} focusable={focusable} subject={forkSubject} />; // fork-hook: github-issues/detail-crumbs-back
   return (
     <Tooltip>
       <TooltipTrigger
@@ -62,6 +70,7 @@ function NumberLink({
   openOnHostText: string;
   focusable: boolean;
 }) {
+  const forkSubject = useCrumbsSubjectFork(); // fork-hook: github-issues/detail-crumbs-number-subject
   return (
     <Tooltip>
       <TooltipTrigger
@@ -79,6 +88,7 @@ function NumberLink({
               toneClassName,
             )}
             aria-label={`Open ${sourceControlClients.get(detail.provider).changeRequest.singular} #${detail.number} on host`}
+            {...crumbsNumberLabelFork(forkSubject, detail.number)} // fork-hook: github-issues/detail-crumbs-number-label
           >
             #{detail.number}
             <ExternalLinkIcon aria-hidden className="size-2.5" />
