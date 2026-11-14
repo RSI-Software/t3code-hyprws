@@ -3,7 +3,10 @@ import { useAtomMount, useAtomSubscribe } from "@effect/atom-react";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 import { useEffect, useRef, useState } from "react";
-import { useIgnoredListingInvalidationFork } from "./ignoredListingInvalidation.fork"; // fork-hook: workspace-files/file-browser-ignored-listing-import
+import {
+  ignoredListingEnvironmentFork,
+  useIgnoredListingInvalidationFork,
+} from "./ignoredListingInvalidation.fork"; // fork-hook: workspace-files/file-browser-ignored-listing-import
 
 import { environmentCatalog } from "~/connection/catalog";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -11,8 +14,8 @@ import { projectEnvironment } from "~/state/projects";
 import { useShowIgnoredFiles } from "./ignoredFilesPreference.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 
 export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
-  // fork-hook: workspace-files/file-browser-ignored-listing — the show-ignored preference rides the entries input
   const includeIgnored = useShowIgnoredFiles(); // fork-hook: workspace-files/file-browser-ignored-listing
+  const listingEnvironmentFork = ignoredListingEnvironmentFork(projectEnvironment, includeIgnored); // fork-hook: workspace-files/file-browser-ignored-listing
   const [directories, setDirectories] = useState(new Map<string, readonly ProjectEntry[]>());
   const [errors, setErrors] = useState(new Map<string, string>());
   const [pending, setPending] = useState(1);
@@ -32,6 +35,7 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   const generation = useRef(0); // fork-hook: workspace-files/file-browser-ignored-fence
 
   const startRequest = (directoryPath: string, refresh: boolean): Promise<void> => {
+    const projectEnvironment = listingEnvironmentFork(); // fork-hook: workspace-files/file-browser-ignored-listing
     loaded.current.add(directoryPath);
     requested.current.add(directoryPath);
     const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
@@ -165,14 +169,15 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   useAtomSubscribe(sessionGeneration, () => {
     for (const path of errors.keys()) void load(path);
   });
-  // fork-hook: workspace-files/file-browser-ignored-listing — a preference flip invalidates the
-  // per-directory caches so every visited folder refetches with (or without) ignored entries.
   useIgnoredListingInvalidationFork(includeIgnored, () => {
     generation.current++; // fork-hook: workspace-files/file-browser-ignored-fence
     loaded.current.clear();
     requested.current.clear();
     for (const promise of requests.current.values()) promise.catch(() => undefined);
     requests.current.clear();
+    listings.current.clear(); // fork-hook: workspace-files/file-browser-ignored-listing
+    detachedRequests.current.clear(); // fork-hook: workspace-files/file-browser-ignored-listing
+    followUpRefreshes.current.clear(); // fork-hook: workspace-files/file-browser-ignored-listing
     setDirectories(new Map());
     setErrors(new Map());
     active.current = true;
