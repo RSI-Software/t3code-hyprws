@@ -155,6 +155,7 @@ export const providerTurnStartCheckoutGateFork = Layer.effect(
       );
 
     return ProviderTurnStartServiceV2.of({
+      ...inner,
       // The wrapped service owns the turn-start span.
       start: Effect.fnUntraced(function* (input) {
         return yield* bestEffort("turn-start worktree recovery failed", recover(input)).pipe(
