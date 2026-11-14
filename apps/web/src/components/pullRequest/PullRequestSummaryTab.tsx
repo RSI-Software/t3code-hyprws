@@ -1316,3 +1316,5 @@ export const PullRequestSummaryTab = memo(function PullRequestSummaryTab({
     </div>
   );
 });
+
+export { MetaRow, Section }; // fork-hook: github-issues/summary-primitives
