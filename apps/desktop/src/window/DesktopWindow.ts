@@ -1113,24 +1113,6 @@ export const make = Effect.gen(function* () {
     return Option.some(window);
   });
 
-  const createMain = Effect.gen(function* () {
-    const window = yield* createWindow();
-    if (Option.isSome(window)) {
-      mainClosedDuringStartup = false;
-      yield* logWindowInfo("main window created");
-    }
-    return window;
-  }).pipe(Effect.withSpan("desktop.window.createMain"));
-
-  const ensureMain = Effect.gen(function* () {
-    if (yield* Ref.get(desktopState.quitting)) return Option.none<Electron.BrowserWindow>();
-    const existingWindow = yield* electronWindow.main;
-    if (Option.isSome(existingWindow)) {
-      return existingWindow;
-    }
-    return yield* createMain;
-  }).pipe(mainWindowMutex.withPermits(1), Effect.withSpan("desktop.window.ensureMain"));
-
   const requireWindow = (window: Option.Option<Electron.BrowserWindow>) =>
     Option.match(window, {
       onNone: () => Effect.interrupt,
