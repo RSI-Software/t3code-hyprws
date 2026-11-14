@@ -64,7 +64,8 @@ function showLoadedFile(contents: string) {
   const atom = optimisticFileAtom(environmentId, props.cwd, props.relativePath);
   const unmount = appAtomRegistry.mount(atom);
   appAtomRegistry.set(atom, {
-    confirmedAgainst: null,
+    saved: true,
+    confirmingQuery: Atom.make(null),
     data: {
       relativePath: props.relativePath,
       contents,
