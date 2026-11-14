@@ -115,6 +115,7 @@ import { threadArtifactsSurfaceActionsFork } from "./threadArtifacts/threadArtif
 import { ThreadArtifactsTabIconFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/panel-tab-icon-import
 import { githubIssueSurfaceActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
 import { githubIssueEmptyStateActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/empty-state-unavailable-hint
+import { GitHubIssueTabIconFork } from "./githubIssue/GitHubIssueTabIcon.fork"; // fork-hook: github-issues/panel-tab-status-icon
 import { threadArtifactsEmptyStateActionsFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/empty-state-launcher
 
 export interface RightPanelTabsProps {
@@ -617,7 +618,7 @@ function surfaceTitle(
     case "github-issue-links": // fork-hook: github-issues/panel-tab-title
       return "Linked issues"; // fork-hook: github-issues/panel-tab-title
     case "github-issue":
-      return `Issue #${surface.number}`; // fork-hook: github-issues/panel-tab-title
+      return `#${surface.number}`; // fork-hook: github-issues/panel-tab-title
     case "thread-artifacts": // fork-hook: thread-artifacts/panel-tab-title
       return "Artifacts"; // fork-hook: thread-artifacts/panel-tab-title
     case "device":
@@ -715,7 +716,7 @@ function SurfaceIcon({
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "github-issue":
-      return <CircleDot className="size-3 shrink-0 text-muted-foreground" />; // fork-hook: github-issues/panel-tab-status-icon
+      return <GitHubIssueTabIconFork surface={surface} />; // fork-hook: github-issues/panel-tab-status-icon
     case "github-issues": // fork-hook: github-issues/panel-tab-status-icon
       return <CircleDot className="size-3 shrink-0" />; // fork-hook: github-issues/panel-tab-status-icon
     case "github-issue-links": // fork-hook: github-issues/panel-tab-status-icon
