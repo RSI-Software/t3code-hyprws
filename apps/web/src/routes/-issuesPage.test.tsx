@@ -63,6 +63,7 @@ vi.mock("../state/entities", () => ({
     },
   ],
   useQuietThreadShell: () => null,
+  useServerConfigs: () => new Map(),
 }));
 
 vi.mock("../state/githubIssues", () => ({

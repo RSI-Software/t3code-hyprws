@@ -141,6 +141,8 @@ export function EnvironmentGitHubIssueDetailContent({
   );
   return (
     <GitHubIssueDetailContent
+      // Per issue, as upstream keys the pull request detail: another issue opens unfolded.
+      key={props.detail?.url}
       {...props}
       environmentId={environmentId}
       handoffPromptTemplate={handoffPromptTemplate}
@@ -188,9 +190,7 @@ export function GitHubIssueDetailContent({
   const [preparing, setPreparing] = useState(false);
   const threadLinks = useGitHubIssueThreadLinks(environmentId, detail);
   const [pickingThread, setPickingThread] = useState(false);
-  // The pull request header's fold: condensed per issue, so another issue opens unfolded.
-  const [condensedUrl, setCondensedUrl] = useState<string | null>(null);
-  const condensed = detail !== null && condensedUrl === detail.url;
+  const [condensed, setCondensed] = useState(false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const foldRef = useRef<HTMLDivElement | null>(null);
   const condensedRowRef = useRef<HTMLDivElement | null>(null);
@@ -430,11 +430,11 @@ export function GitHubIssueDetailContent({
           const top = scroller.scrollTop;
           const foldHeight = foldRef.current?.scrollHeight ?? 0;
           if (condensed) {
-            if (top < 4 && foldHeight > 0) setCondensedUrl(null);
+            if (top < 4 && foldHeight > 0) setCondensed(false);
           } else if (foldHeight > 0 && top > foldHeight + 32) {
             const chromeDelta = foldHeight - (condensedRowRef.current?.scrollHeight ?? 0);
             compensationRef.current = top - chromeDelta;
-            setCondensedUrl(detail.url);
+            setCondensed(true);
           }
         }}
       >

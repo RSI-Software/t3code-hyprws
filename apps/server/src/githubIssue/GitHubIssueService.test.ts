@@ -422,7 +422,8 @@ describe("GitHubIssueService", () => {
             nodes: [
               {
                 id: "comment-1",
-                author: { login: "reviewer" },
+                // A Bot is neither User nor Organization: only interface fields reach it.
+                author: { login: "ci[bot]", avatarUrl: "https://avatars.example/ci-bot" },
                 body: "Please fix this.",
                 createdAt: "2026-08-21T01:00:00Z",
                 updatedAt: "2026-08-21T02:00:00Z",
@@ -444,6 +445,8 @@ describe("GitHubIssueService", () => {
       assert.strictEqual(detail.workspaceRoot, "/web");
       assert.strictEqual(detail.commentCount, 1);
       assert.strictEqual(detail.comments[0]?.updatedAt, "2026-08-21T02:00:00Z");
+      assert.strictEqual(detail.comments[0]?.author?.avatarUrl, "https://avatars.example/ci-bot");
+      assert.include(graphql.mock.calls[0]?.[0].query ?? "", "author { login avatarUrl ... on");
     }),
   );
 
