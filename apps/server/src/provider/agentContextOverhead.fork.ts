@@ -1,6 +1,6 @@
 const forkContextOverhead = {
-  claudeSystemAppendBytes: 1123,
-  codexAdditionalContextBytes: 1123,
+  claudeSystemAppendBytes: 1447,
+  codexAdditionalContextBytes: 1447,
   mcpToolListJsonBytes: 5849,
 };
 
