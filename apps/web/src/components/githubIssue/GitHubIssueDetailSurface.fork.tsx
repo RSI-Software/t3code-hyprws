@@ -41,6 +41,11 @@ export function GitHubIssueDetailSurfaceFork(props: {
       key={`${surface.environmentId}:${surface.projectId}:${surface.repository}#${surface.number}`}
       environmentId={surface.environmentId as EnvironmentId}
       composerTarget={props.activeThreadRef}
+      onBack={() => {
+        if (props.activeThreadRef) {
+          useRightPanelStore.getState().open(props.activeThreadRef, "github-issues");
+        }
+      }}
       onSelectSubIssue={(child) => {
         if (!props.activeThreadRef) return;
         useRightPanelStore.getState().openGitHubIssue(props.activeThreadRef, {
