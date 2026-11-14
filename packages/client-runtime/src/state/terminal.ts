@@ -31,6 +31,7 @@ import {
   type TerminalBufferState,
 } from "./terminalSession.ts";
 import { terminalOutputText } from "./terminalOutput.ts";
+import { terminalAttachmentInputFork } from "./terminalSessionManaged.fork.ts"; // fork-hook: zmux-estate/terminal-session-attachment
 
 export function createTerminalEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -310,6 +311,7 @@ export function createTerminalSession(
       void runAtomCommand(registry, atoms.write, {
         environmentId,
         input: { threadId, terminalId, data },
+        ...terminalAttachmentInputFork({ threadId, terminalId, data }, attachmentFork), // fork-hook: zmux-estate/terminal-session-attachment
       });
     });
   };
