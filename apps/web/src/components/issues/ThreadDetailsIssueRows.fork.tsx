@@ -1,4 +1,9 @@
-import type { ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
+import {
+  issueKeyLabel,
+  issueKeySource,
+  type ScopedThreadRef,
+  type ThreadIssueLink,
+} from "@t3tools/contracts";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 
@@ -10,6 +15,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   ThreadIssueSubIssueProgressFork,
   threadIssueLinkPresentation,
+  threadIssueLinkTitle,
 } from "./ThreadIssueBadge.fork";
 
 const linkKey = (link: ThreadIssueLink) => `${link.host}/${link.repository}#${link.number}`;
@@ -35,6 +41,7 @@ export function ThreadDetailsIssueRowsFork({
 
   const row = (link: ThreadIssueLink) => {
     const presentation = threadIssueLinkPresentation(link);
+    const title = threadIssueLinkTitle(link);
     return (
       <Tooltip key={linkKey(link)}>
         <TooltipTrigger
@@ -57,13 +64,13 @@ export function ThreadDetailsIssueRowsFork({
           <span
             className={cn("min-w-0 flex-1 truncate text-left", THREAD_DETAILS_PANEL_LABEL_CLASS)}
           >
-            #{link.number}
-            {link.snapshot === null ? "" : `: ${link.snapshot.title}`}
+            {issueKeyLabel(link)}
+            {title === null ? "" : `: ${title}`}
           </span>
           <ThreadIssueSubIssueProgressFork link={link} />
         </TooltipTrigger>
         <TooltipPopup side="top">
-          {presentation.label} · {link.repository}#{link.number}
+          {presentation.label} · {issueKeySource(link)} {issueKeyLabel(link)}
         </TooltipPopup>
       </Tooltip>
     );

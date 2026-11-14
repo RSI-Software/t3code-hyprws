@@ -2,11 +2,16 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { GitHubSubIssue, ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
+import {
+  issueKeyLabel,
+  issueKeySource,
+  type GitHubSubIssue,
+  type ScopedThreadRef,
+  type ThreadIssueLink,
+} from "@t3tools/contracts";
 import {
   ArrowUpRightIcon,
   ChevronRightIcon,
-  CircleHelpIcon,
   CornerLeftUpIcon,
   LinkIcon,
   MoreHorizontalIcon,
@@ -37,7 +42,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { IssueLabelChips, GitHubIssueTypeChip } from "./IssueChips";
 import { IssueStateGlyph } from "./issuePresentation";
 import { openLinkIssueDialog } from "./LinkIssueDialog";
-import { ThreadIssueSubIssueProgressFork } from "./ThreadIssueBadge.fork";
+import {
+  ThreadIssueSubIssueProgressFork,
+  threadIssueLinkPresentation,
+  threadIssueLinkTitle,
+} from "./ThreadIssueBadge.fork";
 import {
   subIssueProgress,
   threadIssueTree,
@@ -115,7 +124,7 @@ function EnabledThreadIssueLinks({ threadRef }: { readonly threadRef: ScopedThre
       },
     });
     if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
-    reportFailure(`Could not unlink issue #${link.number}`, result);
+    reportFailure(`Could not unlink issue ${issueKeyLabel(link)}`, result);
   };
 
   const refresh = async () => {
@@ -214,7 +223,7 @@ function IssueLinkTree({
         variant="ghost"
         size="icon-micro"
         aria-expanded={expanded}
-        aria-label={`${expanded ? "Collapse" : "Expand"} sub-issues of #${node.link.number}`}
+        aria-label={`${expanded ? "Collapse" : "Expand"} sub-issues of ${issueKeyLabel(node.link)}`}
         className="shrink-0"
         onClick={() => setExpanded(!expanded)}
       >
@@ -323,14 +332,14 @@ function IssueLinkRow({
           number={
             <Tooltip>
               <TooltipTrigger render={<span className={PULL_REQUEST_ROW_NUMBER_CLASS} />}>
-                #{link.number}
+                {issueKeyLabel(link)}
               </TooltipTrigger>
               <TooltipPopup>
                 {SOURCE_LABELS[link.source]} · <RelativeTime timestamp={link.linkedAt} />
               </TooltipPopup>
             </Tooltip>
           }
-          title={link.snapshot?.title ?? link.repository}
+          title={threadIssueLinkTitle(link) ?? issueKeySource(link)}
           metaClassName="@container/pr-row-meta"
           status={
             progress === null ? null : (
@@ -348,7 +357,7 @@ function IssueLinkRow({
             <>
               <Tooltip>
                 <TooltipTrigger render={<span className="flex min-w-0 max-w-40 font-mono" />}>
-                  <MiddleTruncate value={link.repository} showTitle={false} />
+                  <MiddleTruncate value={issueKeySource(link)} showTitle={false} />
                 </TooltipTrigger>
                 <TooltipPopup>
                   {link.host}/{link.repository}
@@ -398,7 +407,7 @@ function IssueLinkRow({
               <Button
                 variant="ghost"
                 size="icon-micro"
-                aria-label={`Actions for #${link.number}`}
+                aria-label={`Actions for ${issueKeyLabel(link)}`}
                 className="relative"
               >
                 <MoreHorizontalIcon className="size-3.5" />
@@ -440,16 +449,17 @@ function IssueLinkStateGlyph({ link }: { readonly link: ThreadIssueLink }) {
       />
     );
   }
+  const presentation = threadIssueLinkPresentation(link);
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-        <CircleHelpIcon
+        <presentation.Icon
           role="img"
-          aria-label="State unknown"
-          className="size-4 shrink-0 text-muted-foreground"
+          aria-label={presentation.label}
+          className={cn("size-4 shrink-0", presentation.toneClassName)}
         />
       </TooltipTrigger>
-      <TooltipPopup>State unknown</TooltipPopup>
+      <TooltipPopup>{presentation.label}</TooltipPopup>
     </Tooltip>
   );
 }

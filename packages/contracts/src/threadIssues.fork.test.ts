@@ -8,7 +8,12 @@ import {
   OrchestrationV2Command,
   type OrchestrationV2ServerCommand,
 } from "./orchestrationV2.ts";
-import { githubIssueLinkTarget } from "./threadIssues.fork.ts";
+import {
+  githubIssueLinkTarget,
+  issueKeyLabel,
+  linearIssueLinkTarget,
+  linearIssueSlugTitle,
+} from "./threadIssues.fork.ts";
 
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationV2AppThreadJson);
 const encodeThread = Schema.encodeEffect(OrchestrationV2AppThreadJson);
@@ -114,5 +119,26 @@ describe("githubIssueLinkTarget", () => {
     assert.isNull(githubIssueLinkTarget("https://github.com/acme/app/pull/12"));
     assert.isNull(githubIssueLinkTarget("https://github.com/acme/app/issues/0"));
     assert.isNull(githubIssueLinkTarget("not a url"));
+  });
+});
+
+describe("linearIssueLinkTarget", () => {
+  it("keys an issue by workspace and team, keeping the title slug", () => {
+    const target = linearIssueLinkTarget("https://linear.app/Acme/issue/eng-42/Fix-login?x=1");
+    assert.deepStrictEqual(target, {
+      host: "linear.app",
+      repository: "acme/ENG",
+      number: 42,
+      url: "https://linear.app/acme/issue/ENG-42/fix-login",
+    });
+    assert.strictEqual(issueKeyLabel(target!), "ENG-42");
+    assert.strictEqual(linearIssueSlugTitle(target!.url), "Fix login");
+  });
+
+  it("rejects pages that are not Linear issues", () => {
+    assert.isNull(linearIssueLinkTarget("https://linear.app/acme/project/eng-42"));
+    assert.isNull(linearIssueLinkTarget("https://linear.app/acme/issue/ENG-0"));
+    assert.isNull(linearIssueLinkTarget("https://evil.app/acme/issue/ENG-1"));
+    assert.isNull(linearIssueLinkTarget("http://linear.app/acme/issue/ENG-1"));
   });
 });

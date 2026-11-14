@@ -1,6 +1,12 @@
-import type { ThreadIssueLink } from "@t3tools/contracts";
+import {
+  isLinearIssueKey,
+  issueKeyLabel,
+  issueKeySource,
+  linearIssueSlugTitle,
+  type ThreadIssueLink,
+} from "@t3tools/contracts";
 import { useRender } from "@base-ui/react/use-render";
-import { CircleHelpIcon, ListTreeIcon } from "lucide-react";
+import { CircleDashedIcon, CircleHelpIcon, ListTreeIcon } from "lucide-react";
 import type { MouseEvent, ReactElement } from "react";
 
 import { cn } from "../../lib/utils";
@@ -15,10 +21,23 @@ const UNKNOWN_PRESENTATION = {
   Icon: CircleHelpIcon,
 } as const;
 
+// The server never reads Linear, so a Linear link has no state to show.
+const LINEAR_PRESENTATION = {
+  label: "Linear issue",
+  toneClassName: "text-muted-foreground",
+  Icon: CircleDashedIcon,
+} as const;
+
 export const threadIssueLinkPresentation = (link: ThreadIssueLink) =>
-  link.snapshot === null
-    ? UNKNOWN_PRESENTATION
-    : issueStatePresentation(link.snapshot.state, link.snapshot.closeReason ?? null);
+  link.snapshot !== null
+    ? issueStatePresentation(link.snapshot.state, link.snapshot.closeReason ?? null)
+    : isLinearIssueKey(link)
+      ? LINEAR_PRESENTATION
+      : UNKNOWN_PRESENTATION;
+
+/** A link's title: its last read, else a Linear URL's slug, else null. */
+export const threadIssueLinkTitle = (link: ThreadIssueLink): string | null =>
+  link.snapshot?.title ?? linearIssueSlugTitle(link.url);
 
 /** A linked issue's closed and total sub-issues, absent for an issue without any. */
 export function ThreadIssueSubIssueProgressFork({ link }: { readonly link: ThreadIssueLink }) {
@@ -74,7 +93,7 @@ export function ThreadIssueBadgeFork({
         >
           <presentation.Icon aria-hidden className="size-3 shrink-0" />
           <span className="text-secondary-label">
-            {links.length > 1 ? `+${links.length}` : lead.number}
+            {links.length > 1 ? `+${links.length}` : issueKeyLabel(lead).replace(/^#/u, "")}
           </span>
         </span>
       </TooltipTrigger>
@@ -105,9 +124,9 @@ function ThreadIssuesMiniListFork({
               aria-label={entry.label}
               className={cn("size-3 shrink-0", entry.toneClassName)}
             />
-            <span className="shrink-0 font-mono tabular-nums">#{link.number}</span>
+            <span className="shrink-0 font-mono tabular-nums">{issueKeyLabel(link)}</span>
             <span className="min-w-0 truncate text-foreground/75">
-              {link.snapshot?.title ?? link.repository}
+              {threadIssueLinkTitle(link) ?? issueKeySource(link)}
             </span>
             <ThreadIssueSubIssueProgressFork link={link} />
           </li>

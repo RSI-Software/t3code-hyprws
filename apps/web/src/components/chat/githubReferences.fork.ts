@@ -1,4 +1,5 @@
 import type { ReferenceAutolink } from "@t3tools/client-runtime/source-control-clients";
+import { isLinearIssueKey } from "@t3tools/contracts";
 import type { PluggableList } from "unified";
 
 import { remarkPullRequestAutolinks } from "../pullRequest/pullRequestMarkdown.logic";
@@ -23,8 +24,29 @@ export function findGitHubReferences(text: string): ReadonlyArray<ReferenceAutol
   }));
 }
 
+// A Linear `ENG-42` names no workspace, so it links only to an issue the thread links.
+export const LINEAR_REFERENCE_HREF_PREFIX = "https://linear.app/_t3-reference/";
+
+const LINEAR_REFERENCE = /(?<![\w./\\#-])([A-Z][A-Z0-9]{0,9})-([1-9]\d*)(?![\w-])/gu;
+
+export function findLinearReferences(text: string): ReadonlyArray<ReferenceAutolink> {
+  if (!text.includes("-")) return [];
+  return Array.from(text.matchAll(LINEAR_REFERENCE), (match) => ({
+    index: match.index,
+    text: match[0],
+    label: match[0],
+    url: `${LINEAR_REFERENCE_HREF_PREFIX}${match[0]}`,
+    kind: "reference" as const,
+  }));
+}
+
+const findIssueReferences = (text: string): ReadonlyArray<ReferenceAutolink> =>
+  [...findGitHubReferences(text), ...findLinearReferences(text)].toSorted(
+    (left, right) => left.index - right.index,
+  );
+
 export const GITHUB_REFERENCE_REMARK_PLUGINS_FORK: PluggableList = [
-  [remarkPullRequestAutolinks, { autolinks: findGitHubReferences }],
+  [remarkPullRequestAutolinks, { autolinks: findIssueReferences }],
 ];
 
 /** A pull request or issue the thread links, which a short reference names before its project. */
@@ -65,4 +87,19 @@ export function resolveGitHubReferenceHref(
     return match.url;
   if (repository === null) return null;
   return `https://github.com/${repository.owner}/${qualifier[0] ?? repository.name}/issues/${number}`;
+}
+
+/** The URL of the one linked Linear issue a placeholder's `ENG-42` names, else null. */
+export function resolveLinearReferenceHref(
+  href: string,
+  linked: ReadonlyArray<LinkedGitHubReference>,
+): string | null {
+  const [team, number] = href.slice(LINEAR_REFERENCE_HREF_PREFIX.length).split("-");
+  const matches = linked.filter(
+    (link) =>
+      isLinearIssueKey(link) &&
+      String(link.number) === number &&
+      link.repository.split("/")[1]?.toUpperCase() === team,
+  );
+  return matches.length === 1 ? matches[0]!.url : null;
 }

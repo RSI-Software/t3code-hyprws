@@ -165,7 +165,8 @@ describe("link GitHub issue action", () => {
     }).flatMap((group) => group.items.map((item) => item.value));
 
   it("matches its own title and its short query", () => {
-    expect(search("link github issue to thread")).toEqual(["action:link-github-issue"]);
+    expect(search("link issue to thread")).toEqual(["action:link-github-issue"]);
     expect(search("link github issue")).toEqual(["action:link-github-issue"]);
+    expect(search("link linear issue")).toEqual(["action:link-github-issue"]);
   });
 });

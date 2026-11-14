@@ -269,6 +269,34 @@ describe("issue toolkit handlers", () => {
     }),
   );
 
+  it.effect("links a Linear issue by URL, keeping its title slug, without a host read", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        isPullRequest: () => Effect.die("Linear links never read the host"),
+      });
+      const result = yield* harness.call("link_issue", {
+        url: "https://linear.app/Acme/issue/eng-42/fix-login?x=1",
+      });
+      expect(result).toEqual({
+        host: "linear.app",
+        repository: "acme/eng",
+        number: 42,
+        url: "https://linear.app/acme/issue/ENG-42/fix-login",
+        alreadyLinked: false,
+      });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        {
+          type: "thread.issue.link",
+          host: "linear.app",
+          repository: "acme/eng",
+          number: 42,
+          url: "https://linear.app/acme/issue/ENG-42/fix-login",
+          source: "agent",
+        },
+      ]);
+    }),
+  );
+
   it.effect("links by repository and number, defaulting the host to the project's", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

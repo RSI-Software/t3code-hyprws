@@ -5,7 +5,12 @@ import {
   parseGitHubLinkTarget,
   preferredGitHubLinkDestination,
 } from "./GitHubDestinationLink.fork";
-import { findGitHubReferences, resolveGitHubReferenceHref } from "./githubReferences.fork";
+import {
+  findGitHubReferences,
+  findLinearReferences,
+  resolveGitHubReferenceHref,
+  resolveLinearReferenceHref,
+} from "./githubReferences.fork";
 
 describe("GitHub link destinations", () => {
   it.each([
@@ -107,5 +112,28 @@ describe("GitHub references written as text", () => {
     expect(resolveGitHubReferenceHref(full!.url, null)).toBe(
       "https://github.com/acme/repo/issues/2",
     );
+  });
+});
+
+describe("Linear references written as text", () => {
+  it("links an identifier only to the one Linear issue the thread links", () => {
+    const url = "https://linear.app/acme/issue/ENG-42/fix-login";
+    const linked = [
+      { host: "linear.app", repository: "acme/eng", number: 42, url },
+      {
+        host: "github.com",
+        repository: "acme/app",
+        number: 7,
+        url: "https://github.com/acme/app/issues/7",
+      },
+    ];
+    const resolve = (text: string) =>
+      findLinearReferences(text).map((reference) =>
+        resolveLinearReferenceHref(reference.url, linked),
+      );
+
+    expect(resolve("fixes ENG-42.")).toEqual([url]);
+    expect(resolve("ENG-7 and APP-7 use UTF-8")).toEqual([null, null, null]);
+    expect(resolve("eng-42 x-ENG-42 ENG-42a ENG-0")).toEqual([]);
   });
 });
