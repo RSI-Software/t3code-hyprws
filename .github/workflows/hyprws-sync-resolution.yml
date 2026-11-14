@@ -8,9 +8,12 @@ name: hyprws sync resolution
 # environment deploys to; the dispatched run queues behind any sync in flight.
 #
 # A job that ends without a push (failed, blocked, unchanged) leaves only its
-# sticky comment, so a settled rsi-pr-agent sticky also reruns the sync; a
+# sticky comment, so a settled rsi-agent sticky also reruns the sync; a
 # pushed sticky is skipped because its push already did. An
 # issue_comment runs the default branch's file, which is hyprws.
+
+# The comment author is matched by the rsi-agent bot's user id: the id
+# survives an App rename, the login does not.
 
 on:
   push:
@@ -28,7 +31,7 @@ jobs:
     timeout-minutes: 5
     if: >-
       github.event_name == 'push' || (
-        github.event.comment.user.login == 'rsi-pr-agent[bot]' &&
+        github.event.comment.user.id == 322096285 &&
         contains(github.event.comment.body, '<!-- rsi:fork-sync -->') &&
         !contains(github.event.comment.body, '**running**') &&
         !contains(github.event.comment.body, '**pushing**') &&
