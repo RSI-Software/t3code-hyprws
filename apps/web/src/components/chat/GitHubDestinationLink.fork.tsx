@@ -3,6 +3,7 @@ import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import { visibleThreadPullRequests } from "@t3tools/client-runtime/thread-pull-requests";
 
 import { readLocalApi } from "~/localApi";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
@@ -146,6 +147,10 @@ export function useGitHubDestinationLinkFork(accept: {
     identity.name
       ? { owner: identity.owner, name: identity.name }
       : null;
+  const linked = [
+    ...visibleThreadPullRequests(thread?.pullRequests ?? []),
+    ...(thread?.issues ?? []),
+  ];
   const { threadRef } = accept;
   const claimPanelOpen = () => {
     if (!threadRef) return () => true;
@@ -212,7 +217,7 @@ export function useGitHubDestinationLinkFork(accept: {
     return {
       resolveHref(href) {
         return href?.startsWith(GITHUB_REFERENCE_HREF_PREFIX)
-          ? resolveGitHubReferenceHref(href, repository)
+          ? resolveGitHubReferenceHref(href, repository, linked)
           : href;
       },
       claims(href: string | undefined): boolean {
