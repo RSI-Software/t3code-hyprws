@@ -18,13 +18,13 @@ import {
   type CommandPaletteView,
 } from "./CommandPalette.logic";
 import type { EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
-import { openLinkGitHubIssueDialog } from "./githubIssue/LinkGitHubIssueDialog";
+import { openLinkIssueDialog } from "./issues/LinkIssueDialog";
 
 /**
  * The palette's Issues navigation entry, or `null` when no reachable
  * environment advertises the read-only GitHub Issues capability.
  */
-export function buildGitHubIssuesActionItemFork(input: {
+export function buildIssuesActionItemFork(input: {
   environments: ReadonlyArray<{
     readonly serverConfig?: {
       readonly environment: { readonly capabilities: { readonly githubIssues?: boolean } };
@@ -32,10 +32,10 @@ export function buildGitHubIssuesActionItemFork(input: {
   }>;
   navigate: (options: never) => Promise<void>;
 }): CommandPaletteActionItem | null {
-  const githubIssuesSupported = input.environments.some(
+  const issuesSupported = input.environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
   );
-  if (!githubIssuesSupported) return null;
+  if (!issuesSupported) return null;
   return {
     kind: "action",
     value: "action:issues",
@@ -53,7 +53,7 @@ export function buildGitHubIssuesActionItemFork(input: {
  * (RSI-Software/t3code-hyprws#1432), or `null` where its environment keeps no
  * issue links. It carries no default keybinding.
  */
-export function buildLinkGitHubIssueActionItemFork(
+export function buildLinkIssueActionItemFork(
   activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined,
   capabilities: { readonly threadIssues?: boolean } | undefined,
 ): CommandPaletteActionItem | null {
@@ -66,7 +66,7 @@ export function buildLinkGitHubIssueActionItemFork(
     title: "Link GitHub issue to thread",
     icon: <LinkIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
-      openLinkGitHubIssueDialog(threadRef);
+      openLinkIssueDialog(threadRef);
     },
   };
 }

@@ -167,7 +167,7 @@ import { collaboratorRpcFork } from "./rpc.fork.ts"; // fork-hook: colleague-col
 import { pullRequestActivityRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-activity-refresh-rpc-import
 import { checkoutMoveRpcFork } from "./rpc.fork.ts"; // fork-hook: zmux-estate/checkout-move-rpc-import
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
-import { githubIssuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
+import { issuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
 import { OrchestrationSearchThreadsError } from "./threadSearch.ts";
 import {
   ProviderUploadFeedbackError,
@@ -574,7 +574,7 @@ export const WS_METHODS = {
   ...threadGroupsRpcFork.methodNames, // fork-hook: thread-ordering/thread-groups-rpc-methods
   ...collaboratorRpcFork.methodNames, // fork-hook: colleague-collab/rpc-methods
   ...checkoutMoveRpcFork.methodNames, // fork-hook: zmux-estate/checkout-move-rpc-methods
-  ...githubIssuesRpcFork.methodNames, // fork-hook: github-issues/rpc-methods
+  ...issuesRpcFork.methodNames, // fork-hook: github-issues/rpc-methods
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
   pullRequestsFilterOptions: "pullRequests.filterOptions",
@@ -2190,7 +2190,7 @@ export const WsRpcGroup = RpcGroup.make(
   ...threadGroupsRpcFork.rpcs, // fork-hook: thread-ordering/thread-groups-rpc-group
   ...collaboratorRpcFork.rpcs, // fork-hook: colleague-collab/rpc-group
   ...checkoutMoveRpcFork.rpcs, // fork-hook: zmux-estate/checkout-move-rpc-group
-  ...githubIssuesRpcFork.rpcs, // fork-hook: github-issues/rpc-group
+  ...issuesRpcFork.rpcs, // fork-hook: github-issues/rpc-group
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,

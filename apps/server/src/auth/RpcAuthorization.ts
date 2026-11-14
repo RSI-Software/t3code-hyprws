@@ -148,12 +148,12 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.pullRequestsReviewerCandidates]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsLabelCandidates]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsSubscribeActivityRefreshesFork]: AuthOrchestrationReadScope, // fork-hook: upstream-fixes/pr-activity-refresh-rpc-auth
-  [WS_METHODS.githubIssuesList]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-list
-  [WS_METHODS.githubIssuesDetail]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-detail
-  [WS_METHODS.githubIssuesLinkedThreads]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-linked-threads
-  [WS_METHODS.githubIssuesReference]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-reference
-  [WS_METHODS.githubIssuesSetState]: AuthOrchestrationOperateScope, // fork-hook: github-issues/rpc-auth-set-state
-  [WS_METHODS.githubIssuesSyncThreadLinks]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-sync-thread-links
+  [WS_METHODS.issuesList]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-list
+  [WS_METHODS.issuesDetail]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-detail
+  [WS_METHODS.issuesLinkedThreads]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-linked-threads
+  [WS_METHODS.issuesReference]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-reference
+  [WS_METHODS.issuesSetState]: AuthOrchestrationOperateScope, // fork-hook: github-issues/rpc-auth-set-state
+  [WS_METHODS.issuesSyncThreadLinks]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-sync-thread-links
   [WS_METHODS.sourceControlLookupRepository]: AuthOrchestrationReadScope,
   [WS_METHODS.sourceControlAppAccess]: AuthOrchestrationReadScope,
   [WS_METHODS.sourceControlStarred]: AuthOrchestrationReadScope,
