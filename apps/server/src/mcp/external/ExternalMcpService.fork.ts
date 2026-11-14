@@ -629,7 +629,15 @@ const make = Effect.gen(function* () {
       const statuses = input.statuses === undefined ? null : new Set(input.statuses);
       const titleContains = input.titleContains?.toLocaleLowerCase();
       const context = yield* threadViewContext(principal);
+      const snapshot = yield* threadManagement
+        .getShellSnapshot({
+          location: "active",
+          threadIds: projectThreads.map((thread) => thread.id),
+        })
+        .pipe(Effect.mapError(threadManagementFailureFork));
+      const shellById = new Map(snapshot.threads.map((shell) => [shell.id, shell]));
       const filtered = projectThreads
+        .flatMap(({ id }) => shellById.get(id) ?? [])
         .map((shell) => ({
           shell,
           thread: listItemFromShellFork(context.scope, shell, context.nowMs),

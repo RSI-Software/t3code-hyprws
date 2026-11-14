@@ -293,7 +293,17 @@ const deviceDenyCommand = Command.make("deny", {
   ),
 );
 
-export const deviceCommand = Command.make("device").pipe(
+const deviceCommand = Command.make("device").pipe(
   Command.withDescription("Approve native clients that start the device authorization grant."),
   Command.withSubcommands([deviceListCommand, deviceApproveCommand, deviceDenyCommand]),
 );
+
+export const withDeviceCommandFork = <Name extends string, Input, ContextInput, E, R>(
+  command: Command.Command<Name, Input, ContextInput, E, R>,
+) => {
+  // Child metadata erases E/R; the parent already includes every existing child's requirements.
+  const existing = command.subcommands.flatMap(({ commands }) => commands) as ReadonlyArray<
+    Command.Command<string, never, {}, E, R>
+  >;
+  return Command.withSubcommands(command, [...existing, deviceCommand]);
+};
