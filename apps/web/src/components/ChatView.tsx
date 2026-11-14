@@ -33,7 +33,7 @@ import { useThreadLifecycle } from "./chat/useThreadLifecycle";
 import { useRightPanelActions } from "./chat/useRightPanelActions";
 import { useIssuesPanelActionsFork } from "./chat/useRightPanelActions.fork"; // fork-hook: github-issues/add-issues-surface-import
 import { useThreadArtifactsPanelFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/artifacts-panel-import
-import { LinkGitHubIssueDialogHost } from "./githubIssue/LinkGitHubIssueDialog"; // fork-hook: github-issues/link-dialog-import
+import { LinkIssueDialogHost } from "./issues/LinkIssueDialog"; // fork-hook: github-issues/link-dialog-import
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
 import { useComposerSend } from "./chat/useComposerSend";
 import { useComposerResume } from "./chat/useComposerResume";
@@ -4106,7 +4106,7 @@ export default function ChatView(props: ChatViewProps) {
         onConfirm={onConfirmRevertStable}
       />
       {embedded ? null : <LinkPullRequestDialogHost />}
-      <LinkGitHubIssueDialogHost /* fork-hook: github-issues/link-dialog-host */ />
+      <LinkIssueDialogHost /* fork-hook: github-issues/link-dialog-host */ />
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
     </div>

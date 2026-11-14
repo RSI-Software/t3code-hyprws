@@ -9,7 +9,7 @@ import {
 } from "./CommandPalette.logic";
 import { makeThreadFixture } from "../test-fixtures";
 import {
-  buildLinkGitHubIssueActionItemFork,
+  buildLinkIssueActionItemFork,
   refreshNewThreadInViewFork,
   scopePaletteProjectEntriesFork,
   scopePalettePickerProjectsFork,
@@ -151,7 +151,7 @@ describe("palette project scope", () => {
 });
 
 describe("link GitHub issue action", () => {
-  const linkItem = buildLinkGitHubIssueActionItemFork(
+  const linkItem = buildLinkIssueActionItemFork(
     { environmentId: EnvironmentId.make("local"), id: ThreadId.make("thread-1") },
     { threadIssues: true },
   );

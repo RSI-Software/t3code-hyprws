@@ -3,7 +3,7 @@
 // toolkit in `../pullRequests/tools.ts`. `McpHttpServer.ts` registers them
 // through the marked `github-issues/mcp-issues-toolkit` hook.
 import {
-  GitHubIssueState,
+  IssueState,
   GitHubSubIssue,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
@@ -191,7 +191,7 @@ export const ThreadIssueEntry = Schema.Struct({
   url: Schema.String,
   source: ThreadIssueLinkSource,
   /** Null until T3 Code has read the issue from GitHub; never a guess. */
-  state: Schema.NullOr(GitHubIssueState),
+  state: Schema.NullOr(IssueState),
   title: Schema.NullOr(Schema.String),
   subIssues: Schema.Array(GitHubSubIssue).annotate({
     description:

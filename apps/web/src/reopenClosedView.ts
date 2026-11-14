@@ -158,7 +158,7 @@ export async function reopenClosedView(
       panels.openSideChat(ref, surface.threadId);
       break;
     case "github-issue": // fork-hook: github-issues/reopen-github-issue
-      panels.openGitHubIssue(ref, surface); // fork-hook: github-issues/reopen-github-issue
+      panels.openIssue(ref, surface); // fork-hook: github-issues/reopen-github-issue
       break;
     default:
       panels.open(ref, surface.kind);

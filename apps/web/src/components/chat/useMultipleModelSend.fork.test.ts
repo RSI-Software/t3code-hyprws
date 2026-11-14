@@ -1,14 +1,14 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
-import { linkGitHubIssueHandoffFork } from "../githubIssue/githubIssueHandoff";
+import { linkIssueHandoffFork } from "../issues/issueHandoff";
 import type { MultipleModelTarget } from "./chatViewSend";
 import { collectIssueHandoffFork } from "./useMultipleModelSend.fork";
 
-vi.mock("../githubIssue/githubIssueHandoff", () => ({ linkGitHubIssueHandoffFork: vi.fn() }));
+vi.mock("../issues/issueHandoff", () => ({ linkIssueHandoffFork: vi.fn() }));
 
 it("links only confirmed fanout starts, even when they finish out of order", () => {
-  const link = vi.mocked(linkGitHubIssueHandoffFork).mockClear();
+  const link = vi.mocked(linkIssueHandoffFork).mockClear();
   const environmentId = EnvironmentId.make("env");
   const target = (model: string): MultipleModelTarget => ({
     selection: { instanceId: ProviderInstanceId.make("provider"), model },
