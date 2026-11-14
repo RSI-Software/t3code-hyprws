@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   findProjectPreferredFork,
   linkedRepositoryFork,
-  openGitHubIssueLinkFork,
+  openIssueLinkFork,
   parseGitHubIssueUrl,
 } from "./openPullRequestLink.fork";
 
@@ -96,7 +96,7 @@ describe("linkedRepositoryFork", () => {
   });
 });
 
-describe("openGitHubIssueLinkFork", () => {
+describe("openIssueLinkFork", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -119,7 +119,7 @@ describe("openGitHubIssueLinkFork", () => {
 
   it("claims an issue link and stops the default navigation", () => {
     const { event, calls } = claimEvent();
-    const claimed = openGitHubIssueLinkFork({
+    const claimed = openIssueLinkFork({
       event,
       targetUrl: "https://github.com/acme/checked-out/issues/9",
       resolvedThreadRef: undefined,
@@ -146,7 +146,7 @@ describe("openGitHubIssueLinkFork", () => {
   it("opens the issue on the Issues page with its project selected", () => {
     vi.stubGlobal("window", { location: { pathname: "/settings" } });
     const navigate = vi.fn();
-    openGitHubIssueLinkFork({
+    openIssueLinkFork({
       event: claimEvent().event,
       targetUrl: "https://github.com/acme/checked-out/issues/9",
       resolvedThreadRef: undefined,
@@ -176,7 +176,7 @@ describe("openGitHubIssueLinkFork", () => {
   it("leaves links alone when no project with the issue capability matches", () => {
     const { event } = claimEvent();
     expect(
-      openGitHubIssueLinkFork({
+      openIssueLinkFork({
         event,
         targetUrl: "https://github.com/acme/unknown/issues/9",
         resolvedThreadRef: undefined,

@@ -54,8 +54,8 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
-import { buildGitHubIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
-import { buildLinkGitHubIssueActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-link-issue-import
+import { buildIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
+import { buildLinkIssueActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-link-issue-import
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
 import {
   dropNewThreadHintFork,
@@ -1722,16 +1722,16 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
-  const githubIssuesActionItem = buildGitHubIssuesActionItemFork({
+  const issuesActionItem = buildIssuesActionItemFork({
     environments,
     navigate,
   }); // fork-hook: github-issues/command-palette-entry
-  if (githubIssuesActionItem) actionItems.push(githubIssuesActionItem); // fork-hook: github-issues/command-palette-entry-push
-  const linkGitHubIssueActionItem = buildLinkGitHubIssueActionItemFork(
+  if (issuesActionItem) actionItems.push(issuesActionItem); // fork-hook: github-issues/command-palette-entry-push
+  const linkIssueActionItem = buildLinkIssueActionItemFork(
     activeThread,
     activeThreadServerConfig?.environment.capabilities,
   ); // fork-hook: github-issues/command-palette-link-issue
-  if (linkGitHubIssueActionItem) actionItems.push(linkGitHubIssueActionItem); // fork-hook: github-issues/command-palette-link-issue-push
+  if (linkIssueActionItem) actionItems.push(linkIssueActionItem); // fork-hook: github-issues/command-palette-link-issue-push
   const projectChooserActionItem = buildProjectChooserActionItemFork(projectChooserLabel); // fork-hook: workspaces/chooser-palette
   if (projectChooserActionItem) actionItems.push(projectChooserActionItem); // fork-hook: workspaces/chooser-palette
 

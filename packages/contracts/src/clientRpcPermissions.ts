@@ -79,7 +79,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // A link lets every agent here reach the other environment: Settings' bar.
   [WS_METHODS.peerLinksAnswerRequest]: AuthAccessWriteScope,
 
-  [WS_METHODS.githubIssuesSetState]: AuthOrchestrationOperateScope, // fork-hook: github-issues/rpc-client-guard
+  [WS_METHODS.issuesSetState]: AuthOrchestrationOperateScope, // fork-hook: github-issues/rpc-client-guard
   [WS_METHODS.threadGroupsMutateFork]: AuthOrchestrationOperateScope, // fork-hook: thread-ordering/thread-groups-rpc-client-guard
   [WS_METHODS.collaboratorShareThreadFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.collaboratorUnshareThreadFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard

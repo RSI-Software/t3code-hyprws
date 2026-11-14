@@ -1115,11 +1115,11 @@ export interface BranchNamingOptions {
   instructions: string;
 }
 
-export const DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE = [
+export const DEFAULT_ISSUE_HANDOFF_PROMPT_TEMPLATE = [
   "Work on GitHub issue #{{number}}: {{title}}",
   "{{url}}",
   "Read the issue and make the smallest complete fix, then run focused verification.",
-].join("\n");
+].join("\n"); // fork-hook: github-issues/settings-handoff-template-default
 
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 export const DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL = Duration.minutes(5);
@@ -1609,8 +1609,8 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   githubIssueHandoffPromptTemplate: TrimmedNonEmptyString.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE)),
-  ),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_ISSUE_HANDOFF_PROMPT_TEMPLATE)),
+  ), // fork-hook: github-issues/settings-handoff-template-field
   sourceControlWriterModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),

@@ -56,10 +56,7 @@ import { speechStreamRouteLayer } from "./speech/stream.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestAttachmentStore from "./pullRequest/PullRequestAttachmentStore.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
-import {
-  gitHubIssueServiceLiveFork,
-  threadIssueSyncReactorLiveFork,
-} from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
+import { issueServiceLiveFork, threadIssueSyncReactorLiveFork } from "./issues/issueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
 import * as ArtifactWatchReactorFork from "./artifacts/ArtifactWatchReactor.fork.ts"; // fork-hook: thread-artifacts/server-artifact-watch-import
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
@@ -864,7 +861,7 @@ const layerCommandReadiness = HttpRouter.middleware(
   { global: true },
 );
 
-const GitHubIssueServiceLive = gitHubIssueServiceLiveFork; // fork-hook: github-issues/server-service-live
+const IssueServiceLive = issueServiceLiveFork; // fork-hook: github-issues/server-service-live
 
 const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
@@ -913,7 +910,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
   Layer.provide(layerPullRequestService),
-  Layer.provide(GitHubIssueServiceLive), // fork-hook: github-issues/server-service-provide
+  Layer.provide(IssueServiceLive), // fork-hook: github-issues/server-service-provide
   // The same activity instance RunExecutionService reports to, by layer memoization.
   Layer.provide(
     ServerBrowser.layer.pipe(

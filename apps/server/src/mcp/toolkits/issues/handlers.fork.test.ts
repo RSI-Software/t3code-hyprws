@@ -20,7 +20,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { McpServer, type Tool } from "effect/ai";
 
-import * as GitHubIssueService from "../../../githubIssue/GitHubIssueService.ts";
+import * as IssueService from "../../../issues/IssueService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -143,7 +143,7 @@ interface HarnessOptions {
   readonly threadAfterDispatch?: OrchestrationV2ThreadShell | null;
   readonly otherThread?: OrchestrationV2ThreadShell;
   readonly scope?: McpInvocationContext.McpInvocationScope;
-  readonly isPullRequest?: GitHubIssueService.GitHubIssueService["Service"]["isPullRequest"];
+  readonly isPullRequest?: IssueService.IssueService["Service"]["isPullRequest"];
 }
 
 /** The thread shell reads see; dispatch may replace it. */
@@ -172,7 +172,7 @@ function harnessDependencies(
         ),
       dispatch,
     }),
-    Layer.mock(GitHubIssueService.GitHubIssueService)({
+    Layer.mock(IssueService.IssueService)({
       isPullRequest: options.isPullRequest ?? (() => Effect.succeed(false)),
     }),
     Layer.succeed(SecureRandom.SecureRandom, testCrypto),

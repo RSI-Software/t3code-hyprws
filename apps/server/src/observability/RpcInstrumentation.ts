@@ -145,12 +145,12 @@ const RPC_AGGREGATES = {
   [WS_METHODS.pullRequestsSubscribeActivityRefreshesFork]: "pull-requests", // fork-hook: upstream-fixes/pr-activity-refresh-rpc-aggregate
   [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
   [WS_METHODS.pullRequestsUploadAttachment]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
-  [WS_METHODS.githubIssuesList]: "github-issues", // fork-hook: github-issues/rpc-aggregates
-  [WS_METHODS.githubIssuesDetail]: "github-issues", // fork-hook: github-issues/rpc-aggregates
-  [WS_METHODS.githubIssuesLinkedThreads]: "github-issues", // fork-hook: github-issues/rpc-aggregates
-  [WS_METHODS.githubIssuesReference]: "github-issues", // fork-hook: github-issues/rpc-aggregates
-  [WS_METHODS.githubIssuesSetState]: "github-issues", // fork-hook: github-issues/rpc-aggregates
-  [WS_METHODS.githubIssuesSyncThreadLinks]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.issuesList]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.issuesDetail]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.issuesLinkedThreads]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.issuesReference]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.issuesSetState]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.issuesSyncThreadLinks]: "github-issues", // fork-hook: github-issues/rpc-aggregates
   [WS_METHODS.threadCheckoutMoveRequest]: "orchestration", // fork-hook: zmux-estate/checkout-move-rpc-aggregate
   [WS_METHODS.threadGroupsSubscribeFork]: "orchestration", // fork-hook: thread-ordering/thread-groups-rpc-aggregate
   [WS_METHODS.threadGroupsMutateFork]: "orchestration", // fork-hook: thread-ordering/thread-groups-rpc-aggregate

@@ -4,13 +4,13 @@ import * as Layer from "effect/Layer";
 
 import { CollaboratorSharesFork } from "./collaborator/CollaboratorShares.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
-import * as ThreadIssueSyncReactor from "./githubIssue/ThreadIssueSyncReactor.fork.ts";
+import * as IssueService from "./issues/IssueService.ts";
+import * as ThreadIssueSyncReactor from "./issues/ThreadIssueSyncReactor.fork.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
 
 export const layerUnusedWsRpcServicesFork = Layer.mergeAll(
   Layer.mock(CheckoutMoveFork.CheckoutMoveServiceFork)({}),
-  Layer.mock(GitHubIssueService.GitHubIssueService)({}),
+  Layer.mock(IssueService.IssueService)({}),
   Layer.mock(ThreadIssueSyncReactor.ThreadIssueSyncReactor)({}),
   Layer.mock(ThreadGroups.ThreadGroupsServiceFork)({}),
   Layer.mock(CollaboratorSharesFork)({

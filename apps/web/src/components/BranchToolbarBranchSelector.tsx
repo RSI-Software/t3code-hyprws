@@ -77,8 +77,8 @@ import {
 
 import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
 import { ComposerControl } from "./chat/ComposerControl";
-import { ThreadIssueBadgeFork } from "./githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
-import { ThreadDetailsIssueRowsFork } from "./githubIssue/ThreadDetailsIssueRows.fork"; // fork-hook: github-issues/thread-details-issue-rows-import
+import { ThreadIssueBadgeFork } from "./issues/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
+import { ThreadDetailsIssueRowsFork } from "./issues/ThreadDetailsIssueRows.fork"; // fork-hook: github-issues/thread-details-issue-rows-import
 import { ThreadArtifactBadgeFork } from "./threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
 import { ThreadDetailsArtifactRowsFork } from "./threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-details-artifact-rows-import
 import { Button } from "./ui/button"; // fork-hook: zmux-estate/branch-selector-button-import

@@ -1,61 +1,52 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
-  environmentGitHubIssueKey,
-  type EnvironmentGitHubIssueListEntry,
-} from "@t3tools/client-runtime/state/github-issues";
+  environmentIssueKey,
+  type EnvironmentIssueListEntry,
+} from "@t3tools/client-runtime/state/issues";
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, LayersIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
 import {
-  EnvironmentGitHubIssueDetailContent,
+  EnvironmentIssueDetailContent,
   gitHubSubIssueRepository,
-} from "../components/githubIssue/GitHubIssueDetailPanel";
-import { GitHubIssueEmptyState } from "../components/githubIssue/GitHubIssueEmptyState";
-import { resolveGitHubIssueQueryTargets } from "../components/githubIssue/GitHubIssueList.logic";
+} from "../components/issues/IssueDetailPanel";
+import { IssueEmptyState } from "../components/issues/IssueEmptyState";
+import { resolveIssueQueryTargets } from "../components/issues/IssueList.logic";
+import { IssueFilterAdd, IssueFilterBar } from "../components/issues/IssueFilterBar";
+import { IssueOrderMenu, IssueSearchField } from "../components/issues/IssueListControls";
 import {
-  GitHubIssueFilterAdd,
-  GitHubIssueFilterBar,
-} from "../components/githubIssue/GitHubIssueFilterBar";
+  applyIssueListView,
+  issueFacets,
+  issueNarrowingIsEmpty,
+  NO_ISSUE_NARROWING,
+  toggleIssueNarrowing,
+  type IssueFilterField,
+} from "../components/issues/IssueListView.logic";
 import {
-  GitHubIssueOrderMenu,
-  GitHubIssueSearchField,
-} from "../components/githubIssue/GitHubIssueListControls";
-import {
-  applyGitHubIssueListView,
-  gitHubIssueFacets,
-  gitHubIssueNarrowingIsEmpty,
-  NO_GITHUB_ISSUE_NARROWING,
-  toggleGitHubIssueNarrowing,
-  type GitHubIssueFilterField,
-} from "../components/githubIssue/GitHubIssueListView.logic";
-import {
-  GitHubIssueListGhosts,
+  IssueListGhosts,
   searchingCaption,
   staleRefreshCaption,
-} from "../components/githubIssue/GitHubIssueGhosts";
-import { GitHubIssueRow } from "../components/githubIssue/GitHubIssueRow";
-import { useGitHubIssueKeyboard } from "../components/githubIssue/useGitHubIssueKeyboard";
-import { useGitHubIssueListViewFork } from "../components/githubIssue/useGitHubIssueListView.fork";
-import {
-  ALL_PROJECTS_VALUE,
-  GitHubIssueProjectMenu,
-} from "../components/githubIssue/GitHubIssueProjectMenu";
-import { GitHubIssueStateToggle } from "../components/githubIssue/GitHubIssueStateToggle";
-import { GITHUB_ISSUE_STATE_PRESENTATION } from "../components/githubIssue/githubIssuePresentation";
+} from "../components/issues/IssueGhosts";
+import { IssueRow } from "../components/issues/IssueRow";
+import { useIssueKeyboard } from "../components/issues/useIssueKeyboard";
+import { useIssueListViewFork } from "../components/issues/useIssueListView.fork";
+import { ALL_PROJECTS_VALUE, IssueProjectMenu } from "../components/issues/IssueProjectMenu";
+import { IssueStateToggle } from "../components/issues/IssueStateToggle";
+import { ISSUE_STATE_PRESENTATION } from "../components/issues/issuePresentation";
 import { pullRequestProjectKey } from "../components/pullRequest/PullRequestListFilters";
 import {
-  selectedGitHubIssueRef,
-  validateGitHubIssueSearch,
+  selectedIssueRef,
+  validateIssueSearch,
   type IssuesSearch,
-} from "../components/githubIssue/githubIssueRouteSearch";
+} from "../components/issues/issueRouteSearch";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../components/WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../components/WorkspacePageContainer";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 import { RightPanelTabs } from "../components/RightPanelTabs";
-import { githubIssueSurface } from "../rightPanelStore.fork";
+import { issueSurface } from "../rightPanelStore.fork";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { RefreshIcon } from "../components/ui/refresh-icon";
@@ -68,7 +59,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useProjects } from "../state/entities";
 import { useEnvironments } from "../state/environments";
-import { githubIssueEnvironment, useGitHubIssueList } from "../state/githubIssues";
+import { issueEnvironment, useIssueList } from "../state/issues";
 import { useDebouncedValue } from "../state/queries";
 import { useEnvironmentQuery } from "../state/query";
 import { allEnvironmentShellsBootstrappedAtom } from "../state/shell";
@@ -79,7 +70,7 @@ type IssuesSearchPatch = {
   [Key in keyof IssuesSearch]?: IssuesSearch[Key] | undefined;
 };
 
-const NO_ENTRIES: ReadonlyArray<EnvironmentGitHubIssueListEntry> = [];
+const NO_ENTRIES: ReadonlyArray<EnvironmentIssueListEntry> = [];
 // The inline panel shows one issue and none of the tools that would fill these.
 const EMPTY_PREVIEW_SESSIONS = {};
 const EMPTY_PREVIEW_DESKTOP_STATE = {};
@@ -98,15 +89,15 @@ function getShortcutContext() {
 }
 
 export const Route = createFileRoute("/_chat/issues")({
-  validateSearch: validateGitHubIssueSearch,
-  component: GitHubIssuesRoute,
+  validateSearch: validateIssueSearch,
+  component: IssuesRoute,
 });
 
-function GitHubIssuesRoute() {
+function IssuesRoute() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   return (
-    <GitHubIssuesPage
+    <IssuesPage
       search={search}
       onNavigate={(update) => void navigate({ search: update, replace: true })}
     />
@@ -114,12 +105,12 @@ function GitHubIssuesRoute() {
 }
 
 /** A thread's issues panel: it opens on the thread's project and can widen to the window's. */
-export function ProjectGitHubIssuesPanel({
+export function ProjectIssuesPanel({
   projectRef,
   onSelectIssue,
 }: {
   readonly projectRef: ScopedProjectRef;
-  readonly onSelectIssue: (issue: EnvironmentGitHubIssueListEntry) => void;
+  readonly onSelectIssue: (issue: EnvironmentIssueListEntry) => void;
 }) {
   const [search, setSearch] = useState<IssuesSearch>({
     state: "open",
@@ -127,7 +118,7 @@ export function ProjectGitHubIssuesPanel({
     environmentId: projectRef.environmentId,
   });
   return (
-    <GitHubIssuesPage
+    <IssuesPage
       search={search}
       onNavigate={(update) => setSearch((previous) => update(previous))}
       variant="panel"
@@ -137,7 +128,7 @@ export function ProjectGitHubIssuesPanel({
 }
 
 /** The issue list. With no project picked it lists every project this window's filter shows. */
-export function GitHubIssuesPage({
+export function IssuesPage({
   search,
   onNavigate,
   variant = "page",
@@ -146,7 +137,7 @@ export function GitHubIssuesPage({
   readonly search: IssuesSearch;
   readonly onNavigate: IssuesSearchUpdater;
   readonly variant?: "page" | "panel";
-  readonly onSelectIssue?: (issue: EnvironmentGitHubIssueListEntry) => void;
+  readonly onSelectIssue?: (issue: EnvironmentIssueListEntry) => void;
 }) {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { environments } = useEnvironments();
@@ -181,11 +172,11 @@ export function GitHubIssuesPage({
   // Kept while projects load, so a linked project is not dropped before it can be named.
   const scopedProjectId =
     !projectsKnown || scopedProject !== undefined ? search.projectId : undefined;
-  const { order, narrowing, setOrder, setNarrowing } = useGitHubIssueListViewFork();
+  const { order, narrowing, setOrder, setNarrowing } = useIssueListViewFork();
   const typedQuery = search.q?.trim() ?? "";
   const sentQuery = useDebouncedValue(typedQuery, 250);
   const targets = supported
-    ? resolveGitHubIssueQueryTargets({
+    ? resolveIssueQueryTargets({
         capableEnvironmentIds: capableEnvironments.map((environment) => environment.environmentId),
         windowProjects: windowProjectKeys === null ? null : githubProjects,
         state: search.state,
@@ -204,8 +195,8 @@ export function GitHubIssuesPage({
     ...target,
     input: { ...target.input, listViewFork: { order, filters: narrowing } },
   }));
-  const listQuery = useGitHubIssueList(viewTargets);
-  const selectedRef = selectedGitHubIssueRef(search);
+  const listQuery = useIssueList(viewTargets);
+  const selectedRef = selectedIssueRef(search);
   const selectedEnvironment = environments.find(
     (environment) => environment.environmentId === selectedRef?.environmentId,
   );
@@ -215,7 +206,7 @@ export function GitHubIssuesPage({
     selectedEnvironment?.serverConfig?.environment.capabilities.githubIssues === true;
   const detailQuery = useEnvironmentQuery(
     selectedRef && selectedSupported
-      ? githubIssueEnvironment.detail({
+      ? issueEnvironment.detail({
           environmentId: selectedRef.environmentId,
           input: {
             projectId: selectedRef.projectId,
@@ -252,7 +243,7 @@ export function GitHubIssuesPage({
   const closeDetail = () => updateSearch(clearSelection);
   const isMobile = useMediaQuery("max-md");
   const searchRef = useRef<HTMLDivElement | null>(null);
-  const onListKeyDown = useGitHubIssueKeyboard({
+  const onListKeyDown = useIssueKeyboard({
     page: variant === "page",
     searchRef,
     openIssueUrl: selectedRef === null ? null : (detailQuery.data?.url ?? null),
@@ -265,7 +256,7 @@ export function GitHubIssuesPage({
     const project = githubProjects.find((candidate) => pullRequestProjectKey(candidate) === next);
     updateFilters({ projectId: project?.id, environmentId: project?.environmentId });
   };
-  const selectIssue = (issue: EnvironmentGitHubIssueListEntry) => {
+  const selectIssue = (issue: EnvironmentIssueListEntry) => {
     if (onSelectIssue) {
       onSelectIssue(issue);
       return;
@@ -279,9 +270,9 @@ export function GitHubIssuesPage({
   };
 
   const fetched = listQuery.data?.entries ?? NO_ENTRIES;
-  const facets = gitHubIssueFacets(fetched);
-  const entries = applyGitHubIssueListView(fetched, narrowing, order);
-  const narrowed = !gitHubIssueNarrowingIsEmpty(narrowing);
+  const facets = issueFacets(fetched);
+  const entries = applyIssueListView(fetched, narrowing, order);
+  const narrowed = !issueNarrowingIsEmpty(narrowing);
   const narrowingProps = {
     types: facets.types,
     labels: facets.labels,
@@ -289,8 +280,8 @@ export function GitHubIssuesPage({
     onNarrowing: setNarrowing,
   };
   // Stable, so the memoized rows skip a render when only the selection or the query moved.
-  const filterBy = (field: GitHubIssueFilterField, name: string) =>
-    setNarrowing((previous) => toggleGitHubIssueNarrowing(previous, field, name));
+  const filterBy = (field: IssueFilterField, name: string) =>
+    setNarrowing((previous) => toggleIssueNarrowing(previous, field, name));
   const refreshing = listQuery.isPending;
   // Rows held from the last answer: while a new one travels, or kept after its refresh failed.
   // Still readable, visibly not final — but only a read in flight makes the section busy.
@@ -304,19 +295,19 @@ export function GitHubIssuesPage({
       <Spinner className="size-4" /> Connecting to the environment...
     </div>
   ) : !supported ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="GitHub issues unavailable"
       description="Update a connected T3 Code server to browse GitHub issues."
     />
   ) : projectsKnown && githubProjects.length === 0 ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="No GitHub projects"
       description="Add a project backed by a GitHub repository and its issues will appear here."
     />
   ) : listQuery.isPending && listQuery.data === null ? (
-    <GitHubIssueListGhosts query={sentQuery} />
+    <IssueListGhosts query={sentQuery} />
   ) : listQuery.data?.environmentErrors.length && fetched.length === 0 ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="Could not load issues"
       description={
         listQuery.data.environmentErrors[0]?.message ?? "The environment did not answer."
@@ -324,23 +315,23 @@ export function GitHubIssuesPage({
       action={<Button onClick={listQuery.refresh}>Try again</Button>}
     />
   ) : fetched.length === 0 && (listQuery.data?.errors.length ?? 0) > 0 ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="Could not load issues"
       description={listQuery.data?.errors[0]?.message ?? "GitHub did not answer."}
       action={<Button onClick={listQuery.refresh}>Try again</Button>}
     />
   ) : entries.length === 0 && narrowed ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="No issues"
       description="No issues matched the selected type and label filters."
       action={
-        <Button variant="outline" onClick={() => setNarrowing(NO_GITHUB_ISSUE_NARROWING)}>
+        <Button variant="outline" onClick={() => setNarrowing(NO_ISSUE_NARROWING)}>
           Clear filters
         </Button>
       }
     />
   ) : entries.length === 0 ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="No issues"
       description={search.q ? "Nothing matched this search." : "No issues matched these filters."}
     />
@@ -352,7 +343,7 @@ export function GitHubIssuesPage({
       // still readable, visibly not final.
       className={heldRows ? "opacity-60 transition-opacity" : "transition-opacity"}
     >
-      <GitHubIssueGroupHeader
+      <IssueGroupHeader
         state={search.state}
         count={entries.length}
         caption={
@@ -366,8 +357,8 @@ export function GitHubIssuesPage({
       {/* Rows are not virtualized: each environment/project query is capped at 50, and rows use content-visibility:auto. */}
       <div className="space-y-0.5">
         {entries.map((issue) => (
-          <GitHubIssueRow
-            key={environmentGitHubIssueKey(issue)}
+          <IssueRow
+            key={environmentIssueKey(issue)}
             issue={issue}
             selected={
               selectedRef?.environmentId === issue.environmentId &&
@@ -390,7 +381,7 @@ export function GitHubIssuesPage({
   );
 
   const detail = !selectedRef ? null : selectedEnvironmentUnavailable ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="GitHub issues unavailable"
       description="This issue's environment is no longer available."
     />
@@ -399,12 +390,12 @@ export function GitHubIssuesPage({
       <Spinner className="size-4" /> Connecting to the environment...
     </div>
   ) : !selectedSupported ? (
-    <GitHubIssueEmptyState
+    <IssueEmptyState
       title="GitHub issues unavailable"
       description="This issue's environment does not support GitHub Issues."
     />
   ) : (
-    <EnvironmentGitHubIssueDetailContent
+    <EnvironmentIssueDetailContent
       environmentId={selectedRef.environmentId}
       copyLinkShortcut={variant === "page"}
       detail={detailQuery.data}
@@ -435,19 +426,19 @@ export function GitHubIssuesPage({
           <ProjectChooserScopeLabelFork />
           {/* fork-hook-end */}
           <div ref={searchRef} className="min-w-0 flex-1">
-            <GitHubIssueSearchField
+            <IssueSearchField
               value={search.q ?? ""}
               onChange={(next) => updateFilters({ q: next || undefined })}
             />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <GitHubIssueFilterAdd {...narrowingProps} />
-          <GitHubIssueStateToggle
+          <IssueFilterAdd {...narrowingProps} />
+          <IssueStateToggle
             state={search.state}
             onState={(next) => updateFilters({ state: next })}
           />
-          <GitHubIssueProjectMenu
+          <IssueProjectMenu
             projects={githubProjects}
             value={projectMenuValue}
             onValueChange={selectProject}
@@ -455,7 +446,7 @@ export function GitHubIssuesPage({
           {/* The order and refresh pair wraps whole: the row's last unit always carries two
               controls, so even a pane too narrow for all five strands none of them. */}
           <div className="flex items-center gap-2">
-            <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
+            <IssueOrderMenu order={order} onOrder={setOrder} />
             <Button
               size="icon"
               variant="outline"
@@ -468,7 +459,7 @@ export function GitHubIssuesPage({
           </div>
         </div>
       </div>
-      <GitHubIssueFilterBar {...narrowingProps} />
+      <IssueFilterBar {...narrowingProps} />
     </div>
   );
 
@@ -503,7 +494,7 @@ export function GitHubIssuesPage({
   }
 
   const detailPanelOpen = selectedRef !== null && !isMobile;
-  const selectedSurface = selectedRef === null ? null : githubIssueSurface(selectedRef);
+  const selectedSurface = selectedRef === null ? null : issueSurface(selectedRef);
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
@@ -602,7 +593,7 @@ const GROUP_LABELS = { open: "Open", closed: "Closed", all: "All" } as const sat
 >;
 
 /** The pull request page's group header, holding the one group an issue list has: its state. */
-function GitHubIssueGroupHeader({
+function IssueGroupHeader({
   state,
   count,
   caption,
@@ -612,7 +603,7 @@ function GitHubIssueGroupHeader({
   /** Says what the rows below are: what is on its way, or what a failed refresh left. */
   readonly caption: { readonly text: string; readonly pending: boolean } | null;
 }) {
-  const Icon = state === "all" ? LayersIcon : GITHUB_ISSUE_STATE_PRESENTATION[state].Icon;
+  const Icon = state === "all" ? LayersIcon : ISSUE_STATE_PRESENTATION[state].Icon;
   return (
     <div className="flex items-center gap-2 px-3 pb-1 font-medium text-muted-foreground/70 text-xs">
       <Icon aria-hidden className="size-3.5 shrink-0" />
