@@ -793,6 +793,7 @@ Retention and release stay fork scope until upstream keeps one task across round
 
 The remote service is **one more model** on upstream `SpeechService`: `RemoteSpeechModel.fork.ts` wraps the layer, so every client selects and uses it through upstream's voice endpoints.
 Selection is upstream's **`speechModelId`** setting, holding **`fork/remote`**: stock servers read an unknown id as their default model, so this fork value is deliberate; base URL, model, and key stay in the **`fork-voice-input` secret**, behind one fork HTTP route.
+Settings offer it as **"Custom via <environment>"** under Transcribe with, gated on the **`speechRemoteModelFork`** capability; upstream's `CloudSpeechProvider` stays untouched, so no fork literal reaches its cloud path.
 Batch posts the **multipart transcription**; live relays the **PCM stream over Realtime**.
 Upstream **custom words** go out as the `prompt`, then upstream aliases and filler removal run on the result.
 Ducking **hooks upstream's PCM capture**; the desktop bridge restores speakers even when a recording is cancelled before ducking starts.
@@ -813,6 +814,8 @@ Ducking stays fork scope until upstream lowers speaker volume while recording.
 | `apps/web/src/speech/browserPcmCapture.ts`                | Ducking start and stop     |
 | `apps/web/src/components/settings/VoiceSettingsPanel.tsx` | Fork settings sections     |
 | `packages/contracts/src/index.ts`                         | Fork contract export       |
+| `packages/contracts/src/environment.ts`                   | Custom service capability  |
+| `apps/server/src/environment/ServerEnvironment.ts`        | Capability advertised      |
 | `packages/client-runtime/src/rpc/index.ts`                | Settings HTTP export       |
 | `packages/contracts/src/ipc.ts`                           | Speaker bridge contract    |
 | `apps/desktop/src/main.ts`                                | Desktop ducking lifetime   |
