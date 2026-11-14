@@ -139,6 +139,8 @@ export const IssueRef = Schema.Struct({
   projectId: ProjectId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
+  /** Set only for a Linear issue (`linear.app`); a GitHub issue reads its project's host. */
+  host: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type IssueRef = typeof IssueRef.Type;
 
@@ -170,6 +172,10 @@ export const IssueDetail = Schema.Struct({
   subIssues: Schema.optional(Schema.Array(GitHubSubIssue)),
   parent: Schema.optional(Schema.NullOr(GitHubSubIssue)),
   closedAt: Schema.NullOr(IsoDateTime),
+  /** A Linear issue's workflow state, which `state` folds to open or closed. */
+  workflowState: Schema.optionalKey(
+    Schema.Struct({ name: TrimmedNonEmptyString, color: Schema.NullOr(Schema.String) }),
+  ),
 });
 export type IssueDetail = typeof IssueDetail.Type;
 
@@ -208,5 +214,18 @@ export class GitHubIssueOperationError extends Schema.TaggedError<GitHubIssueOpe
 ) {
   override get message(): string {
     return `GitHub issue operation ${this.operation} failed: ${this.detail}`;
+  }
+}
+
+export class LinearIssueOperationError extends Schema.TaggedError<LinearIssueOperationError>()(
+  "LinearIssueOperationError",
+  {
+    operation: Schema.String,
+    detail: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return this.detail;
   }
 }

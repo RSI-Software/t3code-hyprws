@@ -1,7 +1,7 @@
 // Fork-owned right-panel GitHub issue detail surface. Upstream `ChatView.tsx` carries only
 // marked hook lines pointing here; the capability probe, the degraded/ghost states, and the
 // sub-issue hand-off live in this module.
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { LINEAR_ISSUE_HOST, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
 import { useRightPanelStore } from "../../rightPanelStore";
@@ -15,7 +15,12 @@ export function IssueDetailSurfaceFork(props: {
   readonly environments: ReadonlyArray<{
     readonly environmentId: string;
     readonly serverConfig?: {
-      readonly environment: { readonly capabilities: { readonly githubIssues?: boolean } };
+      readonly environment: {
+        readonly capabilities: {
+          readonly githubIssues?: boolean;
+          readonly linearIssues?: boolean;
+        };
+      };
     } | null;
   }>;
   readonly activeThreadRef: ScopedThreadRef | null;
@@ -25,10 +30,19 @@ export function IssueDetailSurfaceFork(props: {
     props.environments.find((environment) => environment.environmentId === surface.environmentId)
       ?.serverConfig ?? null;
   const issuesCapabilityKnown = issueServerConfig !== null;
-  const supportsIssues = issueServerConfig?.environment.capabilities.githubIssues === true;
+  const capabilities = issueServerConfig?.environment.capabilities;
+  const linear = surface.host === LINEAR_ISSUE_HOST;
 
   if (!issuesCapabilityKnown) return <IssueDetailGhost />;
-  if (!supportsIssues) {
+  if (linear && capabilities?.linearIssues !== true) {
+    return (
+      <IssueEmptyState
+        title="Linear issues unavailable"
+        description="Set LINEAR_API_KEY in this environment's T3 Code server, then restart it."
+      />
+    );
+  }
+  if (!linear && capabilities?.githubIssues !== true) {
     return (
       <IssueEmptyState
         title="GitHub issues unavailable"
@@ -38,7 +52,7 @@ export function IssueDetailSurfaceFork(props: {
   }
   return (
     <IssueDetailPanel
-      key={`${surface.environmentId}:${surface.projectId}:${surface.repository}#${surface.number}`}
+      key={surface.id}
       environmentId={surface.environmentId as EnvironmentId}
       composerTarget={props.activeThreadRef}
       onBack={() => {
@@ -59,6 +73,7 @@ export function IssueDetailSurfaceFork(props: {
         projectId: surface.projectId as ProjectId,
         repository: surface.repository,
         number: surface.number,
+        ...(linear ? { host: LINEAR_ISSUE_HOST } : {}),
       }}
     />
   );
