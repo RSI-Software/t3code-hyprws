@@ -881,6 +881,7 @@ describe("CheckoutMoveServiceFork", () => {
         const detached: ProviderSessionId[] = [];
         const inner = Layer.succeed(TurnStart.ProviderTurnStartServiceV2, {
           start: () => Effect.sync(() => void started.push(harness.thread().worktreePath)),
+          failStartingRun: () => Effect.die("unexpected failed turn start"),
         });
         const projection = Layer.succeed(ProjectionStore.ProjectionStoreV2, {
           getThread: () => Effect.sync(harness.thread),
