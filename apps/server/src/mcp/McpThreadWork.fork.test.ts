@@ -396,13 +396,26 @@ const makeHarness = () => {
       Effect.sync(() =>
         projections.has(threadId) ? threadShellFromProjection(projection(threadId)) : null,
       ),
+    getShellSnapshot: (input) =>
+      Effect.sync(() => ({
+        schemaVersion: 2,
+        snapshotSequence: 0,
+        threads: [...projections.values()]
+          .filter(
+            (entry) => input?.threadIds === undefined || input.threadIds.includes(entry.thread.id),
+          )
+          .map(threadShellFromProjection),
+        archivedThreads: [],
+      })),
     getProjectThreadRecords: (input) => Effect.sync(() => projection(input.threadId) as never),
     getThreadRecords: (threadId) => Effect.sync(() => projection(threadId) as never),
     listProjectThreads: (input) =>
       Effect.sync(() =>
         [...projections.values()]
-          .filter((entry) => entry.thread.projectId === input.projectId)
-          .map(threadShellFromProjection),
+          .filter(
+            (entry) => input.projectId === undefined || entry.thread.projectId === input.projectId,
+          )
+          .map(({ thread }) => thread),
       ),
     getTimelinePage: () => Effect.succeed({ items: [], totalItems: 0, hasMore: false } as never),
     // As upstream's, a run wait pins the selected or latest run and holds

@@ -46,13 +46,13 @@ export const listThreadsFork = Effect.fn("OrchestratorMcpThreadWork.listThreads"
   const service = yield* OrchestratorMcpService.OrchestratorMcpService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const result = yield* service.listThreads(scope, input);
-  const shells = yield* threads
-    .listProjectThreads({
-      ...(result.projectId === null ? {} : { projectId: result.projectId }),
-      includeSubagents: input.includeSubagents !== false,
+  const snapshot = yield* threads
+    .getShellSnapshot({
+      location: "active",
+      threadIds: result.threads.map((thread) => thread.threadId),
     })
     .pipe(Effect.mapError(OrchestratorMcpService.threadManagementFailureFork));
-  const shellById = new Map(shells.map((shell) => [shell.id, shell]));
+  const shellById = new Map(snapshot.threads.map((shell) => [shell.id, shell]));
   // A row deleted between the two reads drops out rather than reporting stale work.
   const rows = yield* Effect.forEach(
     result.threads,
