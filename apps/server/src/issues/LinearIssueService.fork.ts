@@ -1,12 +1,14 @@
 // Fork-owned Linear reads behind `IssueService`: a Linear link's detail, its chat reference, and
-// the light summaries the sync reactor folds into link snapshots. The server's own
-// `LINEAR_API_KEY` reads one workspace; with no key every read is refused or empty.
+// the light summaries the sync reactor folds into link snapshots, and workflow state moves. One
+// key, from Settings or `LINEAR_API_KEY`, reads one workspace; with none every read is refused or
+// empty.
 import {
   type GitHubReferenceSummary,
   type IssueActor,
   type IssueCloseReason,
   type IssueDetail,
   type IssueLabel,
+  type IssueSetStateInput,
   type IssueState,
   LinearIssueOperationError,
   type OrchestrationProjectShell,
@@ -21,11 +23,14 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
+import * as ServerSettings from "../serverSettings.ts";
 import type { GitHubIssueSummary } from "./gitHubIssueJson.ts";
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 /** Linear caps a page at 250; a link batch never nears it. */
 const SUMMARIES_PER_REQUEST = 100;
+/** Linear signs upload URLs in markdown for this long, so a client loads images without the key. */
+const SIGNED_FILE_URL_SECONDS = 24 * 60 * 60;
 
 /** The server's Linear personal API key, read from its environment. A blank one is none. */
 const linearApiKey = Config.Redacted("LINEAR_API_KEY").pipe(
@@ -68,9 +73,24 @@ const RawReference = Schema.Struct({
   updatedAt: Schema.String,
   creator: Schema.NullOr(RawActor),
 });
+const RawTeamStates = Schema.Struct({
+  states: Schema.Struct({
+    nodes: Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        name: Schema.String,
+        type: Schema.String,
+        color: Schema.NullOr(Schema.String),
+        position: Schema.Number,
+      }),
+    ),
+  }),
+});
 const RawDetail = Schema.Struct({
   ...RawSummary.fields,
   ...RawReference.fields,
+  stateRef: Schema.Struct({ id: Schema.String }),
+  team: RawTeamStates,
   identifier: Schema.String,
   description: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
@@ -113,6 +133,12 @@ const decodeOlderCommentsEnvelope = issueEnvelope(
     }),
   }),
 );
+const decodeTeamStatesEnvelope = issueEnvelope(
+  Schema.Struct({ url: Schema.String, team: RawTeamStates }),
+);
+const decodeUpdateEnvelope = Schema.decodeUnknownEffect(
+  Envelope(Schema.Struct({ issueUpdate: Schema.Struct({ success: Schema.Boolean }) })),
+);
 const decodeSummariesEnvelope = Schema.decodeUnknownEffect(
   Envelope(Schema.Struct({ issues: Schema.Struct({ nodes: Schema.Array(RawSummary) }) })),
 );
@@ -121,6 +147,7 @@ const SUMMARY_FIELDS =
   "number title url state { name type color } labels(first: 50) { nodes { name color } }";
 const ACTOR_FIELDS = "name displayName avatarUrl";
 const REFERENCE_FIELDS = `title url state { name type color } updatedAt creator { ${ACTOR_FIELDS} }`;
+const TEAM_STATES_FIELDS = "team { states { nodes { id name type color position } } }";
 const PAGE_INFO_FIELDS = "pageInfo { hasNextPage endCursor }";
 /** The newest comments a detail shows; older ones are only counted. */
 const DETAIL_COMMENTS = 100;
@@ -133,12 +160,21 @@ const DETAIL_QUERY = `query LinearIssueDetail($id: String!) {
   issue(id: $id) {
     ${SUMMARY_FIELDS} ${REFERENCE_FIELDS}
     identifier description createdAt completedAt canceledAt
+    stateRef: state { id } ${TEAM_STATES_FIELDS}
     assignee { ${ACTOR_FIELDS} }
     comments(first: ${DETAIL_COMMENTS}) {
       ${PAGE_INFO_FIELDS}
       nodes { id body createdAt updatedAt url user { ${ACTOR_FIELDS} } }
     }
   }
+}`;
+
+const TEAM_STATES_QUERY = `query LinearIssueTeamStates($id: String!) {
+  issue(id: $id) { url ${TEAM_STATES_FIELDS} }
+}`;
+
+const SET_STATE_MUTATION = `mutation LinearIssueSetState($id: String!, $stateId: String!) {
+  issueUpdate(id: $id, input: { stateId: $stateId }) { success }
 }`;
 
 // Linear lists comments newest first and carries no total, so older ones are counted by id.
@@ -172,6 +208,36 @@ function issueState(state: RawState): { state: IssueState; closeReason: IssueClo
   return { state: "open", closeReason: null };
 }
 
+const escapeHtml = (text: string) =>
+  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+/** Linear writes a collapsible section as `+++ Title` … `+++`; markdown spells it `<details>`. */
+const linearMarkdown = (markdown: string) =>
+  markdown.replace(
+    /^\+\+\+[ \t]+(\S.*)\n([\s\S]*?)\n\+\+\+[ \t]*$/gmu,
+    (_, title: string, body: string) =>
+      `<details>\n<summary>${escapeHtml(title.trim())}</summary>\n\n${body}\n\n</details>`,
+  );
+
+/** A team's workflow states in board order: by category, then Linear's position within it. */
+const STATE_ORDER = [
+  "triage",
+  "backlog",
+  "unstarted",
+  "started",
+  "completed",
+  "canceled",
+  "duplicate",
+];
+const teamStates = (team: typeof RawTeamStates.Type) =>
+  team.states.nodes
+    .toSorted(
+      (left, right) =>
+        STATE_ORDER.indexOf(left.type) - STATE_ORDER.indexOf(right.type) ||
+        left.position - right.position,
+    )
+    .map(({ id, name, type, color }) => ({ id, name, type, color }));
+
 const actor = (raw: RawActor | null): IssueActor | null =>
   raw === null
     ? null
@@ -193,6 +259,10 @@ export class LinearIssueService extends Context.Service<
     readonly reference: (
       key: ThreadIssueKey,
     ) => Effect.Effect<GitHubReferenceSummary | null, LinearIssueOperationError>;
+    /** Moves the issue to a workflow state: the one named, else the first of the folded kind. */
+    readonly setState: (
+      input: IssueSetStateInput,
+    ) => Effect.Effect<void, LinearIssueOperationError>;
     /** Light reads of one team's issues; a number with no issue is left out. */
     readonly summaries: (input: {
       readonly repository: string;
@@ -202,24 +272,53 @@ export class LinearIssueService extends Context.Service<
 >()("t3/issues/LinearIssueService.fork/LinearIssueService") {}
 
 export const make = Effect.gen(function* () {
-  const apiKey = yield* linearApiKey;
+  const environmentKey = yield* linearApiKey;
   const client = yield* HttpClient.HttpClient;
+  const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+
+  /**
+   * The key saved in Settings, else the environment's, read per request so a new one applies.
+   * Settings that cannot be read fail rather than quietly reading as the environment's account.
+   */
+  const currentKey = Effect.fn("LinearIssueService.currentKey")(
+    function* (_operation: string) {
+      if (Option.isNone(settings)) return environmentKey;
+      const saved = (yield* settings.value.getSettings).linearApiKey;
+      return saved === "" ? environmentKey : Option.some(Redacted.make(saved));
+    },
+    (effect, operation) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new LinearIssueOperationError({
+              operation,
+              detail: "Could not read the Linear API key saved in Settings.",
+              cause,
+            }),
+        ),
+      ),
+  );
 
   const graphql = Effect.fn("LinearIssueService.graphql")(function* (
     operation: string,
     query: string,
     variables: Record<string, unknown>,
   ) {
+    const apiKey = yield* currentKey(operation);
     if (Option.isNone(apiKey)) {
       return yield* new LinearIssueOperationError({
         operation,
-        detail: "Set LINEAR_API_KEY in this T3 Code server's environment to read Linear issues.",
+        detail: "Add a Linear API key in Settings → Source control to read Linear issues.",
       });
     }
     const response = yield* client
       .execute(
         HttpClientRequest.post(LINEAR_API_URL).pipe(
           HttpClientRequest.setHeader("Authorization", Redacted.value(apiKey.value)),
+          HttpClientRequest.setHeader(
+            "public-file-urls-expire-in",
+            String(SIGNED_FILE_URL_SECONDS),
+          ),
           HttpClientRequest.bodyJsonUnsafe({ query, variables }),
         ),
       )
@@ -237,7 +336,7 @@ export const make = Effect.gen(function* () {
     if (response.status === 401 || response.status === 403) {
       return yield* new LinearIssueOperationError({
         operation,
-        detail: "Linear refused this server's LINEAR_API_KEY.",
+        detail: "Linear refused this server's Linear API key.",
       });
     }
     if (response.status < 200 || response.status >= 300) {
@@ -340,7 +439,7 @@ export const make = Effect.gen(function* () {
         .map((comment) => ({
           id: comment.id,
           author: actor(comment.user),
-          body: comment.body,
+          body: linearMarkdown(comment.body),
           createdAt: comment.createdAt,
           updatedAt: comment.updatedAt,
           url: comment.url,
@@ -358,16 +457,68 @@ export const make = Effect.gen(function* () {
         assignees: issue.assignee === null ? [] : [actor(issue.assignee)!],
         labels: labels(issue),
         ...issueState(issue.state),
-        workflowState: { name: issue.state.name, color: issue.state.color },
+        workflowState: { id: issue.stateRef.id, name: issue.state.name, color: issue.state.color },
+        workflowStates: teamStates(issue.team),
         createdAt: issue.createdAt,
         updatedAt: issue.updatedAt,
         closedAt: issue.completedAt ?? issue.canceledAt,
-        body: issue.description ?? "",
+        body: linearMarkdown(issue.description ?? ""),
         comments,
         commentCount: comments.length + olderComments,
       } satisfies IssueDetail;
     },
   );
+
+  const setState: LinearIssueService["Service"]["setState"] = Effect.fn(
+    "LinearIssueService.setState",
+  )(function* (input) {
+    const operation = input.state === "closed" ? "close" : "reopen";
+    const key = { ...input, host: "linear.app", url: "" };
+    const stateId =
+      input.workflowStateId ??
+      (yield* readIssue(operation, TEAM_STATES_QUERY, decodeTeamStatesEnvelope, key).pipe(
+        Effect.map((issue) => {
+          // Close and reopen name a kind of state, not one; take the team's first of that kind.
+          const kind =
+            input.state === "open"
+              ? "unstarted"
+              : input.reason === "not planned"
+                ? "canceled"
+                : "completed";
+          return issue === null
+            ? undefined
+            : teamStates(issue.team).find((state) => state.type === kind)?.id;
+        }),
+      ));
+    if (stateId === undefined) {
+      return yield* new LinearIssueOperationError({
+        operation,
+        detail: "This Linear team has no workflow state for that.",
+      });
+    }
+    const { team } = keyParts(input);
+    const body = yield* graphql(operation, SET_STATE_MUTATION, {
+      id: `${team}-${input.number}`,
+      stateId,
+    });
+    const envelope = yield* decodeUpdateEnvelope(body).pipe(
+      Effect.mapError(
+        (cause) =>
+          new LinearIssueOperationError({
+            operation,
+            detail: "Linear returned unreadable data.",
+            cause,
+          }),
+      ),
+    );
+    if (envelope.data?.issueUpdate.success !== true) {
+      return yield* new LinearIssueOperationError({
+        operation,
+        detail: "Linear did not change this issue's state.",
+        cause: envelope.errors,
+      });
+    }
+  });
 
   const reference: LinearIssueService["Service"]["reference"] = Effect.fn(
     "LinearIssueService.reference",
@@ -391,7 +542,7 @@ export const make = Effect.gen(function* () {
     "LinearIssueService.summaries",
   )(function* (input) {
     const found = new Map<number, GitHubIssueSummary>();
-    if (Option.isNone(apiKey)) return found;
+    if (Option.isNone(yield* currentKey("summaries"))) return found;
     const { workspace, team } = keyParts(input);
     const numbers = [...new Set(input.numbers)];
     for (let start = 0; start < numbers.length; start += SUMMARIES_PER_REQUEST) {
@@ -432,6 +583,7 @@ export const make = Effect.gen(function* () {
   return {
     detail,
     reference,
+    setState,
     summaries,
   } satisfies LinearIssueService["Service"];
 });
