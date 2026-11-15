@@ -240,7 +240,9 @@ The settings search item **stays in `issueSettingsSearch.ts`**, never in the ups
 - An **older snapshot** never wins
 - Snapshots carry **sub-issues, parent, type, and labels**
 - **Older servers reject** link events
-- **Linear links** by URL alone; **never read**, so no snapshot
+- **Linear links** by URL alone
+- **Linear reads** need the server's `LINEAR_API_KEY`
+- **`IssueService` routes** Linear keys to its reader
 
 The client-only UI **mirrors linked pull requests** on each of their surfaces.
 
