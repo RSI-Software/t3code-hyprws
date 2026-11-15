@@ -223,10 +223,11 @@ function linearMarkdown(markdown: string) {
     const [, space = "", run] = /^([ \t]*)(`{3,}|~{3,})/u.exec(line) ?? [];
     const indent = space.replaceAll("\t", "    ").length;
     if (fence !== null) {
-      // A closer is a bare run of the fence's character, as long, at most 3 columns deeper.
+      // A closer is a bare run of the fence's character, as long, indented at most 3 columns
+      // or, in a list item, no deeper than its opener.
       const closes =
         run?.startsWith(fence.run) === true &&
-        indent <= fence.indent + 3 &&
+        indent <= Math.max(3, fence.indent) &&
         line.slice(space.length + run.length).trim() === "";
       if (closes) fence = null;
       continue;
