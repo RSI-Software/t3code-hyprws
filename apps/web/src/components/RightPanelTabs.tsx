@@ -125,7 +125,7 @@ import { threadArtifactsSurfaceActionsFork } from "./threadArtifacts/threadArtif
 import { ThreadArtifactsTabIconFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/panel-tab-icon-import
 import { issueSurfaceActionsFork } from "./issues/issueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
 import { issueEmptyStateActionsFork } from "./issues/issueSurfaceActions.fork"; // fork-hook: github-issues/empty-state-unavailable-hint
-import { IssueTabIconFork } from "./issues/IssueTabIcon.fork"; // fork-hook: github-issues/panel-tab-status-icon
+import { IssueTabIconFork, issueTabTitleFork } from "./issues/IssueTabIcon.fork"; // fork-hook: github-issues/panel-tab-status-icon
 import { threadArtifactsEmptyStateActionsFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/empty-state-launcher
 
 export interface RightPanelTabsProps {
@@ -642,7 +642,7 @@ function surfaceTitle(
     case "github-issue-links": // fork-hook: github-issues/panel-tab-title
       return "Linked issues"; // fork-hook: github-issues/panel-tab-title
     case "github-issue":
-      return `#${surface.number}`; // fork-hook: github-issues/panel-tab-title
+      return issueTabTitleFork(surface); // fork-hook: github-issues/panel-tab-title
     case "thread-artifacts": // fork-hook: thread-artifacts/panel-tab-title
       return "Artifacts"; // fork-hook: thread-artifacts/panel-tab-title
     case "device":

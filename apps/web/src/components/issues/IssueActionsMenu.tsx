@@ -1,5 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { linearIssueLinkTarget } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   IssueCloseReason,
@@ -34,7 +35,12 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } f
 import { RefreshIcon } from "../ui/refresh-icon";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { appendIssuePrompt, issueAskPrompt, issueExplainPrompt } from "./issueAsk.logic";
+import {
+  appendIssuePrompt,
+  issueAskPrompt,
+  issueExplainPrompt,
+  issueNumberLabel,
+} from "./issueAsk.logic";
 import { IssueThreadLinkMenuItem, type useIssueThreadLinks } from "./IssueThreadLinks";
 
 type AskKind = "ask" | "explain";
@@ -76,8 +82,11 @@ export function IssueActionsMenu({
   const runSetState = useAtomCommand(issueEnvironment.setState, { reportFailure: false });
   const [changingState, setChangingState] = useState(false);
   // A server that predates `githubIssues.setState` still lists issues; offer nothing it cannot do.
-  const canChangeState =
+  // Linear's workflow states are its own; a Linear issue changes state in Linear.
+  const linear = linearIssueLinkTarget(detail.url) !== null;
+  const serverChangesState =
     useServerConfigs().get(environmentId)?.environment.capabilities.githubIssueStateChange === true;
+  const canChangeState = serverChangesState && !linear;
   const { copyToClipboard } = useCopyToClipboard<string>({
     target: "issue reference",
     onCopy: (label) => toastManager.add({ type: "success", title: `${label} copied` }),
@@ -227,7 +236,7 @@ export function IssueActionsMenu({
           <MenuSeparator />
           <MenuItem onClick={() => void readLocalApi()?.shell.openExternal(detail.url)}>
             <ArrowUpRightIcon className="size-3.5" />
-            Open on GitHub
+            {linear ? "Open in Linear" : "Open on GitHub"}
           </MenuItem>
           <MenuItem onClick={() => copyToClipboard(detail.url, "Issue link")}>
             <LinkIcon className="size-3.5" />
@@ -238,7 +247,7 @@ export function IssueActionsMenu({
               </MenuShortcut>
             ) : null}
           </MenuItem>
-          <MenuItem onClick={() => copyToClipboard(`#${detail.number}`, "Issue number")}>
+          <MenuItem onClick={() => copyToClipboard(issueNumberLabel(detail), "Issue number")}>
             <CopyIcon className="size-3.5" />
             Copy issue number
           </MenuItem>

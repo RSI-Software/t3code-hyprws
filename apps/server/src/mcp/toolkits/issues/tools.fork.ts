@@ -189,7 +189,7 @@ export const ThreadIssueEntry = Schema.Struct({
   ...IssueIdentity,
   url: Schema.String,
   source: ThreadIssueLinkSource,
-  /** Null until T3 Code has read the issue from GitHub, and always null for Linear; never a guess. */
+  /** Null until T3 Code has read the issue from its tracker; never a guess. */
   state: Schema.NullOr(IssueState),
   title: Schema.NullOr(Schema.String),
   subIssues: Schema.Array(GitHubSubIssue).annotate({
