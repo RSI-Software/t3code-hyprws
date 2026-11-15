@@ -28,7 +28,7 @@ import { environmentServerConfigsAtom, serverEnvironment } from "../state/server
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { reviewEnvironment } from "../state/review";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
-import { linkPreferenceFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
+import { linkPreferenceFork, openIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null, url: string) {
   const projects = useProjects();
@@ -83,7 +83,7 @@ export function useOpenChangeRequestLink(
       const serverConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
       const allProjects = readProjects(); // fork-hook: github-issues/issue-link-projects
       if (
-        openGitHubIssueLinkFork({
+        openIssueLinkFork({
           event,
           targetUrl,
           resolvedThreadRef,

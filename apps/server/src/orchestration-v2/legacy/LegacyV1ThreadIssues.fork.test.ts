@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { listLinkedIssueThreadsFork } from "../../githubIssue/linkedThreads.fork.ts";
+import { listLinkedIssueThreadsFork } from "../../issues/linkedThreads.fork.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as EventSink from "../EventSink.ts";
 import * as EventStore from "../EventStore.ts";

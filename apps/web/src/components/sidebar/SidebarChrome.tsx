@@ -15,9 +15,9 @@ import {
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { useEnvironments, usePullRequestsSupported } from "../../state/environments"; // fork-hook: github-issues/sidebar-environments-import
-import { isSidebarGitHubIssuesLocationFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
-import { sidebarGitHubIssuesSupportedFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-supported-import
-import { gitHubIssuesSidebarNavigateFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-navigate-import
+import { isSidebarIssuesLocationFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
+import { sidebarIssuesSupportedFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-supported-import
+import { issuesSidebarNavigateFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-navigate-import
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -229,10 +229,10 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const isOnUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
-  const isOnIssuesPage = useLocation({ select: isSidebarGitHubIssuesLocationFork }); // fork-hook: github-issues/sidebar-issues-footer-page
+  const isOnIssuesPage = useLocation({ select: isSidebarIssuesLocationFork }); // fork-hook: github-issues/sidebar-issues-footer-page
   const pullRequestsSupported = usePullRequestsSupported();
   const { environments } = useEnvironments(); // fork-hook: github-issues/sidebar-environments
-  const githubIssuesSupported = sidebarGitHubIssuesSupportedFork(environments); // fork-hook: github-issues/sidebar-issues-supported
+  const issuesSupported = sidebarIssuesSupportedFork(environments); // fork-hook: github-issues/sidebar-issues-supported
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -245,7 +245,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       search: readPullRequestListPreferences(),
     });
   };
-  const handleIssuesClick = gitHubIssuesSidebarNavigateFork({ closeMobileSidebar, navigate }); // fork-hook: github-issues/sidebar-issues-navigate
+  const handleIssuesClick = issuesSidebarNavigateFork({ closeMobileSidebar, navigate }); // fork-hook: github-issues/sidebar-issues-navigate
   const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -287,7 +287,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             />
           ) : null}
           {/* fork-hook: github-issues/sidebar-issues-entry */}
-          {githubIssuesSupported ? (
+          {issuesSupported ? (
             <SidebarUtilityItem
               icon={<CircleDotIcon />}
               label="GitHub Issues"

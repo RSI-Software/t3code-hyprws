@@ -24,7 +24,7 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
-import { GitHubIssueRightPanelSurfaceFork } from "../githubIssue/GitHubIssueRightPanelSurface.fork"; // fork-hook: github-issues/right-panel-content-import
+import { IssueRightPanelSurfaceFork } from "../issues/IssueRightPanelSurface.fork"; // fork-hook: github-issues/right-panel-content-import
 import { ThreadArtifactsPanelFork } from "../threadArtifacts/ThreadArtifactsPanel.fork"; // fork-hook: thread-artifacts/right-panel-content-import
 import { useThreadArtifactFileRevisionFork } from "../threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/file-revision-import
 
@@ -181,7 +181,7 @@ export function RightPanelSurfaceContent(props: {
     case "github-issue-links": // fork-hook: github-issues/right-panel-content
     case "github-issue": // fork-hook: github-issues/right-panel-content
       return (
-        <GitHubIssueRightPanelSurfaceFork
+        <IssueRightPanelSurfaceFork
           surface={surface}
           threadRef={threadRef}
           environmentId={props.environmentId}

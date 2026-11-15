@@ -11,15 +11,15 @@ import { useClosedViewStore } from "./closedViewStore";
 import { resolveStorage } from "./lib/storage";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
 import type { ChatFileAttachment } from "./types";
-import { createOpenGitHubIssue } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-import
-import { githubIssueHubKindsFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-kind-import
-import { githubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-singleton-import
-import { normalizeGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
-import { resolveGitHubIssueActiveSurfaceIdFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-surface-import
+import { createOpenIssue } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-import
+import { issueHubKindsFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-kind-import
+import { issueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-singleton-import
+import { normalizeIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
+import { resolveIssueActiveSurfaceIdFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-surface-import
 import { selectActiveRightPanelKindFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-kind-import
-import type { GitHubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-surface-import
-import type { GitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-surface-import
-import type { OpenGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-decl-import
+import type { IssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-surface-import
+import type { IssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-surface-import
+import type { OpenIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-decl-import
 
 const RIGHT_PANEL_KINDS = [
   "diff",
@@ -31,7 +31,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-request",
   "pull-requests",
   "side-chat",
-  ...githubIssueHubKindsFork, // fork-hook: github-issues/right-panel-hub-kind
+  ...issueHubKindsFork, // fork-hook: github-issues/right-panel-hub-kind
   "thread-artifacts", // fork-hook: thread-artifacts/right-panel-kind
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -64,8 +64,8 @@ export type RightPanelSurface =
       /** Set when breadcrumbs moved a folder browser up to the workspace root. */
       folderTrail?: string;
     }
-  | GitHubIssueHubSurfaceFork // fork-hook: github-issues/right-panel-hub-surface
-  | GitHubIssueSurfaceFork // fork-hook: github-issues/right-panel-surface
+  | IssueHubSurfaceFork // fork-hook: github-issues/right-panel-hub-surface
+  | IssueSurfaceFork // fork-hook: github-issues/right-panel-surface
   | { id: "thread-artifacts"; kind: "thread-artifacts" } // fork-hook: thread-artifacts/right-panel-surface
   | {
       id: `file:${string}` | `attachment:${string}`;
@@ -178,7 +178,7 @@ interface RightPanelStoreState {
   ) => void;
   /** Clears the surface's pending link only while it is still `revealUrl`. */
   settlePullRequestReveal: (ref: ScopedThreadRef, surfaceId: string, revealUrl: string) => void;
-  openGitHubIssue: OpenGitHubIssueFork; // fork-hook: github-issues/right-panel-open-github-issue-decl
+  openIssue: OpenIssueFork; // fork-hook: github-issues/right-panel-open-github-issue-decl
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -242,7 +242,7 @@ const singletonSurface = (
       return { id: "pull-requests", kind };
     case "github-issues": // fork-hook: github-issues/right-panel-hub-singleton-case
     case "github-issue-links": // fork-hook: github-issues/right-panel-hub-singleton-case
-      return githubIssueHubSurfaceFork(kind); // fork-hook: github-issues/right-panel-hub-singleton
+      return issueHubSurfaceFork(kind); // fork-hook: github-issues/right-panel-hub-singleton
     case "thread-artifacts": // fork-hook: thread-artifacts/right-panel-singleton
       return { id: kind, kind }; // fork-hook: thread-artifacts/right-panel-singleton
     case "device":
@@ -565,7 +565,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         }),
                       ];
                     }
-                    if (surface.kind === "github-issue") return normalizeGitHubIssueFork(surface); // fork-hook: github-issues/right-panel-migrate-github-issue
+                    if (surface.kind === "github-issue") return normalizeIssueFork(surface); // fork-hook: github-issues/right-panel-migrate-github-issue
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -607,7 +607,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? (rawActiveSurfaceId ?? null)
                 : rawActiveSurfaceId === "pull-request"
                   ? (surfaces.find((surface) => surface.kind === "pull-request")?.id ?? null)
-                  : resolveGitHubIssueActiveSurfaceIdFork(rawActiveSurfaceId, surfaces); // fork-hook: github-issues/right-panel-active-surface
+                  : resolveIssueActiveSurfaceIdFork(rawActiveSurfaceId, surfaces); // fork-hook: github-issues/right-panel-active-surface
               const isOpen =
                 surfaces.length > 0 &&
                 (typeof validThreadState?.isOpen === "boolean"
@@ -834,7 +834,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             ),
           }));
         }),
-      openGitHubIssue: createOpenGitHubIssue({ set, userAction }), // fork-hook: github-issues/right-panel-open-github-issue
+      openIssue: createOpenIssue({ set, userAction }), // fork-hook: github-issues/right-panel-open-github-issue
       /**
        * Opening a file leaves the standalone explorer alone. It is the way back to the
        * unselected tree, so consuming it would make a file selection a one-way door and
