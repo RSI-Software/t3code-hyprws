@@ -63,6 +63,7 @@ import { buildLinkIssueActionItemFork } from "./CommandPalette.fork"; // fork-ho
 import { buildShowLinkedIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-show-linked-issues-import
 import { buildShowArtifactsActionItemFork } from "./threadArtifacts/threadArtifactsPalette.fork"; // fork-hook: thread-artifacts/command-palette-show-artifacts-import
 import { useForkThreadActionItemFork } from "./threadForkPalette.fork"; // fork-hook: thread-fork/command-palette-fork-thread-import
+import { buildShareWithCollaboratorActionItemFork } from "./collaborator/collaboratorPalette.fork"; // fork-hook: colleague-collab/command-palette-share-import
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
 import {
   dropNewThreadHintFork,
@@ -1853,6 +1854,8 @@ function OpenCommandPaletteDialog(props: {
   const showArtifactsItem = buildShowArtifactsActionItemFork(activeThread); // fork-hook: thread-artifacts/command-palette-show-artifacts
   if (showArtifactsItem) actionItems.push(showArtifactsItem); // fork-hook: thread-artifacts/command-palette-show-artifacts-push
   if (forkThreadItem) actionItems.push(forkThreadItem); // fork-hook: thread-fork/command-palette-fork-thread-push
+  const shareCollaboratorItem = buildShareWithCollaboratorActionItemFork(activeThread); // fork-hook: colleague-collab/command-palette-share
+  if (shareCollaboratorItem) actionItems.push(shareCollaboratorItem); // fork-hook: colleague-collab/command-palette-share-push
   const projectChooserActionItem = buildProjectChooserActionItemFork(projectChooserLabel); // fork-hook: workspaces/chooser-palette
   if (projectChooserActionItem) actionItems.push(projectChooserActionItem); // fork-hook: workspaces/chooser-palette
 
