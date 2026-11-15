@@ -98,17 +98,21 @@ export function resolveGitHubReferenceHref(
   return `https://github.com/${repository.owner}/${qualifier[0] ?? repository.name}/issues/${number}`;
 }
 
-/** The URL of the one linked Linear issue a placeholder's `ENG-42` names, else null. */
+/**
+ * The URL a placeholder's `ENG-42` names: the linked issue itself, else that number in the one
+ * workspace whose `ENG` team the thread already links. Other teams stay text, so `UTF-8` does too.
+ */
 export function resolveLinearReferenceHref(
   href: string,
   linked: ReadonlyArray<LinkedGitHubReference>,
 ): string | null {
   const [team, number] = href.slice(LINEAR_REFERENCE_HREF_PREFIX.length).split("-");
-  const matches = linked.filter(
-    (link) =>
-      isLinearIssueKey(link) &&
-      String(link.number) === number &&
-      link.repository.split("/")[1]?.toUpperCase() === team,
+  const sameTeam = linked.filter(
+    (link) => isLinearIssueKey(link) && link.repository.split("/")[1]?.toUpperCase() === team,
   );
-  return matches.length === 1 ? matches[0]!.url : null;
+  const matches = sameTeam.filter((link) => String(link.number) === number);
+  if (matches.length === 1) return matches[0]!.url;
+  const workspaces = new Set(sameTeam.map((link) => link.repository.split("/")[0]));
+  if (workspaces.size !== 1) return null;
+  return `https://linear.app/${[...workspaces][0]}/issue/${team}-${number}`;
 }
