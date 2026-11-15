@@ -12,6 +12,7 @@ import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
 import { useServerConfigs } from "~/state/entities";
 import { issueEnvironment } from "~/state/issues";
 import { useEnvironmentQuery } from "~/state/query";
+import { readsLinearFork } from "../issues/readsLinear.fork";
 
 import {
   referenceAnchorProps,
@@ -54,7 +55,7 @@ export function LinearReferenceLink({
   const serverConfigs = useServerConfigs();
   const summary = useEnvironmentQuery(
     environmentId !== null &&
-      serverConfigs.get(environmentId)?.environment.capabilities.linearIssues === true &&
+      readsLinearFork(serverConfigs.get(environmentId)) &&
       referenceStyle === "chip"
       ? issueEnvironment.reference({
           environmentId,
