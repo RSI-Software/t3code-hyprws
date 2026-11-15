@@ -13,14 +13,19 @@ import { attachedTerminalSessionAtom as liveTerminalSessionAtom } from "./termin
 /**
  * A version-0 session is a new stream's seed, reported until its first snapshot after a re-show
  * or checkout move. Accepting it would replay a phantom "closed" over the kept buffer and close
- * the drawer; an attach failure still shows over the kept buffer.
+ * the drawer. Keep its non-writable version, but retain the buffer and status until the first
+ * snapshot; an attach failure still shows over the kept buffer.
  */
 export function retainTerminalSession(
   retained: TerminalSessionState | null,
   live: TerminalSessionState,
 ): TerminalSessionState {
-  if (retained === null || retained.version === 0 || live.version > 0) return live;
-  return live.error === null ? retained : { ...retained, status: live.status, error: live.error };
+  if (retained === null || live.version > 0) return live;
+  return {
+    ...retained,
+    version: live.version,
+    ...(live.error === null ? {} : { status: live.status, error: live.error }),
+  };
 }
 
 // Reads the live session only while a surface demands it: a hidden surface releases the attach,

@@ -33,7 +33,14 @@ const seed = () => combineTerminalSessionState(null, nextTerminalAttachSeedState
 describe("retained terminal sessions", () => {
   it("keeps the retained buffer while a new stream reports its uninitialized seed", () => {
     const kept = session(7, "pre-move scrollback");
-    expect(retainTerminalSession(kept, seed())).toBe(kept);
+    const reconnecting = retainTerminalSession(kept, seed());
+    expect(reconnecting.output).toBe(kept.output);
+    expect(reconnecting.status).toBe("running");
+    expect(reconnecting.version).toBe(0);
+    const nextSeed = retainTerminalSession(reconnecting, seed());
+    expect(nextSeed.output).toBe(kept.output);
+    expect(nextSeed.status).toBe("running");
+    expect(nextSeed.version).toBe(0);
     const ready = session(1, "fresh session");
     expect(retainTerminalSession(kept, ready)).toBe(ready);
     expect(retainTerminalSession(null, seed()).version).toBe(0);
@@ -48,6 +55,8 @@ describe("retained terminal sessions", () => {
     });
     expect(terminalOutputText(failed.output)).toBe("kept output");
     expect(failed.error).toBe("Exact zmux target could not be attached.");
+    expect(failed.status).toBe("error");
+    expect(failed.version).toBe(0);
   });
 
   it("releases the live attach while hidden and keeps its last session", () => {
@@ -85,8 +94,12 @@ describe("retained terminal sessions", () => {
     expect(liveMounts).toBe(1);
     expect(terminalOutputText(registry.get(retained).output)).toBe("before hide");
 
+    expect(registry.get(retained).version).toBe(0);
+    expect(registry.get(retained).status).toBe("running");
+
     registry.set(output, session(1, "after show"));
     expect(terminalOutputText(registry.get(retained).output)).toBe("after show");
+    expect(registry.get(retained).version).toBe(1);
     release();
   });
 });
