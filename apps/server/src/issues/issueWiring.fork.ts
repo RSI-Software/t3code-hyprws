@@ -18,6 +18,7 @@ import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import * as IssueService from "./IssueService.ts";
+import * as LinearIssueService from "./LinearIssueService.fork.ts";
 import * as ThreadIssueSyncReactor from "./ThreadIssueSyncReactor.fork.ts";
 import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
 
@@ -72,6 +73,7 @@ export const issueRpcHandlersFork = (issueService: Issues, sql: SqlClient.SqlCli
  * own credential and quota view.
  */
 export const issueServiceLiveFork = IssueService.layer.pipe(
+  Layer.provide(LinearIssueService.layer),
   Layer.provide(GitHubIssueGraphQl.layer),
   Layer.provide(GitHubRest.layerWithDependencies),
 );
