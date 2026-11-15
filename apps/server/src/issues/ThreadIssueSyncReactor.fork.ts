@@ -5,7 +5,6 @@
 import {
   CommandId,
   githubIssueLinkTarget,
-  isLinearIssueKey,
   ThreadIssueLink,
   type GitHubSubIssue,
   type OrchestrationV2ThreadShell,
@@ -127,8 +126,7 @@ export const make = Effect.gen(function* () {
     Effect.map((rows) =>
       rows.flatMap((row): Array<LinkEntry> => {
         const link = decodeLink(row.link);
-        // Linear links are never read: the server has no Linear access.
-        return Option.isNone(link) || isLinearIssueKey(link.value)
+        return Option.isNone(link)
           ? []
           : [{ ...row, archived: row.archived !== 0, link: link.value }];
       }),
@@ -255,7 +253,6 @@ export const make = Effect.gen(function* () {
 
   const requestSync: ThreadIssueSyncReactor["Service"]["requestSync"] = (key) =>
     Effect.suspend(() => {
-      if (isLinearIssueKey(key)) return Effect.void;
       requested.add(issueKey(key));
       if (requestedSweepQueued) return Effect.void;
       requestedSweepQueued = true;

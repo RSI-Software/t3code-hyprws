@@ -7,6 +7,10 @@ import {
   parseGitHubIssueUrl,
 } from "./openPullRequestLink.fork";
 
+const openIssue = vi.fn();
+vi.mock("../rightPanelStore", () => ({ useRightPanelStore: { getState: () => ({ openIssue }) } }));
+vi.mock("../state/entities", () => ({ readThreadShell: () => ({ projectId: "p1" }) }));
+
 describe("parseGitHubIssueUrl", () => {
   it("reads public and Enterprise GitHub issue URLs", () => {
     expect(parseGitHubIssueUrl("https://github.com/T3Tools/T3Code/issues/123")).toEqual({
@@ -171,6 +175,32 @@ describe("openIssueLinkFork", () => {
       search: expect.objectContaining({ selectedProjectId: "p1" }),
     });
     expect(navigate.mock.calls[0]?.[0].search).not.toHaveProperty("scope");
+  });
+
+  it("opens a Linear link beside its thread only when that server reads Linear", () => {
+    const threadRef = { environmentId: "env-1", threadId: "t1" } as never;
+    const open = (linearIssues: boolean) =>
+      openIssueLinkFork({
+        event: claimEvent().event,
+        targetUrl: "https://linear.app/acme/issue/ENG-42/fix-login",
+        resolvedThreadRef: threadRef,
+        allProjects: [],
+        serverConfigs: new Map([
+          ["env-1", { environment: { capabilities: { linearIssues } } }],
+        ]) as never,
+        primaryEnvironmentId: "env-1" as never,
+        navigate: (() => undefined) as never,
+      });
+    openIssue.mockClear();
+    expect(open(false)).toBe(false);
+    expect(open(true)).toBe(true);
+    expect(openIssue).toHaveBeenCalledExactlyOnceWith(threadRef, {
+      environmentId: "env-1",
+      projectId: "p1",
+      repository: "acme/eng",
+      number: 42,
+      host: "linear.app",
+    });
   });
 
   it("leaves links alone when no project with the issue capability matches", () => {
