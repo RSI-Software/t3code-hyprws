@@ -277,7 +277,7 @@ import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
+import * as IssueService from "./issues/IssueService.ts"; // fork-hook: github-issues/ws-service-import
 import { makeWsRpcHandlersFork } from "./wsRpcHandlers.fork.ts"; // fork-hook: upstream-fixes/ws-rpc-handlers-import
 import { CollaboratorSharesFork } from "./collaborator/CollaboratorShares.fork.ts"; // fork-hook: colleague-collab/ws-handlers-import
 import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
@@ -3827,7 +3827,7 @@ export const layer = Layer.unwrap(
     const peerThreadRelay = yield* PeerThreadRelay.PeerThreadRelay;
     const peerClientPairing = yield* PeerClientPairing.PeerClientPairing;
     const sql = yield* SqlClient.SqlClient;
-    const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-route-service-yield
+    const issueService = yield* IssueService.IssueService; // fork-hook: github-issues/ws-route-service-yield
     const collaboratorsFork = yield* CollaboratorSharesFork; // fork-hook: colleague-collab/ws-rpc-guard-service
     return HttpRouter.add(
       "GET",
@@ -3937,7 +3937,7 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
               Layer.provide(Layer.succeed(PeerThreadRelay.PeerThreadRelay, peerThreadRelay)),
               Layer.provide(Layer.succeed(PeerClientPairing.PeerClientPairing, peerClientPairing)),
-              Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)), // fork-hook: github-issues/ws-route-service-provide
+              Layer.provide(Layer.succeed(IssueService.IssueService, issueService)), // fork-hook: github-issues/ws-route-service-provide
               Layer.provide(sharedCheckoutWsLayerFork), // fork-hook: zmux-estate/ws-shared-checkout-lease
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
