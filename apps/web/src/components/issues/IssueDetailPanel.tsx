@@ -1,7 +1,11 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import {
-  githubIssueLinkTarget,
+  issueKeyLabel,
+  issueKeySource,
+  issueLinkTarget,
+  LINEAR_ISSUE_HOST,
+  linearIssueLinkTarget,
   type EnvironmentId,
   type IssueDetail,
   type IssueRef,
@@ -50,16 +54,29 @@ import { IssueLabelChip, GitHubIssueTypeChip } from "./IssueChips";
 import { IssueEmptyState } from "./IssueEmptyState";
 import { IssueDetailGhost } from "./IssueGhosts";
 import { IssueStateGlyph, issueStatePresentation } from "./issuePresentation";
+import { issueNumberLabel } from "./issueAsk.logic";
 import { issueHandoffs } from "./issueHandoff";
 import { useIssueReferenceInvalidate } from "./issueReference.fork";
 import { IssueLinkedThreadList, IssueThreadPicker, useIssueThreadLinks } from "./IssueThreadLinks";
+
+const LINEAR_HANDOFF_PROMPT_TEMPLATE = DEFAULT_ISSUE_HANDOFF_PROMPT_TEMPLATE.replace(
+  "GitHub issue #{{number}}",
+  "Linear issue {{number}}",
+);
 
 export function issueHandoffPrompt(
   issue: Pick<IssueDetail, "number" | "title" | "url">,
   template = DEFAULT_ISSUE_HANDOFF_PROMPT_TEMPLATE,
 ): string {
-  return template
-    .replaceAll("{{number}}", String(issue.number))
+  // A Linear issue's number is its `ENG-42` identifier; the default template names GitHub.
+  const linear = linearIssueLinkTarget(issue.url) !== null;
+  const number = linear ? issueNumberLabel(issue) : String(issue.number);
+  return (
+    linear && template === DEFAULT_ISSUE_HANDOFF_PROMPT_TEMPLATE
+      ? LINEAR_HANDOFF_PROMPT_TEMPLATE
+      : template
+  )
+    .replaceAll("{{number}}", number)
     .replaceAll("{{title}}", issue.title)
     .replaceAll("{{url}}", issue.url);
 }
@@ -97,7 +114,7 @@ export function IssueDetailPanel({
   // arrival at an issue spends one re-read; later ones are the reader's explicit refresh. Keyed
   // on issue identity, and read through an effect event so a new `refresh` closure alone never
   // spends another read.
-  const issueKey = `${environmentId}:${reference.projectId}:${reference.repository.toLowerCase()}#${reference.number}`;
+  const issueKey = `${environmentId}:${reference.projectId}:${reference.host ?? ""}/${reference.repository.toLowerCase()}#${reference.number}`;
   const refreshOnOpen = useEffectEvent(() => query.refresh());
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server, which reads GitHub uncached, to refresh the shared detail query once per opened issue.
   useEffect(() => {
@@ -140,6 +157,7 @@ export function EnvironmentIssueDetailContent({
     projectId: detail?.projectId ?? "",
     repository: detail?.repository ?? "",
     number: detail?.number ?? 0,
+    host: detail && linearIssueLinkTarget(detail.url) ? LINEAR_ISSUE_HOST : undefined,
   });
   const invalidateReferenceEvent = useEffectEvent(invalidateReference);
   const shownState = detail
@@ -235,7 +253,7 @@ export function IssueDetailContent({
     );
     // The issue rides the draft it was handed to and links at that draft's first send. A draft
     // left unchanged still holds whatever it was opened for, so it gains no issue here.
-    const handoff = githubIssueLinkTarget(detail.url);
+    const handoff = issueLinkTarget(detail.url);
     if (seeded && handoff !== null) issueHandoffs.record(opened.draftId, handoff);
     toastManager.add({
       type: "success",
@@ -276,28 +294,48 @@ export function IssueDetailContent({
   // An environment on an older server omits the key rather than sending an empty list.
   const subIssues = detail.subIssues ?? [];
   const closedSubIssues = subIssues.filter((child) => child.state === "closed").length;
-  const authorProfileUrl = gitHubProfileUrl(detail.author?.login, detail.url);
+  const linear = linearIssueLinkTarget(detail.url);
+  const profileUrl = (login: string | undefined) =>
+    linear === null ? gitHubProfileUrl(login, detail.url) : null;
+  const authorProfileUrl = profileUrl(detail.author?.login);
   const workLabel = preparing ? "Preparing..." : "Work on this issue";
   const statePresentation = issueStatePresentation(detail.state, detail.closeReason);
+  const subject =
+    linear === null ? ISSUE_SUBJECT : { ...ISSUE_SUBJECT, numberText: issueKeyLabel(linear) };
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
       {/* The pull request detail header: crumbs and actions, then a fold that swaps for one
           compact row once the reader scrolls the title away. */}
       <div className="@container/pr-header grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 border-b border-border/60">
-        <CrumbsSubjectForkProvider value={ISSUE_SUBJECT}>
+        <CrumbsSubjectForkProvider value={subject}>
           <PullRequestDetailCrumbs
-            detail={{ ...detail, provider: "github" }}
+            detail={{
+              ...detail,
+              provider: "github",
+              ...(linear === null ? {} : { repository: issueKeySource(linear) }),
+            }}
             toneClassName={statePresentation.toneClassName}
             condensed={condensed}
-            repositoryUrl={gitHubRepositoryUrl(detail.url)}
-            openOnHostText={openOnHostLabel(sourceControlClients.get("github"))}
+            repositoryUrl={linear === null ? gitHubRepositoryUrl(detail.url) : null}
+            openOnHostText={
+              linear === null
+                ? openOnHostLabel(sourceControlClients.get("github"))
+                : "Open in Linear"
+            }
             onBack={onBack}
           />
         </CrumbsSubjectForkProvider>
         <div className="mr-4 flex h-7 shrink-0 select-none items-center justify-end gap-1">
           <TooltipProvider delay={150} closeDelay={150} timeout={400}>
-            {detail.state === "open" ? (
+            {detail.workflowState ? (
+              <Badge size="control" variant="outline">
+                <span className={cn("flex items-center gap-1", statePresentation.toneClassName)}>
+                  <statePresentation.Icon aria-hidden className="size-3.5" />
+                  {detail.workflowState.name}
+                </span>
+              </Badge>
+            ) : detail.state === "open" ? (
               <span className="sr-only">{statePresentation.label}</span>
             ) : (
               <Badge size="control" variant="outline">
@@ -479,7 +517,7 @@ export function IssueDetailContent({
                   <PullRequestActorLabel
                     key={assignee.login}
                     actor={assignee}
-                    profileUrl={gitHubProfileUrl(assignee.login, detail.url)}
+                    profileUrl={profileUrl(assignee.login)}
                   />
                 ))}
               </span>
@@ -570,7 +608,7 @@ export function IssueDetailContent({
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-t-lg bg-muted/25 px-3 py-2.5 text-xs">
                   <PullRequestActorLabel
                     actor={comment.author}
-                    profileUrl={gitHubProfileUrl(comment.author?.login, detail.url)}
+                    profileUrl={profileUrl(comment.author?.login)}
                     className="max-w-full"
                   />
                   <a

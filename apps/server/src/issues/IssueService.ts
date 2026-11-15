@@ -9,11 +9,14 @@ import type {
   IssueRef,
   IssueSetStateInput,
   GitHubReferenceSummary,
+  LinearIssueOperationError,
   OrchestrationProjectShell,
   ThreadIssueKey,
 } from "@t3tools/contracts";
 import {
   isLinearIssueKey,
+  LINEAR_ISSUE_HOST,
+  LinearIssueOperationError as LinearIssueOperationErrorClass,
   GitHubIssueCliMissingError as GitHubIssueCliMissingErrorClass,
   GitHubIssueCliUnauthenticatedError as GitHubIssueCliUnauthenticatedErrorClass,
   GitHubIssueOperationError as GitHubIssueOperationErrorClass,
@@ -32,6 +35,7 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import type * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
 import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
+import * as LinearIssueService from "./LinearIssueService.fork.ts";
 import {
   decodeParsedGitHubIssueDetail,
   decodeParsedGitHubIssueList,
@@ -182,6 +186,7 @@ const decodeMutationEnvelope = Schema.decodeSync(Schema.fromJsonString(MutationE
 
 type GitHubIssueCliError = GitHubIssueCliMissingError | GitHubIssueCliUnauthenticatedError;
 type GitHubIssueError = GitHubIssueCliError | GitHubIssueOperationError;
+type IssueError = GitHubIssueError | LinearIssueOperationError;
 
 interface GitHubProject {
   readonly project: OrchestrationProjectShell;
@@ -198,14 +203,14 @@ export class IssueService extends Context.Service<
   IssueService,
   {
     readonly list: (input: IssueListInput) => Effect.Effect<IssueListResult, GitHubIssueError>;
-    readonly detail: (input: IssueRef) => Effect.Effect<IssueDetail, GitHubIssueError>;
+    readonly detail: (input: IssueRef) => Effect.Effect<IssueDetail, IssueError>;
     /** Light reads of many issues in one repository; a number with no issue is left out. */
     readonly summaries: (input: {
       readonly host: string;
       readonly repository: string;
       readonly numbers: ReadonlyArray<number>;
-    }) => Effect.Effect<ReadonlyMap<number, GitHubIssueSummary>, GitHubIssueError>;
-    readonly setState: (input: IssueSetStateInput) => Effect.Effect<void, GitHubIssueError>;
+    }) => Effect.Effect<ReadonlyMap<number, GitHubIssueSummary>, IssueError>;
+    readonly setState: (input: IssueSetStateInput) => Effect.Effect<void, IssueError>;
     /** Issues `setState` changed, so linked threads reread them at once. */
     readonly subscribeStateChanges: Effect.Effect<
       Stream.Stream<ThreadIssueKey>,
@@ -220,7 +225,7 @@ export class IssueService extends Context.Service<
     /** The issue or pull request a chat reference names; null when GitHub has none. */
     readonly reference: (
       input: ThreadIssueKey,
-    ) => Effect.Effect<GitHubReferenceSummary | null, GitHubIssueError>;
+    ) => Effect.Effect<GitHubReferenceSummary | null, IssueError>;
   }
 >()("t3/issues/IssueService") {}
 
@@ -283,6 +288,7 @@ export const make = Effect.gen(function* () {
   const stateChanges = yield* PubSub.sliding<ThreadIssueKey>(64);
   const projectService = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+  const linear = yield* LinearIssueService.LinearIssueService;
 
   const workspaceProjects = Effect.fn("GitHubIssueService.workspaceProjects")(function* (
     projectId?: IssueListInput["projectId"],
@@ -678,16 +684,59 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  // A Linear issue sits beside any project, so its detail needs only the project's shell.
+  const linearDetail = Effect.fn("IssueService.linearDetail")(function* (input: IssueRef) {
+    const project = yield* projectService.getShell(input.projectId).pipe(
+      Effect.mapError(
+        (cause) =>
+          new LinearIssueOperationErrorClass({
+            operation: "detail",
+            detail: "The project could not be read.",
+            cause,
+          }),
+      ),
+    );
+    if (Option.isNone(project)) {
+      return yield* new LinearIssueOperationErrorClass({
+        operation: "detail",
+        detail: "The project for this issue was not found.",
+      });
+    }
+    return yield* linear.detail({ ...input, host: LINEAR_ISSUE_HOST }, project.value);
+  });
+
+  // Each tracker's own methods carry the spans, so the routing adds none.
+  const routedDetail: IssueService["Service"]["detail"] = Effect.fnUntraced(function* (input) {
+    return input.host === LINEAR_ISSUE_HOST ? yield* linearDetail(input) : yield* detail(input);
+  });
+  const routedSummaries: IssueService["Service"]["summaries"] = Effect.fnUntraced(
+    function* (input) {
+      return isLinearIssueKey(input) ? yield* linear.summaries(input) : yield* summaries(input);
+    },
+  );
+  const routedSetState: IssueService["Service"]["setState"] = Effect.fnUntraced(function* (input) {
+    if (input.host !== LINEAR_ISSUE_HOST) return yield* setState(input);
+    return yield* new LinearIssueOperationErrorClass({
+      operation: input.state === "closed" ? "close" : "reopen",
+      detail: "Change a Linear issue's state in Linear.",
+    });
+  });
+  const routedReference: IssueService["Service"]["reference"] = Effect.fnUntraced(
+    function* (input) {
+      return isLinearIssueKey(input) ? yield* linear.reference(input) : yield* reference(input);
+    },
+  );
+
   return IssueService.of({
     list,
-    detail,
-    summaries,
-    setState,
+    detail: routedDetail,
+    summaries: routedSummaries,
+    setState: routedSetState,
     subscribeStateChanges: PubSub.subscribe(stateChanges).pipe(
       Effect.map((subscription) => Stream.fromSubscription(subscription)),
     ),
     isPullRequest,
-    reference,
+    reference: routedReference,
   });
 });
 
