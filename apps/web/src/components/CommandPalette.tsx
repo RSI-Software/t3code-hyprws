@@ -60,6 +60,7 @@ import {
 } from "@t3tools/contracts";
 import { buildIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
 import { buildLinkIssueActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-link-issue-import
+import { buildShowLinkedIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-show-linked-issues-import
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
 import {
   dropNewThreadHintFork,
@@ -1830,6 +1831,11 @@ function OpenCommandPaletteDialog(props: {
     activeThreadServerConfig?.environment.capabilities,
   ); // fork-hook: github-issues/command-palette-link-issue
   if (linkIssueActionItem) actionItems.push(linkIssueActionItem); // fork-hook: github-issues/command-palette-link-issue-push
+  const showLinkedIssuesItem = buildShowLinkedIssuesActionItemFork(
+    activeThread,
+    activeThreadServerConfig?.environment.capabilities,
+  ); // fork-hook: github-issues/command-palette-show-linked-issues
+  if (showLinkedIssuesItem) actionItems.push(showLinkedIssuesItem); // fork-hook: github-issues/command-palette-show-linked-issues-push
   const projectChooserActionItem = buildProjectChooserActionItemFork(projectChooserLabel); // fork-hook: workspaces/chooser-palette
   if (projectChooserActionItem) actionItems.push(projectChooserActionItem); // fork-hook: workspaces/chooser-palette
 
