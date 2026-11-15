@@ -28,6 +28,8 @@ export interface IssueSurfaceFork {
   projectId: string;
   repository: string;
   number: number;
+  /** `linear.app` for a Linear issue, read beside the thread's project; absent for GitHub. */
+  host?: string;
 }
 
 interface IssueTargetFork {
@@ -35,16 +37,19 @@ interface IssueTargetFork {
   projectId: string;
   repository: string;
   number: number;
+  host?: string | undefined;
 }
 
 export function issueSurface(target: IssueTargetFork): IssueSurfaceFork {
+  const host = target.host ? `${encodeURIComponent(target.host)}/` : "";
   return {
-    id: `github-issue:${encodeURIComponent(target.environmentId)}:${encodeURIComponent(target.projectId)}:${encodeURIComponent(target.repository)}:${target.number}`,
+    id: `github-issue:${encodeURIComponent(target.environmentId)}:${encodeURIComponent(target.projectId)}:${host}${encodeURIComponent(target.repository)}:${target.number}`,
     kind: "github-issue",
     environmentId: target.environmentId,
     projectId: target.projectId,
     repository: target.repository,
     number: target.number,
+    ...(target.host ? { host: target.host } : {}),
   };
 }
 
@@ -59,7 +64,8 @@ export const normalizeIssueFork = (surface: IssueSurfaceFork) => {
     surface.repository.length === 0 ||
     typeof surface.number !== "number" ||
     !Number.isSafeInteger(surface.number) ||
-    surface.number < 1
+    surface.number < 1 ||
+    (surface.host !== undefined && typeof surface.host !== "string")
   ) {
     return [];
   }
