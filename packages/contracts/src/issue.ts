@@ -149,6 +149,8 @@ export const IssueSetStateInput = Schema.Struct({
   ...IssueRef.fields,
   state: IssueState,
   reason: Schema.optional(IssueCloseReason),
+  /** A Linear issue moves to this workflow state; `state` is what it folds to. */
+  workflowStateId: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type IssueSetStateInput = typeof IssueSetStateInput.Type;
 
@@ -162,6 +164,15 @@ export const IssueComment = Schema.Struct({
 });
 export type IssueComment = typeof IssueComment.Type;
 
+export const LinearWorkflowState = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  /** Linear's state category: `triage`, `backlog`, `unstarted`, `started`, `completed`, `canceled`. */
+  type: TrimmedNonEmptyString,
+  color: Schema.NullOr(Schema.String),
+});
+export type LinearWorkflowState = typeof LinearWorkflowState.Type;
+
 export const IssueDetail = Schema.Struct({
   ...IssueListEntry.fields,
   workspaceRoot: TrimmedNonEmptyString,
@@ -174,8 +185,14 @@ export const IssueDetail = Schema.Struct({
   closedAt: Schema.NullOr(IsoDateTime),
   /** A Linear issue's workflow state, which `state` folds to open or closed. */
   workflowState: Schema.optionalKey(
-    Schema.Struct({ name: TrimmedNonEmptyString, color: Schema.NullOr(Schema.String) }),
+    Schema.Struct({
+      id: Schema.optionalKey(TrimmedNonEmptyString),
+      name: TrimmedNonEmptyString,
+      color: Schema.NullOr(Schema.String),
+    }),
   ),
+  /** The Linear team's workflow states, in board order, that the issue can move to. */
+  workflowStates: Schema.optionalKey(Schema.Array(LinearWorkflowState)),
 });
 export type IssueDetail = typeof IssueDetail.Type;
 
