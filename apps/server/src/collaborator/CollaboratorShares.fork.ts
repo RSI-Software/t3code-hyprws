@@ -38,6 +38,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -431,6 +432,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
   const config = yield* ServerConfig.ServerConfig;
+  const platform = yield* HostProcess.Platform;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const httpClient = yield* HttpClient.HttpClient;
   const messages = yield* makeCollaboratorMessages;
@@ -447,6 +449,7 @@ const make = Effect.gen(function* () {
       config.devUrl?.origin ??
       resolveHeadlessConnectionString(config.host, config.port, {
         privateNetworkOnly: config.privateNetworkOnly,
+        platform,
       });
     const { hostname } = new URL(base);
     return { base, localOnly: isPrivateNetworkHost(hostname) };
