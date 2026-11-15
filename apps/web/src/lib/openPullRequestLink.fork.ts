@@ -68,13 +68,13 @@ export function linkPreferenceFork(resolvedThreadRef: ScopedThreadRef | undefine
   return { projectId, lendHostProject: true };
 }
 
-export interface GitHubIssueLink {
+export interface IssueLink {
   readonly host: string;
   readonly repository: string;
   readonly number: number;
 }
 
-export function parseGitHubIssueUrl(targetUrl: string): GitHubIssueLink | null {
+export function parseGitHubIssueUrl(targetUrl: string): IssueLink | null {
   let url: URL;
   try {
     url = new URL(targetUrl);
@@ -89,7 +89,7 @@ export function parseGitHubIssueUrl(targetUrl: string): GitHubIssueLink | null {
   return claim(host, match);
 }
 
-function claim(host: string, match: RegExpExecArray | null): GitHubIssueLink | null {
+function claim(host: string, match: RegExpExecArray | null): IssueLink | null {
   const repository = match?.[1];
   const number = Number(match?.[2]);
   return repository && Number.isSafeInteger(number) && number > 0
@@ -98,7 +98,7 @@ function claim(host: string, match: RegExpExecArray | null): GitHubIssueLink | n
 }
 
 /** Everything `useOpenChangeRequestLink` has in scope when a claim is attempted. */
-export interface OpenGitHubIssueLinkInput {
+export interface OpenIssueLinkInput {
   readonly event: Pick<
     MouseEvent<HTMLElement>,
     "preventDefault" | "stopPropagation" | "metaKey" | "ctrlKey"
@@ -119,7 +119,7 @@ export interface OpenGitHubIssueLinkInput {
  * candidate ordering through `findProjectPreferredFork`, the right panel open, and the
  * scoped route fallback are fork-owned; the upstream handler carries one marked claim line.
  */
-export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boolean {
+export function openIssueLinkFork(accept: OpenIssueLinkInput): boolean {
   const parsedIssue = parseGitHubIssueUrl(accept.targetUrl);
   if (parsedIssue === null) return false;
   const { event, resolvedThreadRef, allProjects, serverConfigs, primaryEnvironmentId, navigate } =
@@ -144,7 +144,7 @@ export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boole
   event.stopPropagation();
   const repository = linkedRepositoryFork(issueProject, parsedIssue.repository);
   if (resolvedThreadRef) {
-    useRightPanelStore.getState().openGitHubIssue(resolvedThreadRef, {
+    useRightPanelStore.getState().openIssue(resolvedThreadRef, {
       environmentId: issueProject.environmentId,
       projectId: issueProject.id,
       repository,

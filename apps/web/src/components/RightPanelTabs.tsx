@@ -119,9 +119,9 @@ import { observeResize } from "~/lib/observeResize";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { threadArtifactsSurfaceActionsFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/right-panel-launcher-import
 import { ThreadArtifactsTabIconFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/panel-tab-icon-import
-import { githubIssueSurfaceActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
-import { githubIssueEmptyStateActionsFork } from "./githubIssue/githubIssueSurfaceActions.fork"; // fork-hook: github-issues/empty-state-unavailable-hint
-import { GitHubIssueTabIconFork } from "./githubIssue/GitHubIssueTabIcon.fork"; // fork-hook: github-issues/panel-tab-status-icon
+import { issueSurfaceActionsFork } from "./issues/issueSurfaceActions.fork"; // fork-hook: github-issues/right-panel-issues-import
+import { issueEmptyStateActionsFork } from "./issues/issueSurfaceActions.fork"; // fork-hook: github-issues/empty-state-unavailable-hint
+import { IssueTabIconFork } from "./issues/IssueTabIcon.fork"; // fork-hook: github-issues/panel-tab-status-icon
 import { threadArtifactsEmptyStateActionsFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/empty-state-launcher
 
 export interface RightPanelTabsProps {
@@ -361,7 +361,7 @@ function RightPanelEmptyState(props: {
   deviceAvailable: boolean;
   sideChatAvailable: boolean;
   sideChatDisabledReason: string | null;
-  issueLaunchersFork?: Parameters<typeof githubIssueEmptyStateActionsFork>[0]; // fork-hook: github-issues/empty-state-unavailable-hint
+  issueLaunchersFork?: Parameters<typeof issueEmptyStateActionsFork>[0]; // fork-hook: github-issues/empty-state-unavailable-hint
   artifactLaunchersFork?: Parameters<typeof threadArtifactsEmptyStateActionsFork>[0]; // fork-hook: thread-artifacts/empty-state-launcher
 }) {
   const gt = useGT();
@@ -417,7 +417,7 @@ function RightPanelEmptyState(props: {
       disabledReason: messages(SURFACE_UNAVAILABLE_HINTS.pullRequests),
       onClick: props.onAddPullRequests,
     },
-    ...githubIssueEmptyStateActionsFork(props.issueLaunchersFork ?? {}), // fork-hook: github-issues/empty-state-unavailable-hint
+    ...issueEmptyStateActionsFork(props.issueLaunchersFork ?? {}), // fork-hook: github-issues/empty-state-unavailable-hint
     ...threadArtifactsEmptyStateActionsFork(props.artifactLaunchersFork ?? {}), // fork-hook: thread-artifacts/empty-state-launcher
     {
       label: msg("Device"),
@@ -736,7 +736,7 @@ function SurfaceIcon({
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "github-issue":
-      return <GitHubIssueTabIconFork surface={surface} />; // fork-hook: github-issues/panel-tab-status-icon
+      return <IssueTabIconFork surface={surface} />; // fork-hook: github-issues/panel-tab-status-icon
     case "github-issues": // fork-hook: github-issues/panel-tab-status-icon
       return <CircleDot className="size-3 shrink-0" />; // fork-hook: github-issues/panel-tab-status-icon
     case "github-issue-links": // fork-hook: github-issues/panel-tab-status-icon
@@ -1270,7 +1270,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: messages(SURFACE_DISABLED_REASONS.pullRequests),
       onClick: props.onAddPullRequests,
     },
-    ...githubIssueSurfaceActionsFork(props), // fork-hook: github-issues/right-panel-issues
+    ...issueSurfaceActionsFork(props), // fork-hook: github-issues/right-panel-issues
     ...threadArtifactsSurfaceActionsFork(props), // fork-hook: thread-artifacts/right-panel-launcher
     {
       label: msg("Device"),

@@ -208,7 +208,7 @@ it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", 
   const gaps = findForkOwnedTypecheckGaps(
     "/repo",
     new Set([
-      "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+      "apps/web/src/components/issues/IssueDetailPanel.test.tsx",
       "apps/server/src/fork-only.ts",
       "packages/contracts/src/fork-only.ts",
     ]),
@@ -218,7 +218,7 @@ it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", 
         return {
           status: 2,
           stdout:
-            "src/components/githubIssue/GitHubIssueDetailPanel.test.tsx(20,7): error TS2741: Property 'files' is missing.\n" +
+            "src/components/issues/IssueDetailPanel.test.tsx(20,7): error TS2741: Property 'files' is missing.\n" +
             "src/upstream-owned.ts(1,1): error TS2322: Type mismatch.\n",
           stderr: "",
         };
@@ -246,14 +246,14 @@ it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", 
   assert.deepStrictEqual(gaps, [
     {
       workspace: "apps/web",
-      path: "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+      path: "apps/web/src/components/issues/IssueDetailPanel.test.tsx",
     },
     { workspace: "packages/contracts", path: "packages/contracts/src/fork-only.ts" },
   ]);
   const result = { ...buildScanResult(scanInput()), typecheckGaps: gaps };
   assert.include(
     scanFailures(result),
-    "typecheck: fork-owned file fails on rehearsed head: apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+    "typecheck: fork-owned file fails on rehearsed head: apps/web/src/components/issues/IssueDetailPanel.test.tsx",
   );
   assert.include(renderScanReport(result), "Fork-owned typecheck gaps:");
 });
