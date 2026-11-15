@@ -1,10 +1,18 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import { issueKeyLabel, type EnvironmentId } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
 import type { IssueSurfaceFork } from "../../rightPanelStore.fork";
 import { useEnvironmentQuery } from "../../state/query";
 import { issueStatePresentation } from "./issuePresentation";
 import { useIssueReferenceAtom } from "./issueReference.fork";
+
+/** The issue tab's title: `#42`, or Linear's `ENG-42`. */
+export const issueTabTitleFork = (surface: IssueSurfaceFork): string =>
+  issueKeyLabel({
+    host: surface.host ?? "",
+    repository: surface.repository,
+    number: surface.number,
+  });
 
 /** The issue tab's glyph in its state's tone, as a pull request tab wears its own. */
 export function IssueTabIconFork({ surface }: { readonly surface: IssueSurfaceFork }) {
@@ -14,6 +22,7 @@ export function IssueTabIconFork({ surface }: { readonly surface: IssueSurfaceFo
       projectId: surface.projectId,
       repository: surface.repository,
       number: surface.number,
+      host: surface.host,
     }),
   );
   const presentation =
