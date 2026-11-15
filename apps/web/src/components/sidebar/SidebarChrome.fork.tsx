@@ -11,17 +11,17 @@ type Environments = ReadonlyArray<{
 }>;
 
 /** True when any reachable environment advertises the read-only GitHub Issues capability. */
-export const sidebarGitHubIssuesSupportedFork = (environments: Environments): boolean =>
+export const sidebarIssuesSupportedFork = (environments: Environments): boolean =>
   environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
   );
 
 /** True on the Issues page, which replaces the utility row with Back like the upstream utility pages. */
-export const isSidebarGitHubIssuesLocationFork = (location: { readonly pathname: string }) =>
+export const isSidebarIssuesLocationFork = (location: { readonly pathname: string }) =>
   location.pathname === "/issues";
 
 /** The utility entry's navigation callback. */
-export const gitHubIssuesSidebarNavigateFork =
+export const issuesSidebarNavigateFork =
   (deps: {
     closeMobileSidebar: () => void;
     navigate: ReturnType<typeof useNavigate>;

@@ -8,8 +8,8 @@ import { RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
 
 import * as CollaboratorShares from "./collaborator/CollaboratorShares.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
-import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts";
+import * as IssueService from "./issues/IssueService.ts";
+import { issueRpcHandlersFork } from "./issues/issueWiring.fork.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -22,13 +22,13 @@ const WsRpcGroupFork = RpcGroup.make(...wsRpcsFork)
 
 export const makeWsRpcHandlersFork = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const githubIssues = yield* GitHubIssueService.GitHubIssueService;
+  const issueService = yield* IssueService.IssueService;
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
   const collaborators = yield* CollaboratorShares.CollaboratorSharesFork;
   return WsRpcGroupFork.of({
-    ...gitHubIssueRpcHandlersFork(githubIssues, sql),
+    ...issueRpcHandlersFork(issueService, sql),
     ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),
     "pullRequests.createAttachmentUploadUrl": (input) =>
       pullRequests.createAttachmentUploadUrl(input),
