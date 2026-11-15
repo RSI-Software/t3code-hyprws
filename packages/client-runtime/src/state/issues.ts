@@ -1,4 +1,4 @@
-import { WS_METHODS } from "@t3tools/contracts";
+import { GitHubReferenceSummary, WS_METHODS } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   IssueListEntry,
@@ -7,10 +7,12 @@ import type {
   IssueRef,
 } from "@t3tools/contracts";
 import type * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Schema from "effect/Schema";
 import type { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { linkThreadIssue, unlinkThreadIssue } from "../operations/threadIssues.fork.ts";
+import { persistQuery } from "./queryPersistence.ts";
 import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
@@ -95,10 +97,14 @@ export function createIssueEnvironmentAtoms<R, E>(
       label: "environment-data:github-issues:sync-thread-links",
       tag: WS_METHODS.issuesSyncThreadLinks,
     }),
-    /** Title and state behind a chat reference; refreshed rarely, read by every chip on screen. */
+    /**
+     * Title and state behind a chat reference no thread links; linked ones read their thread's
+     * synced snapshot. A cold read shows the disk copy while it re-reads GitHub.
+     */
     reference: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:github-issues:reference",
       tag: WS_METHODS.issuesReference,
+      persistence: persistQuery(Schema.NullOr(GitHubReferenceSummary)),
       staleTimeMs: 300_000,
     }),
     /** The threads that link one issue, by its host-level key. */
