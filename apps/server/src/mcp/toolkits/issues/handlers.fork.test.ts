@@ -244,28 +244,36 @@ describe("issue toolkit handlers", () => {
 
   it.effect("links by URL with source agent, storing only the canonical issue URL", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness();
-      const result = yield* harness.call("link_issue", {
-        url: "http://agent:secret@github.com/T3Tools/T3Code/issues/123/?token=private-value#issuecomment-1",
-      });
-      expect(result).toEqual({
-        host: "github.com",
-        repository: "t3tools/t3code",
-        number: 123,
-        url: "https://github.com/t3tools/t3code/issues/123",
-        alreadyLinked: false,
-      });
-      expect(yield* Ref.get(harness.commands)).toMatchObject([
-        {
-          type: "thread.issue.link",
-          threadId: THREAD_ID,
-          host: "github.com",
-          repository: "t3tools/t3code",
-          number: 123,
-          url: "https://github.com/t3tools/t3code/issues/123",
-          source: "agent",
-        },
-      ]);
+      for (const [url, key] of [
+        [
+          "http://agent:secret@github.com/T3Tools/T3Code/issues/123/?token=private-value#issuecomment-1",
+          {
+            host: "github.com",
+            repository: "t3tools/t3code",
+            number: 123,
+            url: "https://github.com/t3tools/t3code/issues/123",
+          },
+        ],
+        // A Linear URL keeps its title slug.
+        [
+          "https://linear.app/Acme/issue/eng-42/fix-login?x=1",
+          {
+            host: "linear.app",
+            repository: "acme/eng",
+            number: 42,
+            url: "https://linear.app/acme/issue/ENG-42/fix-login",
+          },
+        ],
+      ] as const) {
+        const harness = yield* makeHarness();
+        expect(yield* harness.call("link_issue", { url })).toEqual({
+          ...key,
+          alreadyLinked: false,
+        });
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          { type: "thread.issue.link", threadId: THREAD_ID, ...key, source: "agent" },
+        ]);
+      }
     }),
   );
 
@@ -430,6 +438,10 @@ describe("issue toolkit handlers", () => {
         expect(error).toMatchObject({ _tag: "IssueUrlInvalidError" });
         expect(error.message).not.toContain("private-value");
       }
+      const linearByNumber = yield* harness
+        .call("link_issue", { host: "linear.app", repository: "acme/eng", number: 42 })
+        .pipe(Effect.flip);
+      expect(linearByNumber).toMatchObject({ _tag: "IssueUrlInvalidError" });
       const offGitHub = yield* makeHarness({
         project: makeProject({
           canonicalKey: "gitlab.com/group/project",

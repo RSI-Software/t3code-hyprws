@@ -13,6 +13,7 @@ import type {
   ThreadIssueKey,
 } from "@t3tools/contracts";
 import {
+  isLinearIssueKey,
   GitHubIssueCliMissingError as GitHubIssueCliMissingErrorClass,
   GitHubIssueCliUnauthenticatedError as GitHubIssueCliUnauthenticatedErrorClass,
   GitHubIssueOperationError as GitHubIssueOperationErrorClass,
@@ -605,6 +606,8 @@ export const make = Effect.gen(function* () {
     "GitHubIssueService.isPullRequest",
   )(
     function* (input) {
+      // Linear has no pull requests; GitHub serves one at its /issues/ URL too.
+      if (isLinearIssueKey(input)) return false;
       const body = yield* api.graphql({
         host: input.host,
         operation: "isPullRequest",
