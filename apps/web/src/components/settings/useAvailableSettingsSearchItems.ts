@@ -13,7 +13,7 @@ import { useEnvironmentScope } from "~/state/session";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
 import { getThreadAutoSettlementSearchAvailability } from "./settingsSearch";
-import { filterAvailableGitHubIssueSettingsSearchItems } from "./githubIssueSettingsSearch";
+import { filterAvailableIssueSettingsSearchItems } from "./issueSettingsSearch"; // fork-hook: github-issues/settings-search-import
 
 export function useAvailableSettingsSearchItems() {
   const { environments } = useEnvironments();
@@ -60,7 +60,7 @@ export function useAvailableSettingsSearchItems() {
   const wslSettingsRowVisible =
     isWslSettingsRowVisible({ state: desktopWsl.data, error: desktopWsl.error }) === true;
 
-  return filterAvailableGitHubIssueSettingsSearchItems({
+  return filterAvailableIssueSettingsSearchItems({
     localEnvironmentDisabled,
     hasCloudPublicConfig: cloudPublicConfig,
     hasEnvironment,
