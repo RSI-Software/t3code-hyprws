@@ -5,6 +5,7 @@ import { useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactNod
 
 import { RelativeTime } from "~/components/RelativeTime";
 import { issueEnvironment } from "~/state/issues";
+import { useLinkedReference, useSyncStaleLinkedReference } from "~/state/linkedReferences.fork";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
@@ -69,8 +70,11 @@ export function GitHubReferenceLink({
           },
         }
       : null;
+  // A thread-linked reference reads the snapshot the server keeps synced; only others ask GitHub
+  // up front. An open card reads GitHub for the author and times a snapshot lacks.
+  const linked = useLinkedReference(environmentId, linkTarget.repository, linkTarget.number);
   const query = useEnvironmentQuery(
-    readTarget && (referenceStyle === "chip" || open)
+    readTarget && (open || (linked === null && referenceStyle === "chip"))
       ? issueEnvironment.reference(readTarget)
       : null,
   );
@@ -78,7 +82,9 @@ export function GitHubReferenceLink({
     reportFailure: false,
     reportDefect: false,
   });
-  const summary = query.data;
+  useSyncStaleLinkedReference(environmentId, linked);
+  const summary = linked?.summary ?? query.data;
+  const details = query.data ?? (summary?.kind === "pull-request" ? summary : null);
   // `issues/N` names a pull request too; the read picks the panel, the written URL stays.
   const panelHref = (read: GitHubReferenceSummary | null | undefined) =>
     read && read.kind !== linkTarget.kind ? read.url : href;
@@ -127,11 +133,11 @@ export function GitHubReferenceLink({
       <PreviewCardPopup align="start" className="w-80 max-w-[calc(100vw-2rem)]">
         <div className="p-3">
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {summary?.ownerAvatarUrl ? (
+            {details?.ownerAvatarUrl ? (
               <img
                 aria-hidden
                 alt=""
-                src={summary.ownerAvatarUrl}
+                src={details.ownerAvatarUrl}
                 className="size-4 shrink-0 rounded-sm bg-muted object-cover"
               />
             ) : (
@@ -166,20 +172,20 @@ export function GitHubReferenceLink({
                     : "Not found on GitHub")}
             </p>
           ) : null}
-          {summary ? (
+          {details ? (
             <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              {summary.author ? (
+              {details.author ? (
                 <>
                   <PullRequestActorAvatar
-                    actor={{ ...summary.author, name: null }}
+                    actor={{ ...details.author, name: null }}
                     className="size-4"
                   />
-                  <span className="truncate">{summary.author.login}</span>
+                  <span className="truncate">{details.author.login}</span>
                   <span aria-hidden>·</span>
                 </>
               ) : null}
               <span className="shrink-0">
-                updated <RelativeTime timestamp={summary.updatedAt} />
+                updated <RelativeTime timestamp={details.updatedAt} />
               </span>
             </div>
           ) : null}
