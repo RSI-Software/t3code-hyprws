@@ -66,11 +66,9 @@ vi.mock("../state/entities", () => ({
   useServerConfigs: () => new Map(),
 }));
 
-vi.mock("../state/githubIssues", () => ({
-  githubIssueEnvironment: { detail: () => ({ kind: "detail" }) },
-  useGitHubIssueList: (
-    targets: ReadonlyArray<{ environmentId: EnvironmentId; input: unknown }>,
-  ) => {
+vi.mock("../state/issues", () => ({
+  issueEnvironment: { detail: () => ({ kind: "detail" }) },
+  useIssueList: (targets: ReadonlyArray<{ environmentId: EnvironmentId; input: unknown }>) => {
     mocks.listTargets.push(targets);
     return {
       data: { entries: [], errors: [], environmentErrors: [], truncated: false },
@@ -91,27 +89,27 @@ vi.mock("../state/query", () => ({
 
 vi.mock("../state/queries", () => ({ useDebouncedValue: (value: string) => value }));
 
-vi.mock("../components/githubIssue/GitHubIssueDetailPanel", () => ({
-  GitHubIssueDetailContent: () => "Issue detail",
+vi.mock("../components/issues/IssueDetailPanel", () => ({
+  IssueDetailContent: () => "Issue detail",
 }));
-vi.mock("../components/githubIssue/GitHubIssueRow", () => ({ GitHubIssueRow: () => null }));
-vi.mock("../components/githubIssue/GitHubIssueGhosts", () => ({
-  GitHubIssueListGhosts: () => "Issue ghosts",
+vi.mock("../components/issues/IssueRow", () => ({ IssueRow: () => null }));
+vi.mock("../components/issues/IssueGhosts", () => ({
+  IssueListGhosts: () => "Issue ghosts",
 }));
-vi.mock("../components/githubIssue/GitHubIssueEmptyState", () => ({
-  GitHubIssueEmptyState: ({ title, description }: { title: string; description: string }) =>
+vi.mock("../components/issues/IssueEmptyState", () => ({
+  IssueEmptyState: ({ title, description }: { title: string; description: string }) =>
     `${title}: ${description}`,
 }));
-vi.mock("../components/githubIssue/GitHubIssueProjectMenu", () => ({
+vi.mock("../components/issues/IssueProjectMenu", () => ({
   ALL_PROJECTS_VALUE: "__all__",
-  GitHubIssueProjectMenu: (props: NonNullable<typeof mocks.projectMenuProps>) => {
+  IssueProjectMenu: (props: NonNullable<typeof mocks.projectMenuProps>) => {
     mocks.projectMenuProps = props;
     return `project menu: ${props.value}`;
   },
 }));
 
-import type { IssuesSearch } from "../components/githubIssue/githubIssueRouteSearch";
-import { GitHubIssuesPage } from "./_chat.issues";
+import type { IssuesSearch } from "../components/issues/issueRouteSearch";
+import { IssuesPage } from "./_chat.issues";
 
 const environment1 = EnvironmentId.make("environment-1");
 const environment2 = EnvironmentId.make("environment-2");
@@ -127,7 +125,7 @@ function capable(environmentId: EnvironmentId, label: string) {
   };
 }
 
-describe("GitHubIssuesPage", () => {
+describe("IssuesPage", () => {
   beforeEach(() => {
     mocks.environments = [capable(environment1, "One")];
     mocks.listTargets.length = 0;
@@ -140,7 +138,7 @@ describe("GitHubIssuesPage", () => {
     mocks.windowProjectKeys = new Set([
       scopedProjectKey(scopeProjectRef(environment2, ProjectId.make("project-2"))),
     ]);
-    renderToStaticMarkup(<GitHubIssuesPage search={baseSearch} onNavigate={() => undefined} />);
+    renderToStaticMarkup(<IssuesPage search={baseSearch} onNavigate={() => undefined} />);
 
     expect(mocks.projectMenuProps?.value).toBe("__all__");
     expect(mocks.listTargets.at(-1)).toEqual([
@@ -155,7 +153,7 @@ describe("GitHubIssuesPage", () => {
     mocks.environments = [capable(environment1, "One"), capable(environment2, "Two")];
     const navigations: Array<(previous: IssuesSearch) => IssuesSearch> = [];
     renderToStaticMarkup(
-      <GitHubIssuesPage search={baseSearch} onNavigate={(update) => navigations.push(update)} />,
+      <IssuesPage search={baseSearch} onNavigate={(update) => navigations.push(update)} />,
     );
 
     mocks.projectMenuProps?.onValueChange(projectKey(environment2, "project-2"));
@@ -172,7 +170,7 @@ describe("GitHubIssuesPage", () => {
       { environmentId: EnvironmentId.make("environment-2"), label: "Two", serverConfig: null },
     ];
     const html = renderToStaticMarkup(
-      <GitHubIssuesPage search={baseSearch} onNavigate={() => undefined} />,
+      <IssuesPage search={baseSearch} onNavigate={() => undefined} />,
     );
 
     expect(html).not.toContain("Connecting to the environment");
@@ -181,7 +179,7 @@ describe("GitHubIssuesPage", () => {
 
   it("renders the project-scoped list without page chrome in a right panel", () => {
     const html = renderToStaticMarkup(
-      <GitHubIssuesPage
+      <IssuesPage
         search={{
           ...baseSearch,
           projectId: ProjectId.make("project-1"),
@@ -204,7 +202,7 @@ describe("GitHubIssuesPage", () => {
 
   it("shows unavailable when a selected environment is missing from the catalog", () => {
     const html = renderToStaticMarkup(
-      <GitHubIssuesPage
+      <IssuesPage
         search={{
           state: "open",
           selectedEnvironmentId: EnvironmentId.make("missing-environment"),
