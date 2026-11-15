@@ -9,6 +9,7 @@ import type { IssueSurfaceFork } from "../../rightPanelStore.fork";
 import { IssueDetailPanel, gitHubSubIssueRepository } from "./IssueDetailPanel";
 import { IssueEmptyState } from "./IssueEmptyState";
 import { IssueDetailGhost } from "./IssueGhosts";
+import { readsLinearFork } from "./readsLinear.fork";
 
 export function IssueDetailSurfaceFork(props: {
   readonly surface: IssueSurfaceFork;
@@ -21,6 +22,7 @@ export function IssueDetailSurfaceFork(props: {
           readonly linearIssues?: boolean;
         };
       };
+      readonly settings?: { readonly linearApiKey?: unknown };
     } | null;
   }>;
   readonly activeThreadRef: ScopedThreadRef | null;
@@ -34,11 +36,11 @@ export function IssueDetailSurfaceFork(props: {
   const linear = surface.host === LINEAR_ISSUE_HOST;
 
   if (!issuesCapabilityKnown) return <IssueDetailGhost />;
-  if (linear && capabilities?.linearIssues !== true) {
+  if (linear && !readsLinearFork(issueServerConfig)) {
     return (
       <IssueEmptyState
         title="Linear issues unavailable"
-        description="Set LINEAR_API_KEY in this environment's T3 Code server, then restart it."
+        description="Add a Linear API key in Settings → Source control."
       />
     );
   }
