@@ -40,8 +40,8 @@ export function PreviewEmptyState({
     configuredUrls,
   });
   const recents = recentEntries.filter((entry) => parseUrl(entry.url) !== null).slice(0, 8);
-  const project = projectBookmarks.filter((entry) => URL.canParse(entry.url));
-  const global = globalBookmarks.filter((entry) => URL.canParse(entry.url));
+  const project = projectBookmarks.filter((entry) => parseUrl(entry.url) !== null); // fork-hook: browser-bookmarks/project-valid-urls
+  const global = globalBookmarks.filter((entry) => parseUrl(entry.url) !== null); // fork-hook: browser-bookmarks/global-valid-urls
 
   if (servers.length === 0 && recents.length === 0 && project.length === 0 && global.length === 0) {
     return (
