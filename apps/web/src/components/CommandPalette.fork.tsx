@@ -19,6 +19,7 @@ import {
 } from "./CommandPalette.logic";
 import type { EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
 import { openLinkIssueDialog } from "./issues/LinkIssueDialog";
+import { useRightPanelStore } from "../rightPanelStore";
 
 /**
  * The palette's Issues navigation entry, or `null` when no reachable
@@ -67,6 +68,36 @@ export function buildLinkIssueActionItemFork(
     icon: <LinkIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       openLinkIssueDialog(threadRef);
+    },
+  };
+}
+
+/**
+ * The twin of "Show linked pull requests": opens the active thread's Linked issues tab, disabled
+ * while it has none. `null` where its environment keeps no issue links.
+ */
+export function buildShowLinkedIssuesActionItemFork(
+  activeThread:
+    | {
+        readonly environmentId: EnvironmentId;
+        readonly id: ThreadId;
+        readonly issues?: ReadonlyArray<unknown> | undefined;
+      }
+    | null
+    | undefined,
+  capabilities: { readonly threadIssues?: boolean } | undefined,
+): CommandPaletteActionItem | null {
+  if (!activeThread || capabilities?.threadIssues !== true) return null;
+  const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+  return {
+    kind: "action",
+    value: "action:open-thread-issues",
+    searchTerms: ["issues", "linked", "github", "linear", "tracked"],
+    title: "Show linked issues",
+    disabled: (activeThread.issues ?? []).length === 0,
+    icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      useRightPanelStore.getState().open(threadRef, "github-issue-links");
     },
   };
 }
