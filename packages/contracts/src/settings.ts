@@ -1630,6 +1630,7 @@ export const ServerSettings = Schema.Struct({
   githubIssueHandoffPromptTemplate: TrimmedNonEmptyString.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ISSUE_HANDOFF_PROMPT_TEMPLATE)),
   ), // fork-hook: github-issues/settings-handoff-template-field
+  linearApiKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting), // fork-hook: github-issues/settings-linear-api-key
   sourceControlWriterModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -2070,6 +2071,7 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   githubIssueHandoffPromptTemplate: Schema.optionalKey(TrimmedNonEmptyString),
+  linearApiKey: Schema.optionalKey(TrimmedString), // fork-hook: github-issues/settings-patch-linear-api-key
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuidesEnabled: Schema.optionalKey(Schema.Boolean),
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),

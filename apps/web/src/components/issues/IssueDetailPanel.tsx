@@ -50,6 +50,7 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { IssueActionsMenu } from "./IssueActionsMenu";
+import { LinearWorkflowStatePicker } from "./LinearWorkflowStatePicker.fork";
 import { IssueLabelChip, GitHubIssueTypeChip } from "./IssueChips";
 import { IssueEmptyState } from "./IssueEmptyState";
 import { IssueDetailGhost } from "./IssueGhosts";
@@ -328,7 +329,16 @@ export function IssueDetailContent({
         </CrumbsSubjectForkProvider>
         <div className="mr-4 flex h-7 shrink-0 select-none items-center justify-end gap-1">
           <TooltipProvider delay={150} closeDelay={150} timeout={400}>
-            {detail.workflowState ? (
+            {detail.workflowStates?.length ? (
+              <LinearWorkflowStatePicker
+                environmentId={environmentId}
+                detail={detail}
+                onChanged={() => {
+                  onRefresh?.();
+                  onStateChanged?.();
+                }}
+              />
+            ) : detail.workflowState ? (
               <Badge size="control" variant="outline">
                 <span className={cn("flex items-center gap-1", statePresentation.toneClassName)}>
                   <statePresentation.Icon aria-hidden className="size-3.5" />
