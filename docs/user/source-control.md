@@ -345,13 +345,14 @@ With proactive panels on, a newly linked issue opens **Linked issues**, as a lin
 A linked issue shows its **type and labels**, and with **sub-issues**, how many are closed. Its chevron **expands or collapses** them; one that has a **linked sub-issue** starts expanded.
 
 **Linear issues** link by **URL only**, from the link dialog or by an agent.
-In chat, a **Linear URL** shows as a chip; a **bare `ENG-123`** links once the thread links that issue.
+In chat, a **Linear URL** shows as a chip; a **bare `ENG-123`** links once the thread links an issue in team `ENG`.
 
-To read Linear, set **`LINEAR_API_KEY`** to a Linear personal API key in the server's environment, then restart it.
+To read Linear, add a Linear personal API key under **Settings → Source control → Linear API key**.
+A server's **`LINEAR_API_KEY`** environment variable also works; the Settings key wins.
 The key reads **one workspace**; each server uses its own.
-With a key, a Linear link **opens in the issue panel** with its state, description, and comments, and its badge follows its state.
+With a key, a Linear link **opens in the issue panel** with its state, description, images, and comments, and its badge follows its state.
+The panel's **state badge** moves the issue to another of its team's workflow states.
 Without one, a Linear link shows its identifier and its URL's title, and opens in the browser.
-Change a Linear issue's state **in Linear**.
 
 The issue panel's menu closes an issue as completed or not planned, and reopens a closed one, which
 needs write access to the repository. Commenting, labeling, and assigning stay on GitHub. Each server
