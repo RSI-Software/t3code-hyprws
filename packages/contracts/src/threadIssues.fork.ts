@@ -32,7 +32,7 @@ export const ThreadIssueKey = Schema.Struct({
 export type ThreadIssueKey = typeof ThreadIssueKey.Type;
 
 /** An issue a thread can link: its host-level key and the address it opens at. */
-export interface GitHubIssueLinkTarget extends ThreadIssueKey {
+export interface IssueLinkTarget extends ThreadIssueKey {
   readonly url: string;
 }
 
@@ -41,7 +41,7 @@ export interface GitHubIssueLinkTarget extends ThreadIssueKey {
  * keeps a port, so an Enterprise install served on one stays a distinct host. It trusts any host;
  * a caller reading a URL it did not get from GitHub checks the host itself.
  */
-export function githubIssueLinkTarget(url: string): GitHubIssueLinkTarget | null {
+export function githubIssueLinkTarget(url: string): IssueLinkTarget | null {
   let parsed: URL;
   try {
     parsed = new URL(url.trim());
@@ -59,6 +59,63 @@ export function githubIssueLinkTarget(url: string): GitHubIssueLinkTarget | null
     number,
     url: `${parsed.protocol}//${host}/${match[1]}/issues/${number}`,
   };
+}
+
+/** Linear's web host. Its issues are linked by URL alone: the server never reads Linear. */
+export const LINEAR_ISSUE_HOST = "linear.app";
+
+export const isLinearIssueKey = (key: Pick<ThreadIssueKey, "host">): boolean =>
+  key.host.toLowerCase() === LINEAR_ISSUE_HOST;
+
+/**
+ * The link target a Linear issue URL names. The workspace and team key fill the repository slot,
+ * so a Linear link keeps the stored shape older clients decode. The URL keeps its title slug,
+ * the only title a link has without a Linear read.
+ */
+export function linearIssueLinkTarget(url: string): IssueLinkTarget | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || parsed.host.toLowerCase() !== LINEAR_ISSUE_HOST) return null;
+  const match = /^\/([\w-]+)\/issue\/([A-Za-z][A-Za-z0-9]*)-(\d+)(?:\/([\w-]+))?\/?$/u.exec(
+    parsed.pathname,
+  );
+  const number = Number(match?.[3]);
+  if (!match?.[1] || !match[2] || !Number.isSafeInteger(number) || number < 1) return null;
+  const workspace = match[1].toLowerCase();
+  const team = match[2].toUpperCase();
+  const slug = match[4] ? `/${match[4].toLowerCase()}` : "";
+  return {
+    host: LINEAR_ISSUE_HOST,
+    repository: `${workspace}/${team}`,
+    number,
+    url: `https://${LINEAR_ISSUE_HOST}/${workspace}/issue/${team}-${number}${slug}`,
+  };
+}
+
+/** The link target a GitHub or Linear issue URL names. */
+export const issueLinkTarget = (url: string): IssueLinkTarget | null =>
+  linearIssueLinkTarget(url) ?? githubIssueLinkTarget(url);
+
+/** How a link names its issue: `ENG-123` on Linear, `#123` on GitHub. */
+export function issueKeyLabel(key: ThreadIssueKey): string {
+  if (!isLinearIssueKey(key)) return `#${key.number}`;
+  return `${key.repository.split("/")[1]?.toUpperCase() ?? ""}-${key.number}`;
+}
+
+/** Where a link's issue lives: the Linear workspace, or the GitHub repository. */
+export const issueKeySource = (key: ThreadIssueKey): string =>
+  isLinearIssueKey(key) ? `Linear · ${key.repository.split("/")[0]}` : key.repository;
+
+/** A Linear URL's title slug as words, or null. Linear cuts long slugs short. */
+export function linearIssueSlugTitle(url: string): string | null {
+  const slug = /\/issue\/[^/]+\/([\w-]+)\/?$/u.exec(url)?.[1];
+  if (!slug) return null;
+  const words = slug.replaceAll("-", " ").trim();
+  return words.length === 0 ? null : words[0]!.toUpperCase() + words.slice(1);
 }
 
 /** Issue state last read from the host; null on a link until its first sync. */
