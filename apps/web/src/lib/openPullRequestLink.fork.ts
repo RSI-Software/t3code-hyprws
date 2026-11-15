@@ -1,4 +1,10 @@
-import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
+import {
+  LINEAR_ISSUE_HOST,
+  linearIssueLinkTarget,
+  type EnvironmentId,
+  type ProjectId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { MouseEvent } from "react";
 import type { useNavigate } from "@tanstack/react-router";
@@ -108,7 +114,7 @@ export interface OpenIssueLinkInput {
   readonly allProjects: ReadonlyArray<EnvironmentProject>;
   readonly serverConfigs: ReadonlyMap<
     EnvironmentId,
-    { environment: { capabilities: { githubIssues?: boolean } } }
+    { environment: { capabilities: { githubIssues?: boolean; linearIssues?: boolean } } }
   >;
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly navigate: ReturnType<typeof useNavigate>;
@@ -120,6 +126,7 @@ export interface OpenIssueLinkInput {
  * scoped route fallback are fork-owned; the upstream handler carries one marked claim line.
  */
 export function openIssueLinkFork(accept: OpenIssueLinkInput): boolean {
+  if (openLinearIssueLinkFork(accept)) return true;
   const parsedIssue = parseGitHubIssueUrl(accept.targetUrl);
   if (parsedIssue === null) return false;
   const { event, resolvedThreadRef, allProjects, serverConfigs, primaryEnvironmentId, navigate } =
@@ -160,5 +167,30 @@ export function openIssueLinkFork(accept: OpenIssueLinkInput): boolean {
     number: parsedIssue.number,
   };
   void navigate({ to: "/issues", search });
+  return true;
+}
+
+/**
+ * Claim a Linear issue link for the issue surface beside its thread, when that thread's server
+ * reads Linear. A Linear issue belongs to no project, so it opens beside the thread's own.
+ */
+function openLinearIssueLinkFork(accept: OpenIssueLinkInput): boolean {
+  const target = linearIssueLinkTarget(accept.targetUrl);
+  const threadRef = accept.resolvedThreadRef;
+  if (target === null || !threadRef) return false;
+  const readsLinear =
+    accept.serverConfigs.get(threadRef.environmentId)?.environment.capabilities.linearIssues ===
+    true;
+  const projectId = readThreadShell(threadRef)?.projectId;
+  if (!readsLinear || projectId === undefined) return false;
+  accept.event.preventDefault();
+  accept.event.stopPropagation();
+  useRightPanelStore.getState().openIssue(threadRef, {
+    environmentId: threadRef.environmentId,
+    projectId,
+    repository: target.repository.toLowerCase(),
+    number: target.number,
+    host: LINEAR_ISSUE_HOST,
+  });
   return true;
 }
