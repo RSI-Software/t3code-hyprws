@@ -351,10 +351,14 @@ describe("IssueService Linear routing", () => {
       const detail = vi.fn<LinearIssueService.LinearIssueService["Service"]["detail"]>(
         (_key, shell) => Effect.succeed({ projectId: shell.id } as never),
       );
+      const setState = vi.fn<LinearIssueService.LinearIssueService["Service"]["setState"]>(
+        () => Effect.void,
+      );
       const service = yield* makeService([project("web")], graphql, {
         detail,
         summaries: () => Effect.succeed(new Map()),
         reference: () => Effect.succeed(null),
+        setState,
       });
       const ref = { projectId: "web" as ProjectId, repository: "acme/eng", number: 42 };
       const key = { host: "linear.app", repository: "acme/eng", number: 42 };
@@ -362,12 +366,10 @@ describe("IssueService Linear routing", () => {
       yield* service.detail({ ...ref, host: "linear.app" });
       yield* service.summaries({ ...key, numbers: [42] });
       assert.isNull(yield* service.reference(key));
-      const refused = yield* service
-        .setState({ ...ref, host: "linear.app", state: "closed" })
-        .pipe(Effect.flip);
+      yield* service.setState({ ...ref, host: "linear.app", state: "closed" });
 
       assert.strictEqual(detail.mock.calls[0]?.[1].id, "web");
-      assert.strictEqual(refused._tag, "LinearIssueOperationError");
+      assert.strictEqual(setState.mock.calls[0]?.[0].state, "closed");
       assert.strictEqual(graphql.mock.calls.length, 0);
     }),
   );

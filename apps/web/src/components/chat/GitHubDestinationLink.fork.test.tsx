@@ -117,7 +117,7 @@ describe("GitHub references written as text", () => {
 });
 
 describe("Linear references written as text", () => {
-  it("links an identifier only to the one Linear issue the thread links", () => {
+  it("links an identifier to its linked issue, or to its number in a linked team", () => {
     const url = "https://linear.app/acme/issue/ENG-42/fix-login";
     const linked = [
       { host: "linear.app", repository: "acme/eng", number: 42, url },
@@ -134,7 +134,11 @@ describe("Linear references written as text", () => {
       );
 
     expect(resolve("fixes ENG-42.")).toEqual([url]);
-    expect(resolve("ENG-7 and APP-7 use UTF-8")).toEqual([null, null, null]);
+    expect(resolve("ENG-7 and APP-7 use UTF-8")).toEqual([
+      "https://linear.app/acme/issue/ENG-7",
+      null,
+      null,
+    ]);
     expect(resolve("eng-42 x-ENG-42 ENG-42a ENG-0")).toEqual([]);
     expect(findIssueReferences("see ENG-42#7 and ENG-42").map((match) => match.text)).toEqual([
       "ENG-42#7",
