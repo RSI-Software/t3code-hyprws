@@ -118,12 +118,17 @@ describe("createSidebarCollisionDetection group headers", () => {
     expect(detector(withoutHeader)[0]?.id).toBe("member");
   });
 
-  it("keeps the lifted card from hiding the destination when nesting", () => {
+  it("nests in place, unless the lifted card's own slot cannot nest", () => {
     const { items, args } = collisionArgs(130);
     const atSource = { ...args, collisionRect: rect(400, 82) };
     expect(createSidebarCollisionDetection(() => true, { items })(atSource)[0]?.id).toBe("source");
     expect(
       createSidebarCollisionDetection(() => true, { items, nestingFork: true })(atSource)[0]?.id,
+    ).toBe("source");
+    expect(
+      createSidebarCollisionDetection((id) => id !== "source", { items, nestingFork: true })(
+        atSource,
+      )[0]?.id,
     ).toBe(HEADER_ID);
     expect(
       createSidebarCollisionDetection((id) => id === "member", { items, nestingFork: true })(
