@@ -21,7 +21,7 @@ const UNKNOWN_PRESENTATION = {
   Icon: CircleHelpIcon,
 } as const;
 
-// The server never reads Linear, so a Linear link has no state to show.
+// A Linear link has no state until its server reads it, which takes a Linear API key.
 const LINEAR_PRESENTATION = {
   label: "Linear issue",
   toneClassName: "text-muted-foreground",
