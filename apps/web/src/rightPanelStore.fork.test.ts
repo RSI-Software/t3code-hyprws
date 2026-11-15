@@ -7,7 +7,7 @@ import {
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "./rightPanelStore";
-import { githubIssueSurface } from "./rightPanelStore.fork";
+import { issueSurface } from "./rightPanelStore.fork";
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 beforeEach(() => {
@@ -39,7 +39,7 @@ describe("rightPanelStore", () => {
     });
   });
   it("normalizes persisted GitHub issue surfaces to their reference-keyed tab", () => {
-    const id = githubIssueSurface({
+    const id = issueSurface({
       environmentId: "env-1",
       projectId: "project-a",
       repository: "pingdotgg/t3code",
@@ -200,14 +200,14 @@ describe("rightPanelStore", () => {
       number: 7966,
     };
     const second = { ...first, number: 7967 };
-    useRightPanelStore.getState().openGitHubIssue(refA, first);
-    useRightPanelStore.getState().openGitHubIssue(refA, second);
-    useRightPanelStore.getState().openGitHubIssue(refA, first);
+    useRightPanelStore.getState().openIssue(refA, first);
+    useRightPanelStore.getState().openIssue(refA, second);
+    useRightPanelStore.getState().openIssue(refA, first);
     const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
     expect(state.surfaces.map((surface) => surface.id)).toEqual([
-      githubIssueSurface(first).id,
-      githubIssueSurface(second).id,
+      issueSurface(first).id,
+      issueSurface(second).id,
     ]);
-    expect(state.activeSurfaceId).toBe(githubIssueSurface(first).id);
+    expect(state.activeSurfaceId).toBe(issueSurface(first).id);
   });
 });
