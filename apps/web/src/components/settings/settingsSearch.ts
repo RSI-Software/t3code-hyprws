@@ -234,6 +234,7 @@ const SOURCE_CONTROL_HOST_TERMS = sourceControlClients.definitions
 import { terminalSearchItemsFork } from "./terminalSearch.fork"; // fork-hook: zmux-estate/settings-search-import
 import { issueSearchItemsFork } from "./issueSearch.fork"; // fork-hook: github-issues/settings-search-import
 import { voiceSearchItemsFork } from "./voiceSearch.fork"; // fork-hook: voice-input/settings-search-import
+import { worktrunkSearchItemsFork } from "./worktrunkSearch.fork"; // fork-hook: worktrunk-hooks/settings-search-import
 export const SETTINGS_SEARCH_ITEMS = [
   ...terminalSearchItemsFork, // fork-hook: zmux-estate/settings-search-items
   {
@@ -815,6 +816,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "project-defaults",
     searchTerms: ["default workspace mode draft local worktree"],
   },
+  ...worktrunkSearchItemsFork, // fork-hook: worktrunk-hooks/settings-search-items
   {
     id: "worktree-submodules",
     title: "Submodules",
