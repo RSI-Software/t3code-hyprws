@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  githubIssueLinkTarget,
+  issueLinkTarget,
   type EnvironmentId,
   type IssueDetail,
   type ScopedThreadRef,
@@ -46,7 +46,7 @@ export function useIssueThreadLinks(
   const supported =
     environmentId !== null &&
     configs.get(environmentId)?.environment.capabilities.threadIssues === true;
-  const target = detail ? githubIssueLinkTarget(detail.url) : null;
+  const target = detail ? issueLinkTarget(detail.url) : null;
   const relationsAtom =
     supported && target !== null
       ? issueEnvironment.linkedThreads({
