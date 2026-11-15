@@ -103,7 +103,7 @@ describe("LinearIssueService", () => {
               data: {
                 issue: issue({
                   description:
-                    "Steps\n\n+++ Agent <notes>\n\n* trace\n\n+++\n\n```md\n+++ Literal\nkept\n+++\n```",
+                    "Steps\n\n+++ Agent <notes>\n\n* trace\n\n+++\n\n```md\n``` still code\n+++ Literal\nkept\n+++\n```\n\n  ~~~\n+++ Indented\nkept\n+++\n  ~~~",
                   team: {
                     states: {
                       nodes: [
@@ -145,7 +145,7 @@ describe("LinearIssueService", () => {
         repository: "acme/eng",
         state: "open",
         closeReason: null,
-        body: "Steps\n\n<details>\n<summary>Agent &lt;notes&gt;</summary>\n\n\n* trace\n\n\n</details>\n\n```md\n+++ Literal\nkept\n+++\n```",
+        body: "Steps\n\n<details>\n<summary>Agent &lt;notes&gt;</summary>\n\n\n* trace\n\n\n</details>\n\n```md\n``` still code\n+++ Literal\nkept\n+++\n```\n\n  ~~~\n+++ Indented\nkept\n+++\n  ~~~",
         projectId: PROJECT.id,
       });
       assert.deepStrictEqual(

@@ -220,12 +220,16 @@ function linearMarkdown(markdown: string) {
   let fence: string | null = null;
   let open: { readonly index: number; readonly line: string } | null = null;
   for (const [index, line] of lines.entries()) {
-    const marker = /^(`{3,}|~{3,})/u.exec(line)?.[1];
-    if (marker !== undefined && (fence === null || marker.startsWith(fence))) {
-      fence = fence === null ? marker : null;
+    if (fence !== null) {
+      // A fence closes only on a bare run of its own character, at least as long.
+      if (/^\s*(`{3,}|~{3,})\s*$/u.exec(line)?.[1]?.startsWith(fence)) fence = null;
       continue;
     }
-    if (fence !== null) continue;
+    const opening = /^\s*(`{3,}|~{3,})/u.exec(line)?.[1];
+    if (opening !== undefined) {
+      fence = opening;
+      continue;
+    }
     const title = /^\+\+\+[ \t]+(\S.*)$/u.exec(line)?.[1];
     if (open === null && title !== undefined) {
       open = { index, line };
