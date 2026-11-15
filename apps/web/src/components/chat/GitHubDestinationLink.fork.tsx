@@ -277,10 +277,16 @@ export function useGitHubDestinationLinkFork(accept: {
               written={input.written}
               linkTarget={linear}
               referenceStyle={referenceStyle}
+              environmentId={environmentId}
               onContextMenu={handleContextMenu}
+              // The issue panel takes it when the thread's server reads Linear; else the browser.
               onOpen={(event) =>
                 open(
-                  linkMode === "integrated" && input.canOpenInPreview ? "integrated" : "external",
+                  changeRequestMode === "native"
+                    ? "native"
+                    : changeRequestMode === "integrated" && input.canOpenInPreview
+                      ? "integrated"
+                      : "external",
                   event,
                   input.href,
                   input.openChangeRequestLink,
