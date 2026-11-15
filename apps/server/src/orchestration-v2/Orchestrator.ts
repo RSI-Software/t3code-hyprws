@@ -14677,7 +14677,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       const laterRoundFork =
         task.id === forkedFrom.nodeId &&
-        delegatedRoundIsLaterFork(task, parentProjection.contextTransfers); // fork-hook: delegated-rounds/later-round
+        delegatedRoundIsLaterFork(task, childTransfers.contextTransfers); // fork-hook: delegated-rounds/later-round
 
       const now = yield* DateTime.now;
       const result = subagentResultForRun(childProjection, { ...childRun, status: outcome });
