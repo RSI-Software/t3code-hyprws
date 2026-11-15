@@ -49,7 +49,7 @@ export function buildIssuesActionItemFork(input: {
 }
 
 /**
- * The palette's "Link GitHub issue to thread" entry for the active thread
+ * The palette's "Link issue to thread" entry for the active thread
  * (RSI-Software/t3code-hyprws#1432), or `null` where its environment keeps no
  * issue links. It carries no default keybinding.
  */
@@ -62,8 +62,8 @@ export function buildLinkIssueActionItemFork(
   return {
     kind: "action",
     value: "action:link-github-issue",
-    searchTerms: ["link issue to thread", "github", "attach", "track"],
-    title: "Link GitHub issue to thread",
+    searchTerms: ["link issue to thread", "github", "linear", "attach", "track"],
+    title: "Link issue to thread",
     icon: <LinkIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       openLinkIssueDialog(threadRef);
