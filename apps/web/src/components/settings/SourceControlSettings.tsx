@@ -41,7 +41,7 @@ import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
 import { SourceControlAppSignInSettings } from "./SourceControlAppSignInSettings";
 import { SourceControlTokenSettings } from "./SourceControlTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
-import { GitHubIssueSettingsSection } from "./GitHubIssueSettings";
+import { IssueSettingsSection } from "./IssueSettings"; // fork-hook: github-issues/source-control-settings-import
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
   SettingsPageContainer,
@@ -660,7 +660,9 @@ export function SourceControlSettingsPanel() {
         <IssueTrackerSettings key={environmentId} environmentId={environmentId} />
       )}
 
-      <GitHubIssueSettingsSection />
+      {/* fork-hook: github-issues/source-control-settings-section */}
+      <IssueSettingsSection />
+      {/* fork-hook-end */}
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
   );
