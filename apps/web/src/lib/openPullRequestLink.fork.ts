@@ -12,7 +12,7 @@ import { findProjectOnChangeRequestHost } from "@t3tools/client-runtime/change-r
 
 import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell } from "../state/entities";
-import { readsLinearFork } from "~/components/issues/readsLinear.fork";
+import { knowsLinearFork } from "~/components/issues/readsLinear.fork";
 
 /**
  * Fork: GitHub links prefer the window's project without a second resolver. Upstream's
@@ -176,15 +176,16 @@ export function openIssueLinkFork(accept: OpenIssueLinkInput): boolean {
 
 /**
  * Claim a Linear issue link for the issue surface beside its thread, when that thread's server
- * reads Linear. A Linear issue belongs to no project, so it opens beside the thread's own.
+ * can read Linear. Without a key the surface asks for one. A Linear issue belongs to no project,
+ * so it opens beside the thread's own.
  */
 function openLinearIssueLinkFork(accept: OpenIssueLinkInput): boolean {
   const target = linearIssueLinkTarget(accept.targetUrl);
   const threadRef = accept.resolvedThreadRef;
   if (target === null || !threadRef) return false;
-  const readsLinear = readsLinearFork(accept.serverConfigs.get(threadRef.environmentId));
+  const knowsLinear = knowsLinearFork(accept.serverConfigs.get(threadRef.environmentId));
   const projectId = readThreadShell(threadRef)?.projectId;
-  if (!readsLinear || projectId === undefined) return false;
+  if (!knowsLinear || projectId === undefined) return false;
   accept.event.preventDefault();
   accept.event.stopPropagation();
   useRightPanelStore.getState().openIssue(threadRef, {

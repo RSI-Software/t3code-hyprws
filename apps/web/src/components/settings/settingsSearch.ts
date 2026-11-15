@@ -257,6 +257,7 @@ const SOURCE_CONTROL_HOST_TERMS = sourceControlClients.definitions
   .join(" ");
 
 import { terminalSearchItemsFork } from "./terminalSearch.fork"; // fork-hook: zmux-estate/settings-search-import
+import { issueSearchItemsFork } from "./issueSearch.fork"; // fork-hook: github-issues/settings-search-import
 export const SETTINGS_SEARCH_ITEMS = [
   ...terminalSearchItemsFork, // fork-hook: zmux-estate/settings-search-items
   {
@@ -1413,6 +1414,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "GitHub repository link destination",
     to: "/settings/source-control",
   },
+  ...issueSearchItemsFork, // fork-hook: github-issues/settings-search-items
   {
     id: "network-access",
     title: msg("Network access"),
