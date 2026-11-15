@@ -5,6 +5,8 @@
 import {
   CommandId,
   githubIssueLinkTarget,
+  LINEAR_ISSUE_HOST,
+  linearIssueLinkTarget,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -98,7 +100,7 @@ export function parseGitHubIssueUrlFork(
 /**
  * Turns whichever shape the agent passed into one host-level identity. A URL
  * wins outright; otherwise the repository and number are completed with the
- * thread's project host when that project is on GitHub.
+ * thread's project host when that project is on GitHub. Linear takes a URL only.
  */
 const resolveIssueTarget = Effect.fn("IssuesToolkitFork.resolveTarget")(function* (
   input: IssueTargetInput,
@@ -106,6 +108,8 @@ const resolveIssueTarget = Effect.fn("IssuesToolkitFork.resolveTarget")(function
 ) {
   const projectHost = projectGitHubHost(project);
   if (input.url !== undefined) {
+    const linear = linearIssueLinkTarget(input.url);
+    if (linear !== null) return { ...normalizeThreadIssueKey(linear), url: linear.url };
     const parsed = parseGitHubIssueUrlFork(input.url, projectHost);
     if (parsed === null) {
       return yield* new IssueUrlInvalidError({});
@@ -118,6 +122,9 @@ const resolveIssueTarget = Effect.fn("IssuesToolkitFork.resolveTarget")(function
   const host = (input.host ?? projectHost)?.toLowerCase();
   if (host === undefined || host === null) {
     return yield* new IssueHostRequiredError({});
+  }
+  if (host === LINEAR_ISSUE_HOST) {
+    return yield* new IssueUrlInvalidError({});
   }
   const key = normalizeThreadIssueKey({ host, repository: input.repository, number: input.number });
   return { ...key, url: canonicalIssueUrl(key) } satisfies ResolvedIssueTarget;
@@ -238,7 +245,6 @@ const make = Effect.gen(function* () {
         const thread = yield* requireThread(IssueLinkFailedError, input.threadId);
         const project = yield* projectOf(thread, IssueLinkFailedError);
         const target = yield* resolveIssueTarget(input, project);
-        // GitHub serves a pull request at its /issues/ URL too.
         if (yield* issueService.isPullRequest(target)) {
           return yield* new IssueIsPullRequestError({
             url: target.url.replace(/\/issues\/(\d+)$/u, "/pull/$1"),
