@@ -16,6 +16,7 @@ import {
 } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { SecretInput } from "./SecretInput";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { ISSUE_HANDOFF_SEARCH_ANCHOR } from "./issueSettingsSearch";
 import { searchableSetting } from "./settingsSearch";
@@ -46,6 +47,8 @@ export function IssueSettingsSection() {
   );
   const githubReferenceStyle = useClientSettings((settings) => settings.githubReferenceStyle);
   const isDirty = templateMixed || template !== DEFAULT_ISSUE_HANDOFF_PROMPT_TEMPLATE;
+  // A saved key reaches a client redacted, so any value at all means one is saved.
+  const linearKeySaved = useScopedSettings((settings) => settings.linearApiKey) !== "";
 
   return (
     <SettingsSection title="GitHub links">
@@ -205,6 +208,31 @@ export function IssueSettingsSection() {
           </p>
         </div>
       </SettingsRow>
+      <SettingsRow
+        serverScoped
+        settingKeys={["linearApiKey"]}
+        title="Linear API key"
+        description="Lets this server read Linear issues for the issue panel and chat chips. Create a personal key in Linear under Settings → Security & access."
+        resetAction={
+          linearKeySaved ? (
+            <SettingResetButton
+              label="Linear API key"
+              onClick={() => updateSettings({ linearApiKey: "" })}
+            />
+          ) : null
+        }
+        control={
+          <SecretInput
+            className="w-full sm:w-64"
+            aria-label="Linear API key"
+            configured={linearKeySaved}
+            value=""
+            onCommit={(next) => {
+              if (next.trim() !== "") updateSettings({ linearApiKey: next.trim() });
+            }}
+          />
+        }
+      />
     </SettingsSection>
   );
 }
