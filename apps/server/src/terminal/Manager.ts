@@ -5224,10 +5224,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         const eventStamp = advanceEventSequence(session);
         // A drain waits for the key to go idle, which never happens while the shell keeps
         // printing; every reader of the file flushes it first.
-        yield* persistWorker.enqueue(toSessionKey(input.threadId, terminalId), {
-          history: session.history,
-          immediate: true,
-        });
+        yield* persistWorker.enqueue(
+          toSessionKey(input.threadId, terminalId, session.attachmentId),
+          {
+            history: session.history,
+            immediate: true,
+          },
+        ); // fork-hook: zmux-estate/clear-attachment-history
         yield* publishEvent({
           type: "cleared",
           threadId: input.threadId,
