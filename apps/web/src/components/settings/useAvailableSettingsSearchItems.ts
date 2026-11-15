@@ -14,7 +14,7 @@ import { useEnvironmentScope } from "~/state/session";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
 import { getThreadAutoSettlementSearchAvailability } from "./settingsSearch";
-import { filterAvailableGitHubIssueSettingsSearchItems } from "./githubIssueSettingsSearch";
+import { filterAvailableIssueSettingsSearchItems } from "./issueSettingsSearch"; // fork-hook: github-issues/settings-search-import
 
 /** Any environment whose server enables secret providers; gates the Secrets page, nav and search. */
 export function useHasSecretProvidersEnvironment() {
@@ -76,7 +76,7 @@ export function useAvailableSettingsSearchItems() {
   const wslSettingsRowVisible =
     isWslSettingsRowVisible({ state: desktopWsl.data, error: desktopWsl.error }) === true;
 
-  return filterAvailableGitHubIssueSettingsSearchItems({
+  return filterAvailableIssueSettingsSearchItems({
     localEnvironmentDisabled,
     hasCloudPublicConfig: cloudPublicConfig,
     hasEnvironment,
