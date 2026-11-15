@@ -1,6 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import { linkGitHubIssueHandoffFork } from "../githubIssue/githubIssueHandoff";
+import { linkIssueHandoffFork } from "../issues/issueHandoff";
 import type { MultipleModelTarget } from "./chatViewSend";
 
 /** Keep failed fanout starts out of the handoff, without consuming it before all starts settle. */
@@ -16,7 +16,7 @@ export function collectIssueHandoffFork(draftId: string | null, environmentId: E
       if (started && threadId) startedThreads.push(scopeThreadRef(environmentId, threadId));
     },
     link() {
-      linkGitHubIssueHandoffFork(draftId, startedThreads);
+      linkIssueHandoffFork(draftId, startedThreads);
     },
   };
 }
