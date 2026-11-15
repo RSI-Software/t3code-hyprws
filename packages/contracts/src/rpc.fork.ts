@@ -73,13 +73,13 @@ export const pullRequestAttachmentRpcFork = {
 import {
   GitHubIssueCliMissingError,
   GitHubIssueCliUnauthenticatedError,
-  GitHubIssueDetail,
-  GitHubIssueListInput,
-  GitHubIssueListResult,
+  IssueDetail,
+  IssueListInput,
+  IssueListResult,
   GitHubIssueOperationError,
-  GitHubIssueRef,
-  GitHubIssueSetStateInput,
-} from "./githubIssue.ts";
+  IssueRef,
+  IssueSetStateInput,
+} from "./issue.ts";
 import { PullRequestLinkedThreadsResult } from "./pullRequest.ts";
 import {
   GitHubReferenceSummary,
@@ -87,73 +87,73 @@ import {
   ThreadIssueSyncInput,
 } from "./threadIssues.fork.ts";
 
-const GitHubIssueRpcErrorFork = Schema.Union([
+const IssueRpcErrorFork = Schema.Union([
   GitHubIssueCliMissingError,
   GitHubIssueCliUnauthenticatedError,
   GitHubIssueOperationError,
   EnvironmentAuthorizationError,
 ]);
 
-const WsGitHubIssuesListRpcFork = Rpc.make("githubIssues.list", {
-  payload: GitHubIssueListInput,
-  success: GitHubIssueListResult,
-  error: GitHubIssueRpcErrorFork,
+const WsIssuesListRpcFork = Rpc.make("githubIssues.list", {
+  payload: IssueListInput,
+  success: IssueListResult,
+  error: IssueRpcErrorFork,
 });
 
-const WsGitHubIssuesDetailRpcFork = Rpc.make("githubIssues.detail", {
-  payload: GitHubIssueRef,
-  success: GitHubIssueDetail,
-  error: GitHubIssueRpcErrorFork,
+const WsIssuesDetailRpcFork = Rpc.make("githubIssues.detail", {
+  payload: IssueRef,
+  success: IssueDetail,
+  error: IssueRpcErrorFork,
 });
 
 /** Threads linked to one issue, by host-qualified key (RSI-Software/t3code-hyprws#1431). */
-const WsGitHubIssuesLinkedThreadsRpcFork = Rpc.make("githubIssues.linkedThreads", {
+const WsIssuesLinkedThreadsRpcFork = Rpc.make("githubIssues.linkedThreads", {
   payload: ThreadIssueKey,
   success: PullRequestLinkedThreadsResult,
-  error: GitHubIssueRpcErrorFork,
+  error: IssueRpcErrorFork,
 });
 
 /** Title and state of the issue or pull request a chat reference names; null when it is gone. */
-const WsGitHubIssuesReferenceRpcFork = Rpc.make("githubIssues.reference", {
+const WsIssuesReferenceRpcFork = Rpc.make("githubIssues.reference", {
   payload: ThreadIssueKey,
   success: Schema.NullOr(GitHubReferenceSummary),
-  error: GitHubIssueRpcErrorFork,
+  error: IssueRpcErrorFork,
 });
 
-const WsGitHubIssuesSetStateRpcFork = Rpc.make("githubIssues.setState", {
-  payload: GitHubIssueSetStateInput,
-  error: GitHubIssueRpcErrorFork,
+const WsIssuesSetStateRpcFork = Rpc.make("githubIssues.setState", {
+  payload: IssueSetStateInput,
+  error: IssueRpcErrorFork,
 });
 
 /**
  * Rereads a thread's linked issues from GitHub (RSI-Software/t3code-hyprws#1434). Answers once
  * the reads are queued; the snapshots arrive on the thread shell stream.
  */
-const WsGitHubIssuesSyncThreadLinksRpcFork = Rpc.make("githubIssues.syncThreadLinks", {
+const WsIssuesSyncThreadLinksRpcFork = Rpc.make("githubIssues.syncThreadLinks", {
   payload: ThreadIssueSyncInput,
-  error: GitHubIssueRpcErrorFork,
+  error: IssueRpcErrorFork,
 });
 
 /**
  * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
  * marked hooks in `rpc.ts` (`github-issues/rpc-methods`, `github-issues/rpc-group`).
  */
-export const githubIssuesRpcFork = {
+export const issuesRpcFork = {
   methodNames: {
-    githubIssuesList: "githubIssues.list",
-    githubIssuesDetail: "githubIssues.detail",
-    githubIssuesLinkedThreads: "githubIssues.linkedThreads",
-    githubIssuesReference: "githubIssues.reference",
-    githubIssuesSetState: "githubIssues.setState",
-    githubIssuesSyncThreadLinks: "githubIssues.syncThreadLinks",
+    issuesList: "githubIssues.list",
+    issuesDetail: "githubIssues.detail",
+    issuesLinkedThreads: "githubIssues.linkedThreads",
+    issuesReference: "githubIssues.reference",
+    issuesSetState: "githubIssues.setState",
+    issuesSyncThreadLinks: "githubIssues.syncThreadLinks",
   } as const,
   rpcs: [
-    WsGitHubIssuesListRpcFork,
-    WsGitHubIssuesDetailRpcFork,
-    WsGitHubIssuesLinkedThreadsRpcFork,
-    WsGitHubIssuesReferenceRpcFork,
-    WsGitHubIssuesSetStateRpcFork,
-    WsGitHubIssuesSyncThreadLinksRpcFork,
+    WsIssuesListRpcFork,
+    WsIssuesDetailRpcFork,
+    WsIssuesLinkedThreadsRpcFork,
+    WsIssuesReferenceRpcFork,
+    WsIssuesSetStateRpcFork,
+    WsIssuesSyncThreadLinksRpcFork,
   ] as const,
 };
 
@@ -288,7 +288,7 @@ export const collaboratorRpcFork = {
 export const wsRpcsFork = [
   ...pullRequestAttachmentRpcFork.rpcs,
   ...pullRequestActivityRpcFork.rpcs,
-  ...githubIssuesRpcFork.rpcs,
+  ...issuesRpcFork.rpcs,
   ...checkoutMoveRpcFork.rpcs,
   ...threadGroupsRpcFork.rpcs,
   ...collaboratorRpcFork.rpcs,

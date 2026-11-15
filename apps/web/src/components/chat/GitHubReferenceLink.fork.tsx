@@ -4,15 +4,15 @@ import { ExternalLinkIcon, FolderGit2Icon, GithubIcon } from "lucide-react";
 import { useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode } from "react";
 
 import { RelativeTime } from "~/components/RelativeTime";
-import { githubIssueEnvironment } from "~/state/githubIssues";
+import { issueEnvironment } from "~/state/issues";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import { ContextChip, ContextChipLabel } from "../ContextChip";
 import {
-  GITHUB_ISSUE_NOT_PLANNED_PRESENTATION,
-  GITHUB_ISSUE_STATE_PRESENTATION,
-} from "../githubIssue/githubIssuePresentation";
+  ISSUE_NOT_PLANNED_PRESENTATION,
+  ISSUE_STATE_PRESENTATION,
+} from "../issues/issuePresentation";
 import { PULL_REQUEST_STATE_PRESENTATION } from "../pullRequest/pullRequestIcons";
 import { PullRequestActorAvatar } from "../pullRequest/pullRequestPresentation";
 import { InlineButton } from "../ui/button";
@@ -25,10 +25,10 @@ function statePresentation(summary: GitHubReferenceSummary) {
       ? PULL_REQUEST_STATE_PRESENTATION.closed
       : PULL_REQUEST_STATE_PRESENTATION[summary.state];
   }
-  if (summary.state === "open") return GITHUB_ISSUE_STATE_PRESENTATION.open;
+  if (summary.state === "open") return ISSUE_STATE_PRESENTATION.open;
   return summary.state === "closed"
-    ? GITHUB_ISSUE_STATE_PRESENTATION.closed
-    : GITHUB_ISSUE_NOT_PLANNED_PRESENTATION;
+    ? ISSUE_STATE_PRESENTATION.closed
+    : ISSUE_NOT_PLANNED_PRESENTATION;
 }
 
 function hasModifier(event: MouseEvent<HTMLElement>): boolean {
@@ -88,10 +88,10 @@ export function GitHubReferenceLink({
       : null;
   const query = useEnvironmentQuery(
     readTarget && (referenceStyle === "chip" || open)
-      ? githubIssueEnvironment.reference(readTarget)
+      ? issueEnvironment.reference(readTarget)
       : null,
   );
-  const readReference = useAtomQueryRunner(githubIssueEnvironment.reference, {
+  const readReference = useAtomQueryRunner(issueEnvironment.reference, {
     reportFailure: false,
     reportDefect: false,
   });
