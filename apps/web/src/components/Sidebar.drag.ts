@@ -48,9 +48,7 @@ export function createSidebarCollisionDetection(
   return (args) => {
     let collisions = closestCenter(args);
     if (options.nestingFork)
-      return collisions.filter(
-        (collision) => collision.id !== args.active.id && isValidTarget(String(collision.id)),
-      ); // fork-hook: thread-ordering/group-nesting-collision
+      return collisions.filter((collision) => isValidTarget(String(collision.id))); // fork-hook: thread-ordering/group-nesting-collision
     const pointer = args.pointerCoordinates;
     const items = options.items;
     const source = items?.find((item) => item.kind === "thread" && item.key === args.active.id);
