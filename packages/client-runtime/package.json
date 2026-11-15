@@ -215,9 +215,9 @@
       "types": "./src/state/commandOutput.ts",
       "default": "./src/state/commandOutput.ts"
     },
-    "./state/github-issues": {
-      "types": "./src/state/githubIssues.ts",
-      "default": "./src/state/githubIssues.ts"
+    "./state/issues": {
+      "types": "./src/state/issues.ts",
+      "default": "./src/state/issues.ts"
     },
     "./state/item-support": {
       "types": "./src/state/itemSupport.ts",

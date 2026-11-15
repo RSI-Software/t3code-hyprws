@@ -118,8 +118,8 @@ import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../provi
 import { useThreadRunningTerminalIds } from "../../state/terminalSessions";
 import { InlineButton } from "../ui/button";
 import { Kbd } from "../ui/kbd";
-import { ThreadIssueBadgeFork } from "../githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
-import { ThreadHoverCardIssuesFork } from "../githubIssue/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-hover-card-issues-import
+import { ThreadIssueBadgeFork } from "../issues/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
+import { ThreadHoverCardIssuesFork } from "../issues/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-hover-card-issues-import
 import { ThreadArtifactBadgeFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
 import { ThreadHoverCardArtifactsFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-hover-card-artifacts-import
 import { Menu, MenuItem, MenuItemDetail, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
