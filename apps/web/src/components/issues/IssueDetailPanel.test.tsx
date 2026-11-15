@@ -14,6 +14,12 @@ const child: GitHubSubIssue = {
   url: "https://github.com/acme/web/issues/42",
 };
 
+const LINEAR_ISSUE = {
+  number: 42,
+  title: "Fix login",
+  url: "https://linear.app/acme/issue/ENG-42/fix-login",
+};
+
 const emptyDraft: ComposerThreadDraftState = {
   prompt: "",
   replyTo: null,
@@ -43,6 +49,7 @@ describe("GitHub issue handoff", () => {
     expect(prompt).toContain("https://github.com/acme/web/issues/42");
     expect(prompt).not.toContain("issue body");
     expect(prompt.split("\n")).toHaveLength(3);
+    expect(issueHandoffPrompt(LINEAR_ISSUE)).toContain("Work on Linear issue ENG-42: Fix login");
   });
 
   it("fills every supported field in a custom template", () => {
@@ -56,6 +63,7 @@ describe("GitHub issue handoff", () => {
         "Issue {{number}}: {{title}}\nSource: {{url}}\nAgain: {{number}}",
       ),
     ).toBe("Issue 42: Fix the cache\nSource: https://github.com/acme/web/issues/42\nAgain: 42");
+    expect(issueHandoffPrompt(LINEAR_ISSUE, "Issue {{number}}")).toBe("Issue ENG-42");
   });
 
   it("seeds only an empty destination composer", () => {
