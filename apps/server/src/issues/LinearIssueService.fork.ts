@@ -217,17 +217,22 @@ const escapeHtml = (text: string) =>
  */
 function linearMarkdown(markdown: string) {
   const lines = markdown.split("\n");
-  let fence: string | null = null;
+  let fence: { readonly run: string; readonly indent: number } | null = null;
   let open: { readonly index: number; readonly line: string } | null = null;
   for (const [index, line] of lines.entries()) {
+    const [, space = "", run] = /^([ \t]*)(`{3,}|~{3,})/u.exec(line) ?? [];
+    const indent = space.replaceAll("\t", "    ").length;
     if (fence !== null) {
-      // A fence closes only on a bare run of its own character, at least as long.
-      if (/^\s*(`{3,}|~{3,})\s*$/u.exec(line)?.[1]?.startsWith(fence)) fence = null;
+      // A closer is a bare run of the fence's character, as long, at most 3 columns deeper.
+      const closes =
+        run?.startsWith(fence.run) === true &&
+        indent <= fence.indent + 3 &&
+        line.slice(space.length + run.length).trim() === "";
+      if (closes) fence = null;
       continue;
     }
-    const opening = /^\s*(`{3,}|~{3,})/u.exec(line)?.[1];
-    if (opening !== undefined) {
-      fence = opening;
+    if (run !== undefined) {
+      fence = { run, indent };
       continue;
     }
     const title = /^\+\+\+[ \t]+(\S.*)$/u.exec(line)?.[1];
