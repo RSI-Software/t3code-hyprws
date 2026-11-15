@@ -157,6 +157,7 @@ export function usePullRequestScope(
         held: projects,
         environmentIds: queryEnvironmentIds,
         hostAvailability: availability,
+        unreachableEnvironmentIds: unreachable,
       });
     } // fork-hook: workspaces/list-page-window-filter
     return pullRequestProjectQueries(projects, queryEnvironmentIds, availability, unreachable);

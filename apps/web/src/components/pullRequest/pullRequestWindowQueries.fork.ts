@@ -29,6 +29,7 @@ export function pullRequestEnvironmentQueriesFork(input: {
   readonly held: ReadonlyArray<AssignableProject>;
   readonly environmentIds: ReadonlyArray<EnvironmentId>;
   readonly hostAvailability?: PullRequestHostAvailability | undefined;
+  readonly unreachableEnvironmentIds?: ReadonlySet<EnvironmentId>;
 }): ReadonlyArray<PullRequestEnvironmentQuery> {
   const { listed, held, environmentIds, hostAvailability } = input;
   const assignment = assignProjectsToEnvironments(
@@ -36,6 +37,7 @@ export function pullRequestEnvironmentQueriesFork(input: {
     environmentIds,
     environmentIds[0],
     hostAvailability,
+    input.unreachableEnvironmentIds,
   );
   const totals = new Map<EnvironmentId, number>();
   for (const project of held) {

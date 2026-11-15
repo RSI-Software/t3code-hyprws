@@ -39,6 +39,12 @@ describe("pull request reads for a window's filter", () => {
     expect(
       pullRequestEnvironmentQueriesFork({
         ...input,
+        unreachableEnvironmentIds: new Set(envs("env-1")),
+      }),
+    ).toStrictEqual([{ environmentId: "env-2", projectIds: ["solar"] }]);
+    expect(
+      pullRequestEnvironmentQueriesFork({
+        ...input,
         hostAvailability: new Map([
           [
             "env-1" as EnvironmentId,
