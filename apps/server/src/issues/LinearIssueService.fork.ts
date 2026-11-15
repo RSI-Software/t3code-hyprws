@@ -211,13 +211,33 @@ function issueState(state: RawState): { state: IssueState; closeReason: IssueClo
 const escapeHtml = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-/** Linear writes a collapsible section as `+++ Title` … `+++`; markdown spells it `<details>`. */
-const linearMarkdown = (markdown: string) =>
-  markdown.replace(
-    /^\+\+\+[ \t]+(\S.*)\n([\s\S]*?)\n\+\+\+[ \t]*$/gmu,
-    (_, title: string, body: string) =>
-      `<details>\n<summary>${escapeHtml(title.trim())}</summary>\n\n${body}\n\n</details>`,
-  );
+/**
+ * Linear writes a collapsible section as `+++ Title` … `+++`; markdown spells it `<details>`.
+ * Markers inside a code fence are code, and an unclosed section stays as written.
+ */
+function linearMarkdown(markdown: string) {
+  const lines = markdown.split("\n");
+  let fence: string | null = null;
+  let open: { readonly index: number; readonly line: string } | null = null;
+  for (const [index, line] of lines.entries()) {
+    const marker = /^(`{3,}|~{3,})/u.exec(line)?.[1];
+    if (marker !== undefined && (fence === null || marker.startsWith(fence))) {
+      fence = fence === null ? marker : null;
+      continue;
+    }
+    if (fence !== null) continue;
+    const title = /^\+\+\+[ \t]+(\S.*)$/u.exec(line)?.[1];
+    if (open === null && title !== undefined) {
+      open = { index, line };
+      lines[index] = `<details>\n<summary>${escapeHtml(title.trim())}</summary>\n`;
+    } else if (open !== null && /^\+\+\+[ \t]*$/u.test(line)) {
+      open = null;
+      lines[index] = "\n</details>";
+    }
+  }
+  if (open !== null) lines[open.index] = open.line;
+  return lines.join("\n");
+}
 
 /** A team's workflow states in board order: by category, then Linear's position within it. */
 const STATE_ORDER = [
@@ -274,7 +294,7 @@ export class LinearIssueService extends Context.Service<
 export const make = Effect.gen(function* () {
   const environmentKey = yield* linearApiKey;
   const client = yield* HttpClient.HttpClient;
-  const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  const settings = yield* ServerSettings.ServerSettingsService;
 
   /**
    * The key saved in Settings, else the environment's, read per request so a new one applies.
@@ -282,8 +302,7 @@ export const make = Effect.gen(function* () {
    */
   const currentKey = Effect.fn("LinearIssueService.currentKey")(
     function* (_operation: string) {
-      if (Option.isNone(settings)) return environmentKey;
-      const saved = (yield* settings.value.getSettings).linearApiKey;
+      const saved = (yield* settings.getSettings).linearApiKey;
       return saved === "" ? environmentKey : Option.some(Redacted.make(saved));
     },
     (effect, operation) =>
@@ -474,22 +493,26 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const operation = input.state === "closed" ? "close" : "reopen";
     const key = { ...input, host: "linear.app", url: "" };
-    const stateId =
-      input.workflowStateId ??
-      (yield* readIssue(operation, TEAM_STATES_QUERY, decodeTeamStatesEnvelope, key).pipe(
-        Effect.map((issue) => {
-          // Close and reopen name a kind of state, not one; take the team's first of that kind.
-          const kind =
-            input.state === "open"
-              ? "unstarted"
-              : input.reason === "not planned"
-                ? "canceled"
-                : "completed";
-          return issue === null
-            ? undefined
-            : teamStates(issue.team).find((state) => state.type === kind)?.id;
-        }),
-      ));
+    // Read first so a move never reaches a same-numbered issue in another workspace.
+    const issue = yield* readIssue(operation, TEAM_STATES_QUERY, decodeTeamStatesEnvelope, key);
+    if (issue === null) {
+      return yield* new LinearIssueOperationError({
+        operation,
+        detail: `${keyParts(input).team}-${input.number} was not found in this server's Linear workspace.`,
+      });
+    }
+    // Close and reopen name a kind of state, not one; take the team's first of that kind.
+    const kind =
+      input.state === "open"
+        ? "unstarted"
+        : input.reason === "not planned"
+          ? "canceled"
+          : "completed";
+    const stateId = teamStates(issue.team).find((state) =>
+      input.workflowStateId === undefined
+        ? state.type === kind
+        : state.id === input.workflowStateId,
+    )?.id;
     if (stateId === undefined) {
       return yield* new LinearIssueOperationError({
         operation,

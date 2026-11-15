@@ -64,8 +64,8 @@ const state = (id: string, type: string, position: number) => ({
   position,
 });
 
-/** `saved` is the key in Settings; without it the service runs with no settings at all. */
-function makeService(env: Record<string, string>, answer: (body: any) => unknown, saved?: string) {
+/** `saved` is the key in Settings; empty defers to the environment's. */
+function makeService(env: Record<string, string>, answer: (body: any) => unknown, saved = "") {
   const requests: Array<{
     authorization: string | undefined;
     expiry: string | undefined;
@@ -82,14 +82,12 @@ function makeService(env: Record<string, string>, answer: (body: any) => unknown
       return HttpClientResponse.fromWeb(request, Response.json(answer(body)));
     }),
   );
-  const settings =
-    saved === undefined ? Layer.empty : ServerSettings.layerTest({ linearApiKey: saved });
   return LinearIssueService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
         Layer.succeed(HttpClient.HttpClient, client),
         ConfigProvider.layer(ConfigProvider.fromEnv({ env })),
-        settings,
+        ServerSettings.layerTest({ linearApiKey: saved }),
       ),
     ),
     Effect.map((service) => ({ service, requests })),
@@ -104,7 +102,8 @@ describe("LinearIssueService", () => {
           ? {
               data: {
                 issue: issue({
-                  description: "Steps\n\n+++ Agent <notes>\n\n* trace\n\n+++",
+                  description:
+                    "Steps\n\n+++ Agent <notes>\n\n* trace\n\n+++\n\n```md\n+++ Literal\nkept\n+++\n```",
                   team: {
                     states: {
                       nodes: [
@@ -146,7 +145,7 @@ describe("LinearIssueService", () => {
         repository: "acme/eng",
         state: "open",
         closeReason: null,
-        body: "Steps\n\n<details>\n<summary>Agent &lt;notes&gt;</summary>\n\n\n* trace\n\n\n</details>",
+        body: "Steps\n\n<details>\n<summary>Agent &lt;notes&gt;</summary>\n\n\n* trace\n\n\n</details>\n\n```md\n+++ Literal\nkept\n+++\n```",
         projectId: PROJECT.id,
       });
       assert.deepStrictEqual(
@@ -219,35 +218,55 @@ describe("LinearIssueService", () => {
     }),
   );
 
-  it.effect("moves to the named state, or to the team's first state of the folded kind", () =>
-    Effect.gen(function* () {
-      const team = {
-        states: {
-          nodes: [state("Canceled", "canceled", 0), state("Done", "completed", 0)],
-        },
-      };
-      const { service, requests } = yield* makeService({ LINEAR_API_KEY: "lin_api_x" }, (body) =>
-        body.variables.stateId === undefined
-          ? { data: { issue: { url: issue().url, team } } }
-          : { data: { issueUpdate: { success: true } } },
-      );
-      const ref = { projectId: PROJECT.id, repository: "acme/eng", number: 42 };
+  it.effect(
+    "moves this workspace's issue to the named state, or the first of the folded kind",
+    () =>
+      Effect.gen(function* () {
+        const team = {
+          states: {
+            nodes: [
+              state("Canceled", "canceled", 0),
+              state("Done", "completed", 0),
+              state("In Review", "started", 0),
+            ],
+          },
+        };
+        const { service, requests } = yield* makeService({ LINEAR_API_KEY: "lin_api_x" }, (body) =>
+          body.variables.stateId === undefined
+            ? { data: { issue: { url: issue().url, team } } }
+            : { data: { issueUpdate: { success: true } } },
+        );
+        const elsewhere = yield* makeService({ LINEAR_API_KEY: "lin_api_x" }, (body) =>
+          body.variables.stateId === undefined
+            ? { data: { issue: { url: "https://linear.app/other/issue/ENG-42/fix-login", team } } }
+            : { data: { issueUpdate: { success: true } } },
+        );
+        const ref = { projectId: PROJECT.id, repository: "acme/eng", number: 42 };
 
-      yield* service.setState({ ...ref, state: "open", workflowStateId: "In Review" });
-      yield* service.setState({ ...ref, state: "closed", reason: "not planned" });
-      const missing = yield* service.setState({ ...ref, state: "open" }).pipe(Effect.flip);
+        yield* service.setState({ ...ref, state: "open", workflowStateId: "In Review" });
+        yield* service.setState({ ...ref, state: "closed", reason: "not planned" });
+        const missing = yield* service.setState({ ...ref, state: "open" }).pipe(Effect.flip);
+        const foreign = yield* elsewhere.service
+          .setState({ ...ref, state: "open", workflowStateId: "In Review" })
+          .pipe(Effect.flip);
 
-      assert.deepStrictEqual(
-        requests.map((request) => request.body.variables),
-        [
-          { id: "ENG-42", stateId: "In Review" },
-          { id: "ENG-42" },
-          { id: "ENG-42", stateId: "Canceled" },
-          { id: "ENG-42" },
-        ],
-      );
-      assert.include(missing.message, "no workflow state");
-    }),
+        assert.deepStrictEqual(
+          requests.map((request) => request.body.variables),
+          [
+            { id: "ENG-42" },
+            { id: "ENG-42", stateId: "In Review" },
+            { id: "ENG-42" },
+            { id: "ENG-42", stateId: "Canceled" },
+            { id: "ENG-42" },
+          ],
+        );
+        assert.include(missing.message, "no workflow state");
+        assert.include(foreign.message, "not found");
+        assert.deepStrictEqual(
+          elsewhere.requests.map((request) => request.body.variables),
+          [{ id: "ENG-42" }],
+        );
+      }),
   );
 
   it.effect("prefers the key saved in Settings over the environment's", () =>
@@ -257,7 +276,7 @@ describe("LinearIssueService", () => {
 
       const saved = yield* makeService(env, answer, "lin_api_saved");
       yield* saved.service.reference(KEY);
-      const blank = yield* makeService(env, answer, "");
+      const blank = yield* makeService(env, answer);
       yield* blank.service.reference(KEY);
 
       assert.strictEqual(saved.requests[0]?.authorization, "lin_api_saved");
