@@ -79,6 +79,7 @@ import {
   GitHubIssueOperationError,
   IssueRef,
   IssueSetStateInput,
+  LinearIssueOperationError,
 } from "./issue.ts";
 import { PullRequestLinkedThreadsResult } from "./pullRequest.ts";
 import {
@@ -91,6 +92,7 @@ const IssueRpcErrorFork = Schema.Union([
   GitHubIssueCliMissingError,
   GitHubIssueCliUnauthenticatedError,
   GitHubIssueOperationError,
+  LinearIssueOperationError,
   EnvironmentAuthorizationError,
 ]);
 

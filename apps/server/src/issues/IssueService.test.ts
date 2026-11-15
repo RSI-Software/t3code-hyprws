@@ -14,6 +14,7 @@ import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitH
 import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import * as IssueService from "./IssueService.ts";
+import * as LinearIssueService from "./LinearIssueService.fork.ts";
 
 function project(input: {
   id: string;
@@ -105,6 +106,7 @@ function makeService(
         }),
         // Every fixture project carries its identity, so none is resolved on demand.
         Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({}),
+        Layer.mock(LinearIssueService.LinearIssueService)({}),
       ),
     ),
   );
