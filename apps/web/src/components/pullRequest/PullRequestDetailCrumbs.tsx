@@ -12,6 +12,7 @@ import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLi
 import {
   CrumbsBackButtonFork,
   crumbsNumberLabelFork,
+  CrumbsNumberTextLinkFork,
   useCrumbsSubjectFork,
 } from "./PullRequestDetailCrumbs.fork"; // fork-hook: github-issues/detail-crumbs-import
 
@@ -82,6 +83,12 @@ function NumberLink({
   const gt = useGT();
   const forkSubject = useCrumbsSubjectFork(); // fork-hook: github-issues/detail-crumbs-number-subject
   const openLink = useOpenLink(threadRef);
+  if (forkSubject?.numberText)
+    return (
+      <CrumbsNumberTextLinkFork
+        {...{ forkSubject, detail, toneClassName, openOnHostText, focusable }}
+      />
+    ); // fork-hook: github-issues/detail-crumbs-number-text
   return (
     <Tooltip>
       <TooltipTrigger
