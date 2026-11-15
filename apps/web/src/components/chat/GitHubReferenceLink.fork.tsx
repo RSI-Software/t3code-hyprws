@@ -8,28 +8,15 @@ import { issueEnvironment } from "~/state/issues";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
-import {
-  ISSUE_NOT_PLANNED_PRESENTATION,
-  ISSUE_STATE_PRESENTATION,
-} from "../issues/issuePresentation";
-import { PULL_REQUEST_STATE_PRESENTATION } from "../pullRequest/pullRequestIcons";
 import { PullRequestActorAvatar } from "../pullRequest/pullRequestPresentation";
 import { InlineButton } from "../ui/button";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import type { GitHubLinkDestination, GitHubLinkTarget } from "./GitHubDestinationLink.fork";
-import { referenceAnchorProps, referenceTrigger } from "./referenceTrigger.fork";
-
-function statePresentation(summary: GitHubReferenceSummary) {
-  if (summary.kind === "pull-request") {
-    return summary.state === "not-planned"
-      ? PULL_REQUEST_STATE_PRESENTATION.closed
-      : PULL_REQUEST_STATE_PRESENTATION[summary.state];
-  }
-  if (summary.state === "open") return ISSUE_STATE_PRESENTATION.open;
-  return summary.state === "closed"
-    ? ISSUE_STATE_PRESENTATION.closed
-    : ISSUE_NOT_PLANNED_PRESENTATION;
-}
+import {
+  referenceAnchorProps,
+  referenceStatePresentation,
+  referenceTrigger,
+} from "./referenceTrigger.fork";
 
 export interface GitHubReferenceLinkProps extends Omit<
   ComponentPropsWithoutRef<"a">,
@@ -95,7 +82,7 @@ export function GitHubReferenceLink({
   // `issues/N` names a pull request too; the read picks the panel, the written URL stays.
   const panelHref = (read: GitHubReferenceSummary | null | undefined) =>
     read && read.kind !== linkTarget.kind ? read.url : href;
-  const state = summary ? statePresentation(summary) : null;
+  const state = summary ? referenceStatePresentation(summary) : null;
   const shortReference = numbered ? `${name}#${linkTarget.number}` : linkTarget.repository;
 
   const open_ = (

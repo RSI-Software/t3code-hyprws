@@ -15,6 +15,7 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
 import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import * as IssueService from "./IssueService.ts";
+import * as LinearIssueService from "./LinearIssueService.fork.ts";
 
 function project(id: string): OrchestrationProjectShell {
   return {
@@ -43,6 +44,7 @@ function project(id: string): OrchestrationProjectShell {
 function makeService(
   projects: ReadonlyArray<OrchestrationProjectShell>,
   graphql: GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"],
+  linear: Partial<LinearIssueService.LinearIssueService["Service"]> = {},
 ) {
   return IssueService.make.pipe(
     Effect.provide(
@@ -57,6 +59,7 @@ function makeService(
         }),
         // Every fixture project carries its identity, so none is resolved on demand.
         Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({}),
+        Layer.mock(LinearIssueService.LinearIssueService)(linear),
       ),
     ),
   );
@@ -335,6 +338,37 @@ describe("IssueService detail hierarchy", () => {
       );
       assert.strictEqual(list.entries[0]?.number, 51);
       assert.lengthOf(list.entries, 50);
+    }),
+  );
+});
+
+describe("IssueService Linear routing", () => {
+  it.effect("hands a Linear key to the Linear reader with its project, and never to GitHub", () =>
+    Effect.gen(function* () {
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
+        Effect.die("GitHub is not asked about Linear issues"),
+      );
+      const detail = vi.fn<LinearIssueService.LinearIssueService["Service"]["detail"]>(
+        (_key, shell) => Effect.succeed({ projectId: shell.id } as never),
+      );
+      const service = yield* makeService([project("web")], graphql, {
+        detail,
+        summaries: () => Effect.succeed(new Map()),
+        reference: () => Effect.succeed(null),
+      });
+      const ref = { projectId: "web" as ProjectId, repository: "acme/eng", number: 42 };
+      const key = { host: "linear.app", repository: "acme/eng", number: 42 };
+
+      yield* service.detail({ ...ref, host: "linear.app" });
+      yield* service.summaries({ ...key, numbers: [42] });
+      assert.isNull(yield* service.reference(key));
+      const refused = yield* service
+        .setState({ ...ref, host: "linear.app", state: "closed" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(detail.mock.calls[0]?.[1].id, "web");
+      assert.strictEqual(refused._tag, "LinearIssueOperationError");
+      assert.strictEqual(graphql.mock.calls.length, 0);
     }),
   );
 });

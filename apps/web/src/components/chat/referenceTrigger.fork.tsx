@@ -1,7 +1,25 @@
+import type { GitHubReferenceSummary } from "@t3tools/contracts";
 import type { GitHubReferenceStyle } from "@t3tools/contracts/settings";
 import type { ComponentPropsWithoutRef, MouseEvent, ReactElement, ReactNode } from "react";
 
 import { ContextChip, ContextChipLabel } from "../ContextChip";
+import {
+  ISSUE_NOT_PLANNED_PRESENTATION,
+  ISSUE_STATE_PRESENTATION,
+} from "../issues/issuePresentation";
+import { PULL_REQUEST_STATE_PRESENTATION } from "../pullRequest/pullRequestIcons";
+
+export function referenceStatePresentation(summary: GitHubReferenceSummary) {
+  if (summary.kind === "pull-request") {
+    return summary.state === "not-planned"
+      ? PULL_REQUEST_STATE_PRESENTATION.closed
+      : PULL_REQUEST_STATE_PRESENTATION[summary.state];
+  }
+  if (summary.state === "open") return ISSUE_STATE_PRESENTATION.open;
+  return summary.state === "closed"
+    ? ISSUE_STATE_PRESENTATION.closed
+    : ISSUE_NOT_PLANNED_PRESENTATION;
+}
 
 type AnchorProps = Omit<ComponentPropsWithoutRef<"a">, "children" | "href" | "onClick">;
 
