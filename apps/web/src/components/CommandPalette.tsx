@@ -64,6 +64,7 @@ import { buildShowLinkedIssuesActionItemFork } from "./CommandPalette.fork"; // 
 import { buildShowArtifactsActionItemFork } from "./threadArtifacts/threadArtifactsPalette.fork"; // fork-hook: thread-artifacts/command-palette-show-artifacts-import
 import { useForkThreadActionItemFork } from "./threadForkPalette.fork"; // fork-hook: thread-fork/command-palette-fork-thread-import
 import { buildShareWithCollaboratorActionItemFork } from "./collaborator/collaboratorPalette.fork"; // fork-hook: colleague-collab/command-palette-share-import
+import { buildOpenThreadWindowActionItemFork } from "./threadWindowPalette.fork"; // fork-hook: multi-window/palette-open-thread-window-import
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
 import {
   dropNewThreadHintFork,
@@ -1918,6 +1919,8 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   } // fork-hook: multi-window/palette-open-project-window
+  const threadWindowItem = buildOpenThreadWindowActionItemFork(activeThread); // fork-hook: multi-window/palette-open-thread-window
+  if (threadWindowItem) actionItems.push(threadWindowItem); // fork-hook: multi-window/palette-open-thread-window-push
   if (contextualProjectGroup) {
     actionItems.push({
       kind: "action",
