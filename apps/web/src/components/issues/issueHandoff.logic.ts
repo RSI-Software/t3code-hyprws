@@ -1,4 +1,4 @@
-import type { GitHubIssueLinkTarget, ScopedThreadRef } from "@t3tools/contracts";
+import type { IssueLinkTarget, ScopedThreadRef } from "@t3tools/contracts";
 
 const STORAGE_KEY = "t3code:github-issue-handoffs:v1";
 /** Drafts are few; the oldest handoffs go first once abandoned drafts pile up. */
@@ -6,7 +6,7 @@ const MAX_HANDOFFS = 50;
 
 type HandoffStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-function isLinkTarget(value: unknown): value is GitHubIssueLinkTarget {
+function isLinkTarget(value: unknown): value is IssueLinkTarget {
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
   return (
@@ -23,12 +23,12 @@ function isLinkTarget(value: unknown): value is GitHubIssueLinkTarget {
  * so a reload before the first send still links.
  */
 export function createIssueHandoffStore(storage: HandoffStorage) {
-  const read = (): Record<string, GitHubIssueLinkTarget> => {
+  const read = (): Record<string, IssueLinkTarget> => {
     try {
       const parsed: unknown = JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}");
       if (typeof parsed !== "object" || parsed === null) return {};
       return Object.fromEntries(
-        Object.entries(parsed).filter((entry): entry is [string, GitHubIssueLinkTarget] =>
+        Object.entries(parsed).filter((entry): entry is [string, IssueLinkTarget] =>
           isLinkTarget(entry[1]),
         ),
       );
@@ -36,18 +36,18 @@ export function createIssueHandoffStore(storage: HandoffStorage) {
       return {};
     }
   };
-  const write = (handoffs: Record<string, GitHubIssueLinkTarget>) => {
+  const write = (handoffs: Record<string, IssueLinkTarget>) => {
     const entries = Object.entries(handoffs).slice(-MAX_HANDOFFS);
     if (entries.length === 0) storage.removeItem(STORAGE_KEY);
     else storage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
   };
   return {
-    record(draftId: string, target: GitHubIssueLinkTarget): void {
+    record(draftId: string, target: IssueLinkTarget): void {
       const { [draftId]: _replaced, ...rest } = read();
       write({ ...rest, [draftId]: target });
     },
     /** Reads and forgets the draft's issue, so only the first successful send links it. */
-    take(draftId: string): GitHubIssueLinkTarget | null {
+    take(draftId: string): IssueLinkTarget | null {
       const { [draftId]: target, ...rest } = read();
       if (target === undefined) return null;
       write(rest);
