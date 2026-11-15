@@ -215,6 +215,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Answers `issues.linkedThreads`, the threads an issue is linked to. */
   issueLinkedThreads: Schema.optionalKey(Schema.Boolean),
   githubIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-capability
+  linearIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-linear-capability
   threadIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-thread-issues-capability
   githubIssueStateChange: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-state-change-capability
   threadGroupsFork: Schema.optionalKey(Schema.Boolean), // fork-hook: thread-ordering/environment-thread-groups-capability
