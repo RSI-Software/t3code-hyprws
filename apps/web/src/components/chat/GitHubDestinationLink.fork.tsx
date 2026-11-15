@@ -2,7 +2,11 @@ import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
 
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import {
+  linearIssueLinkTarget,
+  type EnvironmentId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { visibleThreadPullRequests } from "@t3tools/client-runtime/thread-pull-requests";
 
 import { readLocalApi } from "~/localApi";
@@ -14,7 +18,13 @@ import { useRightPanelStore } from "~/rightPanelStore";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { showExternalLinkContextMenu } from "./externalLinkContextMenu";
 import { GitHubReferenceLink } from "./GitHubReferenceLink.fork";
-import { GITHUB_REFERENCE_HREF_PREFIX, resolveGitHubReferenceHref } from "./githubReferences.fork";
+import {
+  GITHUB_REFERENCE_HREF_PREFIX,
+  LINEAR_REFERENCE_HREF_PREFIX,
+  resolveGitHubReferenceHref,
+  resolveLinearReferenceHref,
+} from "./githubReferences.fork";
+import { LinearReferenceLink } from "./LinearReferenceLink.fork";
 
 // Fork: GitHub link destination controls (target parsing, destination policy
 // from the open-mode client settings, open dispatch, context menu), so
@@ -125,7 +135,7 @@ export function useGitHubDestinationLinkFork(accept: {
   readonly environmentId: EnvironmentId | null;
   readonly threadRef: ScopedThreadRef | undefined;
 }): {
-  /** A written `repo#12` placeholder as its GitHub URL; null when it resolves to nothing. */
+  /** A written `repo#12` or `ENG-42` placeholder as its issue URL; null when nothing resolves it. */
   resolveHref: (href: string | undefined) => string | null | undefined;
   claims: (href: string | undefined) => boolean;
   render: (input: GitHubDestinationRenderInput) => ReactNode;
@@ -216,22 +226,20 @@ export function useGitHubDestinationLinkFork(accept: {
 
     return {
       resolveHref(href) {
+        if (href?.startsWith(LINEAR_REFERENCE_HREF_PREFIX)) {
+          return resolveLinearReferenceHref(href, linked);
+        }
         return href?.startsWith(GITHUB_REFERENCE_HREF_PREFIX)
           ? resolveGitHubReferenceHref(href, repository, linked)
           : href;
       },
       claims(href: string | undefined): boolean {
-        return parseGitHubLinkTarget(href) !== null;
+        return (
+          parseGitHubLinkTarget(href) !== null ||
+          (href !== undefined && linearIssueLinkTarget(href) !== null)
+        );
       },
       render(input: GitHubDestinationRenderInput): ReactNode {
-        const target = parseGitHubLinkTarget(input.href);
-        if (target === null) return null;
-        const preferredDestination = preferredGitHubLinkDestination({
-          target,
-          canOpenInPreview: input.canOpenInPreview,
-          linkMode,
-          changeRequestMode,
-        });
         const handleContextMenu = (event: MouseEvent<HTMLAnchorElement>) => {
           if (!input.href || !input.faviconHost) return;
           event.preventDefault();
@@ -260,6 +268,37 @@ export function useGitHubDestinationLinkFork(accept: {
             },
           });
         };
+        const linear = linearIssueLinkTarget(input.href);
+        if (linear !== null) {
+          return (
+            <LinearReferenceLink
+              {...input.props}
+              href={input.href}
+              written={input.written}
+              linkTarget={linear}
+              referenceStyle={referenceStyle}
+              onContextMenu={handleContextMenu}
+              onOpen={(event) =>
+                open(
+                  linkMode === "integrated" && input.canOpenInPreview ? "integrated" : "external",
+                  event,
+                  input.href,
+                  input.openChangeRequestLink,
+                )
+              }
+            >
+              {input.children}
+            </LinearReferenceLink>
+          );
+        }
+        const target = parseGitHubLinkTarget(input.href);
+        if (target === null) return null;
+        const preferredDestination = preferredGitHubLinkDestination({
+          target,
+          canOpenInPreview: input.canOpenInPreview,
+          linkMode,
+          changeRequestMode,
+        });
         return (
           <GitHubReferenceLink
             {...input.props}
