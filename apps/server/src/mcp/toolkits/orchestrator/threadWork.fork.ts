@@ -29,13 +29,14 @@ import { threadNotFound } from "../../threadAccess.ts";
 
 const loadShell = (
   threads: ThreadManagementService.ThreadManagementServiceShape,
+  scope: McpInvocationContext.McpInvocationScope,
   threadId: ThreadId,
 ) =>
   threads.getThreadShell(threadId).pipe(
     Effect.mapError(OrchestratorMcpService.threadManagementFailureFork),
     Effect.filterOrElse(
       (shell): shell is OrchestrationV2ThreadShell => shell !== null && shell.deletedAt === null,
-      () => threadNotFound(threads, threadId, `Thread ${threadId} was not found.`),
+      () => threadNotFound(threads, scope, threadId, `Thread ${threadId} was not found.`),
     ),
   );
 
@@ -74,7 +75,7 @@ export const readThreadFork = Effect.fn("OrchestratorMcpThreadWork.readThread")(
   const service = yield* OrchestratorMcpService.OrchestratorMcpService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const result = yield* service.readThread(scope, input);
-  const work = yield* workOf(threads, yield* loadShell(threads, input.threadId));
+  const work = yield* workOf(threads, yield* loadShell(threads, scope, input.threadId));
   return { ...result, thread: { ...result.thread, work } } satisfies McpThreadReadResult;
 });
 
@@ -100,7 +101,7 @@ export const waitForThreadFork = Effect.fn("OrchestratorMcpThreadWork.waitForThr
     }
     return yield* waitForWork(
       threads,
-      (threadId) => loadShell(threads, threadId),
+      (threadId) => loadShell(threads, scope, threadId),
       input.threadId,
       Math.min(
         OrchestratorMcpService.maxWaitTimeoutMsFork,
@@ -111,7 +112,7 @@ export const waitForThreadFork = Effect.fn("OrchestratorMcpThreadWork.waitForThr
   const service = yield* OrchestratorMcpService.OrchestratorMcpService;
   const result = yield* service.waitForThread(scope, runWait);
   // The run's outcome stands; work reports what still runs after it.
-  const work = yield* workOf(threads, yield* loadShell(threads, input.threadId));
+  const work = yield* workOf(threads, yield* loadShell(threads, scope, input.threadId));
   return { ...result, work } satisfies McpThreadWaitResult;
 });
 
