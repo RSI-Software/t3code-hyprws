@@ -7,3 +7,7 @@ interface LinearReadConfig {
 export const readsLinearFork = (config: LinearReadConfig | null | undefined): boolean =>
   config?.environment.capabilities.linearIssues === true ||
   (config?.settings?.linearApiKey !== undefined && config.settings.linearApiKey !== "");
+
+/** Whether a server can read Linear once it has a key; an older one never reports it. */
+export const knowsLinearFork = (config: LinearReadConfig | null | undefined): boolean =>
+  config?.environment.capabilities.linearIssues !== undefined;
