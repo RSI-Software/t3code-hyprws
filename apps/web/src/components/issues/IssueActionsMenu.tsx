@@ -82,7 +82,7 @@ export function IssueActionsMenu({
   const runSetState = useAtomCommand(issueEnvironment.setState, { reportFailure: false });
   const [changingState, setChangingState] = useState(false);
   // A server that predates `githubIssues.setState` still lists issues; offer nothing it cannot do.
-  // Linear's workflow states are its own; a Linear issue changes state in Linear.
+  // Linear's workflow states are its own; a Linear issue moves between them from its state badge.
   const linear = linearIssueLinkTarget(detail.url) !== null;
   const serverChangesState =
     useServerConfigs().get(environmentId)?.environment.capabilities.githubIssueStateChange === true;

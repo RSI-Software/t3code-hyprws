@@ -12,6 +12,7 @@ import { findProjectOnChangeRequestHost } from "@t3tools/client-runtime/change-r
 
 import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell } from "../state/entities";
+import { readsLinearFork } from "~/components/issues/readsLinear.fork";
 
 /**
  * Fork: GitHub links prefer the window's project without a second resolver. Upstream's
@@ -114,7 +115,10 @@ export interface OpenIssueLinkInput {
   readonly allProjects: ReadonlyArray<EnvironmentProject>;
   readonly serverConfigs: ReadonlyMap<
     EnvironmentId,
-    { environment: { capabilities: { githubIssues?: boolean; linearIssues?: boolean } } }
+    {
+      environment: { capabilities: { githubIssues?: boolean; linearIssues?: boolean } };
+      settings?: { linearApiKey?: unknown };
+    }
   >;
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly navigate: ReturnType<typeof useNavigate>;
@@ -178,9 +182,7 @@ function openLinearIssueLinkFork(accept: OpenIssueLinkInput): boolean {
   const target = linearIssueLinkTarget(accept.targetUrl);
   const threadRef = accept.resolvedThreadRef;
   if (target === null || !threadRef) return false;
-  const readsLinear =
-    accept.serverConfigs.get(threadRef.environmentId)?.environment.capabilities.linearIssues ===
-    true;
+  const readsLinear = readsLinearFork(accept.serverConfigs.get(threadRef.environmentId));
   const projectId = readThreadShell(threadRef)?.projectId;
   if (!readsLinear || projectId === undefined) return false;
   accept.event.preventDefault();
