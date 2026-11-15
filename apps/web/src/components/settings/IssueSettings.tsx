@@ -18,7 +18,6 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Textarea } from "../ui/textarea";
 import { SecretInput } from "./SecretInput";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
-import { ISSUE_HANDOFF_SEARCH_ANCHOR } from "./issueSettingsSearch";
 import { searchableSetting } from "./settingsSearch";
 
 const GITHUB_CHANGE_REQUEST_DESTINATION_LABELS: Record<GitHubChangeRequestOpenMode, string> = {
@@ -171,7 +170,7 @@ export function IssueSettingsSection() {
         serverScoped
         settingKeys={["githubIssueHandoffPromptTemplate"]}
         mixed={templateMixed}
-        {...ISSUE_HANDOFF_SEARCH_ANCHOR}
+        {...searchableSetting("github-issue-handoff-prompt")}
         description="Controls the unsent text placed in a new thread by Work on this issue."
         resetAction={
           isDirty ? (
@@ -211,7 +210,7 @@ export function IssueSettingsSection() {
       <SettingsRow
         serverScoped
         settingKeys={["linearApiKey"]}
-        title="Linear API key"
+        {...searchableSetting("linear-api-key")}
         description="Lets this server read Linear issues for the issue panel and chat chips. Create a personal key in Linear under Settings → Security & access."
         resetAction={
           linearKeySaved ? (

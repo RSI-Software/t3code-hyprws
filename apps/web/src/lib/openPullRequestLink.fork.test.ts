@@ -177,23 +177,21 @@ describe("openIssueLinkFork", () => {
     expect(navigate.mock.calls[0]?.[0].search).not.toHaveProperty("scope");
   });
 
-  it("opens a Linear link beside its thread only when that server reads Linear", () => {
+  it("opens a Linear link beside its thread when that server can read Linear, key or not", () => {
     const threadRef = { environmentId: "env-1", threadId: "t1" } as never;
-    const open = (linearIssues: boolean) =>
+    const open = (capabilities: { readonly linearIssues?: boolean }) =>
       openIssueLinkFork({
         event: claimEvent().event,
         targetUrl: "https://linear.app/acme/issue/ENG-42/fix-login",
         resolvedThreadRef: threadRef,
         allProjects: [],
-        serverConfigs: new Map([
-          ["env-1", { environment: { capabilities: { linearIssues } } }],
-        ]) as never,
+        serverConfigs: new Map([["env-1", { environment: { capabilities } }]]) as never,
         primaryEnvironmentId: "env-1" as never,
         navigate: (() => undefined) as never,
       });
     openIssue.mockClear();
-    expect(open(false)).toBe(false);
-    expect(open(true)).toBe(true);
+    expect(open({})).toBe(false);
+    expect(open({ linearIssues: false })).toBe(true);
     expect(openIssue).toHaveBeenCalledExactlyOnceWith(threadRef, {
       environmentId: "env-1",
       projectId: "p1",
