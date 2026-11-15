@@ -1,4 +1,4 @@
-// Fork-owned MCP tools for thread ↔ GitHub issue links
+// Fork-owned MCP tools for thread ↔ GitHub and Linear issue links
 // (RSI-Software/t3code-hyprws#1433), shaped like upstream's pull request
 // toolkit in `../pullRequests/tools.ts`. `McpHttpServer.ts` registers them
 // through the marked `github-issues/mcp-issues-toolkit` hook.
@@ -28,8 +28,7 @@ const dependencies = [
   ProjectService.ProjectService,
 ];
 
-const LINK_EVERY_ISSUE =
-  "Link every GitHub issue you work on for this thread as soon as you start on it.";
+const LINK_EVERY_ISSUE = "Link every issue you work on for this thread as soon as you start on it.";
 
 /**
  * Either the issue's URL or its repository and number, like the pull request
@@ -44,7 +43,7 @@ export const IssueTargetInput = Schema.Struct({
   url: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
-        "The issue's web URL, for example https://github.com/owner/repo/issues/123. Preferred when you have it; host, repository and number are read from it.",
+        "The issue's web URL: https://github.com/owner/repo/issues/123 or https://linear.app/acme/issue/ENG-123. Preferred, and required for Linear; host, repository and number are read from it.",
     }),
   ),
   repository: Schema.optional(
@@ -72,7 +71,7 @@ export class IssueUrlInvalidError extends Schema.TaggedError<IssueUrlInvalidErro
   {},
 ) {
   override get message(): string {
-    return "This is not a recognised GitHub issue URL. Pass repository and number instead.";
+    return "This is not a recognised GitHub or Linear issue URL. For GitHub, pass repository and number instead.";
   }
 }
 
@@ -190,7 +189,7 @@ export const ThreadIssueEntry = Schema.Struct({
   ...IssueIdentity,
   url: Schema.String,
   source: ThreadIssueLinkSource,
-  /** Null until T3 Code has read the issue from GitHub; never a guess. */
+  /** Null until T3 Code has read the issue from GitHub, and always null for Linear; never a guess. */
   state: Schema.NullOr(IssueState),
   title: Schema.NullOr(Schema.String),
   subIssues: Schema.Array(GitHubSubIssue).annotate({
@@ -213,7 +212,7 @@ export const ListThreadIssuesResult = Schema.Struct({
 export type ListThreadIssuesResult = typeof ListThreadIssuesResult.Type;
 
 const LinkIssueTool = Tool.make("link_issue", {
-  description: `${LINK_EVERY_ISSUE} Links a GitHub issue to this thread so T3 Code shows it beside the thread and the thread beside the issue. Pass the URL, or repository plus number. Linking an already-linked issue succeeds with alreadyLinked=true.`,
+  description: `${LINK_EVERY_ISSUE} Links an issue to this thread so T3 Code shows it beside the thread and the thread beside the issue. Pass the URL, or repository plus number. Linking an already-linked issue succeeds with alreadyLinked=true.`,
   parameters: IssueTargetInput,
   success: LinkIssueResult,
   failure: IssueToolError,
@@ -227,7 +226,7 @@ const LinkIssueTool = Tool.make("link_issue", {
 
 const UnlinkIssueTool = Tool.make("unlink_issue", {
   description:
-    "Remove a GitHub issue link from this thread, for example after linking the wrong issue. Pass the URL, or repository plus number. Unlinking an issue that is not linked succeeds with wasLinked=false.",
+    "Remove an issue link from this thread, for example after linking the wrong issue. Pass the URL, or repository plus number. Unlinking an issue that is not linked succeeds with wasLinked=false.",
   parameters: IssueTargetInput,
   success: UnlinkIssueResult,
   failure: IssueToolError,
@@ -240,7 +239,7 @@ const UnlinkIssueTool = Tool.make("unlink_issue", {
   .annotate(Tool.OpenWorld, false);
 
 const ListThreadIssuesTool = Tool.make("list_thread_issues", {
-  description: `List the GitHub issues linked to a thread (omit threadId for this thread) with their last known state. ${LINK_EVERY_ISSUE}`,
+  description: `List the issues linked to a thread (omit threadId for this thread) with their last known state. ${LINK_EVERY_ISSUE}`,
   parameters: Schema.Struct({
     threadId: Schema.optional(
       ThreadId.annotate({ description: "Thread to list. Omit for this thread." }),
