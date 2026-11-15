@@ -716,9 +716,11 @@ export const make = Effect.gen(function* () {
   );
   const routedSetState: IssueService["Service"]["setState"] = Effect.fnUntraced(function* (input) {
     if (input.host !== LINEAR_ISSUE_HOST) return yield* setState(input);
-    return yield* new LinearIssueOperationErrorClass({
-      operation: input.state === "closed" ? "close" : "reopen",
-      detail: "Change a Linear issue's state in Linear.",
+    yield* linear.setState(input);
+    yield* PubSub.publish(stateChanges, {
+      host: LINEAR_ISSUE_HOST,
+      repository: input.repository,
+      number: input.number,
     });
   });
   const routedReference: IssueService["Service"]["reference"] = Effect.fnUntraced(
