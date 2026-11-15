@@ -16,6 +16,7 @@ import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from ".
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
+import { searchableSetting } from "./settingsSearch";
 
 const valueSettings = [
   {
@@ -189,7 +190,7 @@ export function VoiceDuckingSettingsFork() {
   return (
     <SettingsSection id="voice-ducking-fork" title="Speaker ducking">
       <SettingsRow
-        title="Duck speaker output"
+        {...searchableSetting("voice-ducking")}
         description="Lower selected outputs while recording. Saved on this desktop; changes apply to the next recording."
         control={
           <Switch
@@ -201,6 +202,7 @@ export function VoiceDuckingSettingsFork() {
         }
       />
       <SettingsRow
+        id={searchableSetting("voice-ducking-outputs").id}
         title="Output devices"
         description="Select one or more. System default is resolved when recording starts."
         control={
