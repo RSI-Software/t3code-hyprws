@@ -67,7 +67,7 @@ The land run is the **only trunk writer**; a [`fork-fold`](../../../.agents/skil
 
 Each `hyprws-*.yml` copy of an upstream workflow **pins** the upstream file and commit it last matched: `# fork-mirror: <path>@<full sha>`.
 Each `.rsi-agent/workflows/` conversion of an upstream `.macroscope/check-run-agents/` file **pins the same way**; one without a pin is fork-only.
-Convert by rsi-pr-agent's [conversion guide](https://github.com/RSI-Software/rsi-pr-agent/blob/main/docs/repo-workflows.md#convert-another-bots-definitions).
+Convert by rsi-agent's [conversion guide](https://github.com/RSI-Software/rsi/blob/main/apps/rsi-agent/docs/repo-workflows.md#convert-another-bots-definitions).
 On a candidate, **`fork:scan --mirror-pins` fails**:
 
 - A copy whose **upstream file changed** since its pin
@@ -172,7 +172,7 @@ A marker is **ignored**, with a printed note and a fresh rebase, when:
 **Anything else** on the branch is ignored with a note.
 
 A push to `sync/resolution` runs `hyprws-sync-resolution.yml`, which **dispatches `hyprws-upstream-sync.yml`** on `hyprws`.
-An rsi-pr-agent **sticky that settles without a push** fires the same workflow; a pod killed mid-job leaves it `running`, and the **sync schedule** covers that.
+An rsi-agent **sticky that settles without a push** fires the same workflow; a pod killed mid-job leaves it `running`, and the **sync schedule** covers that.
 
 ### The land run
 
@@ -212,12 +212,12 @@ The run **adopts the newest open `ci` issue** titled `hyprws sync blocked` or `h
 - **Sessions never** publish or close issues
 - **Never post** a sync issue to `pingdotgg/t3code`
 
-A blocked run, or one failed at **`carry`, `hooks`, or `ci`**, adds **`rsi:fork-sync`**, which starts rsi-pr-agent's `fork-sync` job; it labels on create or on a **new key line** (`sync-failure` or `blocking-sha`).
+A blocked run, or one failed at **`carry`, `hooks`, or `ci`**, adds **`rsi:fork-sync`**, which starts rsi-agent's `fork-sync` job; it labels on create or on a **new key line** (`sync-failure` or `blocking-sha`).
 A rerun on the **same key relabels once**, after the job budget (`AGENT_RETRY_AFTER_MS` in `scripts/fork-sync.ts`); a **second miss waits for a human**.
 While the issue carries **`rsi:agent-halted`**, the driver adds no label and the body says a human must act.
 
 The land run also keeps **one driver comment**, `<!-- hyprws:sync-driver -->`, edited in place at each step.
-It **never starts a job**: `hyprws-sync-resolution.yml` reacts only to rsi-pr-agent's comments.
+It **never starts a job**: `hyprws-sync-resolution.yml` reacts only to rsi-agent's comments.
 
 ## Regenerable files
 
