@@ -1,11 +1,11 @@
 ---
 name: fork-sync
-description: Sync RSI-Software/t3code-hyprws with upstream: rebase onto a release tag, resolve its seams by hand, and hand the tip to the land run through the sync/resolution marker. One procedure for a human session and the rsi-pr-agent job.
+description: Sync RSI-Software/t3code-hyprws with upstream: rebase onto a release tag, resolve its seams by hand, and hand the tip to the land run through the sync/resolution marker. One procedure for a human session and the rsi-agent job.
 ---
 
 # Fork sync
 
-A human session and an rsi-pr-agent job follow one procedure; only the [hand-off](#hand-off) differs.
+A human session and an rsi-agent job follow one procedure; only the [hand-off](#hand-off) differs.
 A session rebases; the `hyprws upstream sync` workflow lands.
 The trunk moves only to a sha `hyprws CI` passed on `sync/candidate`.
 A rerun of the same command is always the next move.
@@ -214,7 +214,7 @@ The land run refuses a red tip and keeps the marker; the next session or job res
 git push --force origin refs/fork-sync/resolution:refs/heads/sync/resolution
 ```
 
-**Job:** point `HEAD` at the marker and report `committed`, with the tag's commit as the one prerequisite; rsi-pr-agent pushes `HEAD` to `sync/resolution`.
+**Job:** point `HEAD` at the marker and report `committed`, with the tag's commit as the one prerequisite; rsi-agent pushes `HEAD` to `sync/resolution`.
 
 ```bash
 git update-ref --no-deref HEAD refs/fork-sync/resolution
