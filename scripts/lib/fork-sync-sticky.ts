@@ -8,7 +8,7 @@ import { runRequire, type CommandRunner } from "./fork-sync-git.ts";
 
 /**
  * The land run's one live-status comment on the open attention issue, edited in place.
- * `hyprws-sync-resolution.yml` reruns the sync only on rsi-pr-agent's comments, so this
+ * `hyprws-sync-resolution.yml` reruns the sync only on rsi-agent's comments, so this
  * one never triggers a run; keep its gate on that author.
  */
 export const DRIVER_STICKY_MARKER = "<!-- hyprws:sync-driver -->";
