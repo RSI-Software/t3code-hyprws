@@ -530,7 +530,7 @@ export const MIRROR_COPIES = [
   ".github/workflows/hyprws-agent-context-budget.yml",
 ] as const;
 
-// Upstream review agents rsi-pr-agent runs as converted copies. Every source file needs a pinned
+// Upstream review agents rsi-agent runs as converted copies. Every source file needs a pinned
 // copy; a copy file without a pin is fork-only.
 export const MIRROR_DIRS = [
   { source: ".macroscope/check-run-agents", copies: ".rsi-agent/workflows" },
