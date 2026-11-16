@@ -76,7 +76,7 @@ const WORKTREE_DIR = "worktree";
 const BLOCK_LABEL = "ci";
 /**
  * A blocked stop, a red candidate, or a conflicting carry also starts
- * rsi-pr-agent's `.rsi-agent/workflows/fork-sync.md`, which consumes the
+ * rsi-agent's `.rsi-agent/workflows/fork-sync.md`, which consumes the
  * label as the job starts.
  */
 const AGENT_LABEL = "rsi:fork-sync";
@@ -90,10 +90,10 @@ const AGENT_STEPS: ReadonlySet<string> = new Set(["carry", "hooks", "ci"]);
  */
 const AGENT_STAMP_PATTERN = /^<!-- agent-labelled:(\S+)( retried)? -->$/m;
 const AGENT_RETRY_AFTER_MS = 75 * 60 * 1000;
-/** rsi-pr-agent's own stop after repeated failed jobs; it refuses every `rsi:` label while set. */
+/** rsi-agent's own stop after repeated failed jobs; it refuses every `rsi:` label while set. */
 const AGENT_HALTED_LABEL = "rsi:agent-halted";
 const AGENT_HALTED_LINE =
-  "rsi-pr-agent is halted (`rsi:agent-halted`) and takes no `rsi:fork-sync`; a human must fix the sync or remove the label.";
+  "rsi-agent is halted (`rsi:agent-halted`) and takes no `rsi:fork-sync`; a human must fix the sync or remove the label.";
 /** A finished marker older than this stops pinning the target; the newest tag wins. */
 const MARKER_PIN_MAX_MS = 24 * 60 * 60 * 1000;
 /** The trailing line naming what an attention issue is about; a run on the same one is a repeat. */
@@ -281,7 +281,7 @@ const emptyDecision = (): DecisionRoute => ({ worktree: "", paths: [], resume: "
 /**
  * The main checkout of `cwd`'s repository, where the sync runs and keeps state, so a rerun from
  * another lane or from the kept worktree adopts it. A checkout whose git dir lives elsewhere (an
- * rsi-pr-agent job's) has no checkout beside that dir, so it is its own main checkout.
+ * rsi-agent job's) has no checkout beside that dir, so it is its own main checkout.
  */
 const mainCheckout = (runner: CommandRunner, cwd: string): string => {
   const common = gitResult(runner, cwd, [
