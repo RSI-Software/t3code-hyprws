@@ -368,7 +368,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then rebases after a ha
   });
 });
 
-it("runs from a checkout whose git dir lives elsewhere, as an rsi-pr-agent job's does", () => {
+it("runs from a checkout whose git dir lives elsewhere, as an rsi-agent job's does", () => {
   withFixture(SHARED_CONFLICT, (f) => {
     f.git(
       ["init", "--quiet", `--separate-git-dir=${NodePath.join(f.root, "..", "gitdir")}`],
@@ -1906,8 +1906,8 @@ it("relabels an unchanged body once, only after the job budget has passed", () =
   // a halted agent gets no label; the body says a human must act, and drops it once unhalted
   const [halted] = publish("", ["ci", "rsi:agent-halted"]);
   assert.notInclude(halted!.args, "--add-label");
-  assert.include(halted!.body, "rsi-pr-agent is halted (`rsi:agent-halted`)");
-  const haltedBody = `${attentionIssueBody(report)}\n\nrsi-pr-agent is halted (\`rsi:agent-halted\`) and takes no \`rsi:fork-sync\`; a human must fix the sync or remove the label.`;
+  assert.include(halted!.body, "rsi-agent is halted (`rsi:agent-halted`)");
+  const haltedBody = `${attentionIssueBody(report)}\n\nrsi-agent is halted (\`rsi:agent-halted\`) and takes no \`rsi:fork-sync\`; a human must fix the sync or remove the label.`;
   const [unhalted] = publish(retried, ["ci"], haltedBody);
   assert.notInclude(unhalted!.body, "rsi:agent-halted");
 });
