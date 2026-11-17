@@ -554,9 +554,9 @@ jobs:
         if: needs.changes.outputs.test_server != 'false'
         run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
-  # The ruleset requires this job and `merge-tree` only: `ghb pr merge`
-  # refuses a required check that skipped. It fails when any job fails, is
-  # cancelled, or skipped without `changes` saying it was not needed.
+  # The ruleset requires this job and `merge-tree` only, so a skipped job never
+  # reads as green. It fails when any job fails, is cancelled, or skipped
+  # without `changes` saying it was not needed.
   ci:
     name: CI
     if: ${{ always() }}
