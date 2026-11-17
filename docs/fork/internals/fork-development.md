@@ -105,7 +105,7 @@ Land onto `hyprws` **by squash**; a merge commit breaks the stack and voids a sy
 - **Direct to `hyprws`** for `fork-meta` chores
 - **Never raw `git merge`**
 
-`ghb pr merge` squashes with the PR title and body, so **end the body with trailers**.
+`gh pr merge --squash` defaults to the commit messages; pass `--body` with the PR body, so **end the body with trailers**.
 `hyprws-ci.yml` is the **required check**; `hyprws-body.yml` checks the body's trailers and citations, **advisory only**.
 
 ## Upstream citations
