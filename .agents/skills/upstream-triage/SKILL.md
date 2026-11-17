@@ -102,10 +102,9 @@ Choose one route and say why.
 
 | Route     | When                              | What it costs                                                                                                                            |
 | --------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Watch** | Likely to land, symptom tolerable | A fork issue labelled `upstream-watch` carrying the citation, its state and dates, and what the fork does meanwhile                      |
+| **Watch** | Likely to land, symptom tolerable | An `upstream-watch` fork issue carrying the citation, its state and dates, and what the fork does meanwhile                              |
 | **Trial** | The symptom blocks work           | Rebase the pull request head onto `hyprws` in its own worktree, test it, and record an adopt, adapt, or reject verdict on the fork issue |
 
-A sibling task owns creating the `upstream-watch` label and the per-rebase re-check; reference the label, never create it here.
 The trial procedure is in the reference file.
 Never push a trial branch anywhere near upstream and never comment on the pull request.
 Trial findings become a suggestion for the human.
@@ -125,7 +124,7 @@ Re-check reclassifies it: ready for review becomes **PR pending**, closed unmerg
 
 ### Issue only
 
-File or update a fork issue carrying the citation and label it `upstream-watch`.
+File or update an `upstream-watch` fork issue carrying the citation.
 Fix in the fork only when the symptom blocks work.
 That fix carries `Fork-Domain: upstream-fixes`, `Fork-Tier: bugfix`, and `Fork-Upstreamable: yes`, and stays small enough to drop the moment upstream lands its own.
 
@@ -156,69 +155,18 @@ A bare number or a plain URL fires a cross-reference on the upstream thread, whi
 
 ### Create or update
 
-The fork issue is a normal tracked issue, so `gh-tracking` doctrine applies unchanged.
-Route the prose through the `gh-post` skill first and write it to `.dump/upstream-triage/<slug>.md`, outside the tracked tree and never committed.
+File through the `linear` skill, as the user.
 
-One read decides create against update:
+1. **Search first:** `list_issues` in `PLAT` with label `RSI-Software/t3code-hyprws` and two or three symptom words
+2. **Match:** update its body with `save_issue`; never file a replacement
+3. **No match**, first triage only: `save_issue` in `PLAT`, state **Triage**
 
-```bash
-gh issue list --repo RSI-Software/t3code-hyprws --state all --limit 20 \
-  --search "<two or three symptom words> in:title,body" \
-  --json number,title,state,labels
-```
+Labels: `Bug`, `RSI-Software/t3code-hyprws`, and `agent-filed`.
+Priority **High** only when the symptom blocks work.
 
-A re-check of a symptom that already owns a fork issue updates it.
-A first triage, and only a first triage, creates one.
-
-### Create, then label
-
-This is two commands on purpose and does not collapse into one.
-`ghb issue create --label` takes only the governed core vocabulary and refuses the repository-local `upstream-watch`.
-`ghb issue edit --label` takes any existing repository label, so the label lands on a second command against the number the create printed.
-
-```bash
-ghb issue create --repo RSI-Software/t3code-hyprws \
-  --title "<symptom in one line>" \
-  --body-file .dump/upstream-triage/<slug>.md \
-  --type "Bug 🐛" --priority Medium \
-  --source "upstream-triage · <symptom in two or three words>" \
-  --label <domain label> \
-  --project 15 --status Inbox --no-relationship
-```
-
-```bash
-ghb issue edit RSI-Software/t3code-hyprws#<n> --label upstream-watch
-```
-
-The label command warns that the repository has no local label write policy and applies the label anyway.
-That warning is the expected output, not a failure.
-
-### Update a filing
-
-`ghb` refuses a body that does not end in the attestation the last publication left, so rewrite the live body.
-
-```bash
-gh issue view <n> --repo RSI-Software/t3code-hyprws --json body --jq .body \
-  > .dump/upstream-triage/<slug>.md
-# Rewrite the prose above the trailing `<!-- gh-bot:attest ... -->` line and leave that line last.
-ghb issue edit RSI-Software/t3code-hyprws#<n> \
-  --body-file .dump/upstream-triage/<slug>.md
-```
-
-### Filing rules
-
-- **Agent filing:** `--source` plus an `Origin` line
-- **Free text:** fine with no `repo#number`
-- **Empty `--source`:** human-directed only
-- **`--project 15`:** the durable fork board
-- **Every filing:** a board or `--no-project`
-- **`--priority High`:** the symptom blocks work
-
-`--project 15` is the fork board, `t3code-hyprws: Durable fork`, and membership is never inferred.
-`upstream-watch` belongs on the classes that wait: **merged, untagged**, **PR pending**, **draft**, and **issue only**, beside the domain label the create earns.
-Skip the label command on a **merged** fix with a named rebase target.
-Leave `--parent` out unless a fork tracker already owns the symptom; an unhomed filing lands `Untriaged 📥` and `ghb` prints the homing ladder.
-Read `ghb issue create --help` and `ghb issue edit --help` for the full contracts, and resume a partial receipt instead of filing a replacement.
+An `upstream-watch` issue is one whose body says `Fork action: watch`; Linear has no such label.
+It covers the classes that wait: **merged, untagged**, **PR pending**, **draft**, and **issue only**.
+A **merged** fix with a named rebase target is not a watch.
 
 ## Survey a domain
 
@@ -356,7 +304,7 @@ This table is a ladder too: take the first row that matches, and every item reac
 The first four are for items the fork has work on; the last two absorb the rest.
 A shipped item inside a fork domain that neither retires nor collides is not homeless: it is a **rebase target** while the fork has yet to pull it in, and **note only** once the fork carries it.
 
-**watch** proposes a fork issue labelled `upstream-watch`, and a sibling task owns creating that label.
+**watch** proposes an `upstream-watch` fork issue.
 A survey proposes and never files, so even that stays a proposal for the human.
 When a shipped item satisfies a domain's retirement condition, say so plainly; retiring fork delta is the most valuable thing a survey can find.
 
@@ -452,12 +400,11 @@ It is allowed only for an operation whose keyword is `query`, never for a `mutat
 - **GraphQL:** any `mutation`
 - **REST:** any `-X` other than `GET`
 - **REST:** `-f`/`-F` without `--method GET`
-- **Any:** `gh api --input`, `ghb`, `git push`
+- **Any:** `gh api --input`, `git push`
 
 ### Fork writes
 
-`ghb issue create` and `ghb issue edit` are the only publishing commands this skill runs, and both name `RSI-Software/t3code-hyprws`.
-Re-read the target repository on every publishing command before you run it: create takes `--repo`, edit takes it inside the `OWNER/REPO#N` selector.
+Linear `save_issue` in `PLAT` is the only write this skill makes.
 Local-only and safe anywhere: `wt switch`, `wt list`, `wt remove`, `jq`, `git rev-parse`, and `git rebase`.
 A trial worktree is local and is never pushed.
 
