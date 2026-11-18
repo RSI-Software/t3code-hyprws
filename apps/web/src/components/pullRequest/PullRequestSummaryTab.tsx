@@ -1061,16 +1061,13 @@ export const PullRequestSummaryTab = memo(function PullRequestSummaryTab({
                 { term: changeRequestTermKind(terminology) },
               )}
               attachment={
-                // fork-hook: upstream-fixes/pull-request-attachments — the whole reference rides
-                // along (host included) exactly as trunk's editor consumer passes it.
                 detail.capabilities.attachments === true && Option.isSome(preparedConnection)
                   ? {
                       httpBaseUrl: preparedConnection.value.httpBaseUrl,
                       reference,
                     }
                   : undefined
-              }
-
+              } // fork-hook: upstream-fixes/pull-request-attachments
               saving={descriptionSaving}
               onSave={(body) => void saveBody(body)}
               onCancel={() => setBodyScope(null)}
@@ -1286,5 +1283,3 @@ export const PullRequestSummaryTab = memo(function PullRequestSummaryTab({
     </div>
   );
 });
-
-export { MetaRow, Section }; // fork-hook: github-issues/summary-primitives
