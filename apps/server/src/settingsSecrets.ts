@@ -26,7 +26,6 @@ import {
   sourceControlHostSecretName,
   writeSecretFieldValues,
 } from "./sourceControl/sourceControlHostSecrets.ts";
-import { linearApiKeySecretFork } from "./issues/linearApiKeySecret.fork.ts"; // fork-hook: github-issues/linear-api-key-secret-import
 
 export const SECRET_REDACTED = "\u2022\u2022\u2022\u2022\u2022\u2022";
 
@@ -261,7 +260,6 @@ function mapSecretFieldGroups(
     textGenerators,
     easDeviceHosts,
     simlockDeviceHosts,
-    ...linearApiKeySecretFork(settings, mapFields), // fork-hook: github-issues/linear-api-key-secret
   };
 }
 

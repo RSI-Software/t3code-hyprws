@@ -115,7 +115,6 @@ function DefaultBadge() {
     </Badge>
   );
 }
-export { DefaultBadge }; // fork-hook: github-issues/traits-default-badge-export
 
 function getSelectedTraits(
   provider: ProviderDriverKind,
