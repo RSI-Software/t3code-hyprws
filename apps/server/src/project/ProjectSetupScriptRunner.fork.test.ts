@@ -194,6 +194,7 @@ describe("fork setup outcome marker", () => {
           NO_COLOR: "1",
           FORCE_COLOR: "0",
           COLORTERM: "",
+          T3CODE_TERMINAL_SHELL: "",
         },
       });
       yield* TestClock.adjust("3 seconds");
@@ -265,6 +266,7 @@ describe("fork setup outcome marker", () => {
           COLORTERM: "",
           T3CODE_PROJECT_ROOT: "/repo/project",
           T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
+          T3CODE_TERMINAL_SHELL: "",
         },
       });
       yield* TestClock.adjust("3 seconds");
