@@ -13,6 +13,8 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import type { WindowIdentity } from "./WindowIdentity.ts";
 import {
   makeStartupDrain,
+  makeStartupEnsureMainFork,
+  type StartupDrain,
   type StartupDrainServices,
   type WindowOpeners,
 } from "./DesktopStartupDrain.fork.ts";
@@ -337,4 +339,43 @@ describe("DesktopStartupDrain", () => {
       ]);
     }),
   );
+
+  describe("bootstrap's early window", () => {
+    const openEarly = (drain: StartupDrain, opened: Ref.Ref<ReadonlyArray<string>>) => {
+      const fork = makeStartupEnsureMainFork({
+        earlyProjectLink: drain.earlyProjectLink,
+        ensureMain: Ref.update(opened, (keys) => [...keys, "hub"]).pipe(Effect.as(fakeWindow)),
+        requestWindow: (request) => Ref.update(opened, (keys) => [...keys, requestKey(request)]),
+        projectWindow: () => Effect.succeedSome(fakeWindow),
+      });
+      return fork.ensureMain ?? Effect.die("no ensureMain override");
+    };
+
+    it.effect("shows a cold launch's project link instead of the hub", () =>
+      Effect.gen(function* () {
+        const drain = yield* makeStartupDrain;
+        const opened = yield* Ref.make<ReadonlyArray<string>>([]);
+        yield* drain.stageArguments(noopServices, () => projectLink("linked"), ["t3code"]);
+        yield* openEarly(drain, opened);
+        assert.deepEqual(yield* Ref.get(opened), ["project:project-linked"]);
+      }),
+    );
+
+    it.effect("is the hub after a plain launch, or once a drain has run", () =>
+      Effect.gen(function* () {
+        const plain = yield* makeStartupDrain;
+        const plainOpened = yield* Ref.make<ReadonlyArray<string>>([]);
+        yield* plain.stageArguments(noopServices, () => ({ kind: "activate" }), ["t3code"]);
+        yield* openEarly(plain, plainOpened);
+        assert.deepEqual(yield* Ref.get(plainOpened), ["hub"]);
+
+        const drained = yield* makeStartupDrain;
+        const fakes = yield* makeRecordingOpeners;
+        yield* drained.stageArguments(noopServices, () => projectLink("linked"), ["t3code"]);
+        yield* drained.drain(noopServices, () => fakes.openers);
+        yield* openEarly(drained, fakes.opened);
+        assert.deepEqual(yield* Ref.get(fakes.opened), ["project:project-linked", "hub"]);
+      }),
+    );
+  });
 });
