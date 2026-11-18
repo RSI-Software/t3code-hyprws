@@ -1,12 +1,15 @@
+import type { EnvironmentId } from "@t3tools/contracts";
 import type { GitHubReferenceStyle } from "@t3tools/contracts/settings";
 import { CircleDashedIcon } from "lucide-react";
-import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
+import { useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode } from "react";
 
 import {
   linearIssueIdentifier,
   linearIssueSlugTitle,
   type IssueLinkTarget,
 } from "./issueLinkTarget.fork";
+import { ReferenceLinkPreview, useReferenceStateFork } from "./ReferenceLinkPreview.fork";
+import { useReferenceReadFork, useReferenceSummaryFork } from "./referenceSummary.fork";
 import { referenceAnchorProps, referenceTrigger } from "./referenceTrigger.fork";
 
 export interface LinearReferenceLinkProps extends Omit<
@@ -19,16 +22,20 @@ export interface LinearReferenceLinkProps extends Omit<
   readonly written: string | null;
   readonly linkTarget: IssueLinkTarget;
   readonly referenceStyle: GitHubReferenceStyle;
+  readonly environmentId: EnvironmentId | null;
+  readonly preferredProjectId: string | null;
   readonly onOpen: (event: MouseEvent<HTMLAnchorElement>) => void;
 }
 
-/** A Linear issue link: its chip shows the written label or the URL's title slug. */
+/** A Linear issue link, titled by any project here that tracks Linear; else its written label. */
 export function LinearReferenceLink({
   children,
   className,
+  environmentId,
   href,
   linkTarget,
   onOpen,
+  preferredProjectId,
   referenceStyle,
   written: writtenText,
   ...props
@@ -39,20 +46,34 @@ export function LinearReferenceLink({
     writtenText && !/^https?:\/\//u.test(writtenText) && writtenText !== identifier
       ? writtenText
       : null;
-  const title = written ?? linearIssueSlugTitle(href);
-  return referenceTrigger({
+  const [open, setOpen] = useState(false);
+  const read = useReferenceReadFork(environmentId, href, preferredProjectId);
+  const chip = writtenText !== null && referenceStyle === "chip";
+  const { summary, revalidate } = useReferenceSummaryFork(read, chip || open);
+  const state = useReferenceStateFork(summary);
+  const title = summary?.title ?? written ?? linearIssueSlugTitle(href);
+  const Icon = state?.Icon ?? CircleDashedIcon;
+  const trigger = referenceTrigger({
     tracker: "linear",
-    anchor: referenceAnchorProps(props, href, onOpen),
+    anchor: referenceAnchorProps(
+      { ...props, onPointerEnter: revalidate, onFocus: revalidate },
+      href,
+      onOpen,
+    ),
     className,
     children,
     writtenText,
     referenceStyle,
     linkLabel: written ?? identifier,
     chip: {
-      icon: <CircleDashedIcon aria-hidden />,
+      icon: <Icon aria-hidden className={state?.toneClassName} />,
       label: title ?? identifier,
       detail: title ? identifier : null,
       ariaLabel: title ? `${identifier}, ${title}` : identifier,
     },
   });
+  if (read === null) return trigger;
+  return (
+    <ReferenceLinkPreview trigger={trigger} summary={summary} open={open} onOpenChange={setOpen} />
+  );
 }
