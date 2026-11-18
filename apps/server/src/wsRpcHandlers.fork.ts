@@ -3,13 +3,10 @@
 // under TypeScript's instantiation limit, so the fork's handlers ride the same table.
 import * as Effect from "effect/Effect";
 import { RpcGroup } from "effect/rpc";
-import * as SqlClient from "effect/sql/SqlClient";
 import { RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
 
 import * as CollaboratorShares from "./collaborator/CollaboratorShares.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
-import * as IssueService from "./issues/IssueService.ts";
-import { issueRpcHandlersFork } from "./issues/issueWiring.fork.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -21,14 +18,11 @@ const WsRpcGroupFork = RpcGroup.make(...wsRpcsFork)
   .middleware(RpcInstrumentation);
 
 export const makeWsRpcHandlersFork = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const issueService = yield* IssueService.IssueService;
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
   const collaborators = yield* CollaboratorShares.CollaboratorSharesFork;
   return WsRpcGroupFork.of({
-    ...issueRpcHandlersFork(issueService, sql),
     ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),
     "pullRequests.createAttachmentUploadUrl": (input) =>
       pullRequests.createAttachmentUploadUrl(input),

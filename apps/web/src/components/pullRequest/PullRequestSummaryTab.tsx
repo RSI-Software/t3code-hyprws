@@ -1232,4 +1232,3 @@ export function PullRequestSummaryTab({
   );
 }
 
-export { MetaRow, Section }; // fork-hook: github-issues/summary-primitives

@@ -119,7 +119,6 @@ import {
   type SelectTimelinePageResult,
   type ThreadHistoryPrefix,
 } from "./threadHistoryPaging.ts";
-import { threadIssuesField } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/projection-issues-import
 import { threadArtifactsField } from "./ThreadArtifacts.fork.ts"; // fork-hook: thread-artifacts/projection-artifacts-import
 import { checkoutMoveShellFieldsFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/shell-checkout-move-import
 
@@ -1835,7 +1834,6 @@ export function threadShellFromProjection(
     worktreePath: projection.thread.worktreePath,
     ...checkoutMoveShellFieldsFork(projection.thread), // fork-hook: zmux-estate/shell-checkout-move
     pullRequests: threadPullRequestsOf(projection.thread),
-    ...threadIssuesField(projection.thread.issues), // fork-hook: github-issues/projection-thread-shell-issues
     ...threadArtifactsField(projection.thread.artifacts), // fork-hook: thread-artifacts/projection-thread-shell-artifacts
     ...(projection.thread.linkedPullRequest === undefined
       ? {}
@@ -2152,7 +2150,6 @@ function shellFromState(input: {
     worktreePath: input.state.thread.worktreePath,
     ...checkoutMoveShellFieldsFork(input.state.thread), // fork-hook: zmux-estate/state-shell-checkout-move
     pullRequests: threadPullRequestsOf(input.state.thread),
-    ...threadIssuesField(input.state.thread.issues), // fork-hook: github-issues/projection-state-shell-issues
     ...threadArtifactsField(input.state.thread.artifacts), // fork-hook: thread-artifacts/projection-state-shell-artifacts
     ...(input.state.thread.linkedPullRequest === undefined
       ? {}

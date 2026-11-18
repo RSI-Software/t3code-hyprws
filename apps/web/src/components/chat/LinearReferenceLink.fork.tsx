@@ -1,24 +1,13 @@
-import {
-  issueKeyLabel,
-  LINEAR_ISSUE_HOST,
-  linearIssueSlugTitle,
-  type EnvironmentId,
-  type IssueLinkTarget,
-} from "@t3tools/contracts";
 import type { GitHubReferenceStyle } from "@t3tools/contracts/settings";
 import { CircleDashedIcon } from "lucide-react";
 import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
 
-import { useServerConfigs } from "~/state/entities";
-import { issueEnvironment } from "~/state/issues";
-import { useEnvironmentQuery } from "~/state/query";
-import { readsLinearFork } from "../issues/readsLinear.fork";
-
 import {
-  referenceAnchorProps,
-  referenceStatePresentation,
-  referenceTrigger,
-} from "./referenceTrigger.fork";
+  linearIssueIdentifier,
+  linearIssueSlugTitle,
+  type IssueLinkTarget,
+} from "./issueLinkTarget.fork";
+import { referenceAnchorProps, referenceTrigger } from "./referenceTrigger.fork";
 
 export interface LinearReferenceLinkProps extends Omit<
   ComponentPropsWithoutRef<"a">,
@@ -30,15 +19,13 @@ export interface LinearReferenceLinkProps extends Omit<
   readonly written: string | null;
   readonly linkTarget: IssueLinkTarget;
   readonly referenceStyle: GitHubReferenceStyle;
-  readonly environmentId: EnvironmentId | null;
   readonly onOpen: (event: MouseEvent<HTMLAnchorElement>) => void;
 }
 
-/** A Linear issue link: its chip reads state and title when the server reads Linear, else its URL. */
+/** A Linear issue link: its chip shows the written label or the URL's title slug. */
 export function LinearReferenceLink({
   children,
   className,
-  environmentId,
   href,
   linkTarget,
   onOpen,
@@ -47,29 +34,12 @@ export function LinearReferenceLink({
   ...props
 }: LinearReferenceLinkProps) {
   // An autolink's text is its own URL, and a bare `ENG-42` is the identifier itself.
-  const identifier = issueKeyLabel(linkTarget);
+  const identifier = linearIssueIdentifier(linkTarget);
   const written =
     writtenText && !/^https?:\/\//u.test(writtenText) && writtenText !== identifier
       ? writtenText
       : null;
-  const serverConfigs = useServerConfigs();
-  const summary = useEnvironmentQuery(
-    environmentId !== null &&
-      readsLinearFork(serverConfigs.get(environmentId)) &&
-      referenceStyle === "chip"
-      ? issueEnvironment.reference({
-          environmentId,
-          input: {
-            host: LINEAR_ISSUE_HOST,
-            repository: linkTarget.repository.toLowerCase(),
-            number: linkTarget.number,
-          },
-        })
-      : null,
-  ).data;
-  const state = summary ? referenceStatePresentation(summary) : null;
-  const Icon = state?.Icon ?? CircleDashedIcon;
-  const title = summary?.title ?? written ?? linearIssueSlugTitle(href);
+  const title = written ?? linearIssueSlugTitle(href);
   return referenceTrigger({
     tracker: "linear",
     anchor: referenceAnchorProps(props, href, onOpen),
@@ -79,7 +49,7 @@ export function LinearReferenceLink({
     referenceStyle,
     linkLabel: written ?? identifier,
     chip: {
-      icon: <Icon aria-hidden className={state?.toneClassName} />,
+      icon: <CircleDashedIcon aria-hidden />,
       label: title ?? identifier,
       detail: title ? identifier : null,
       ariaLabel: title ? `${identifier}, ${title}` : identifier,
