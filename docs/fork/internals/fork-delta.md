@@ -670,6 +670,7 @@ The domain retires when it is empty.
 `terminalSessionMode` is the **default launch**; a terminal's `sessionModeFork` overrides it.
 `zmuxAutoSessions` (null follows the launch mode) **gates worktree adoption** and unsettle restore.
 The **physical checkout owns** its managed session; threads are consumers.
+A **delegated child's worktree binds lazily**, on first terminal open, at launch and on unsettle.
 T3 **snapshots a session identity** and hands it back for conditional removal.
 Settle or delete **kills the checkout session** and every tab; viewers and busy commands do not preserve it.
 `thread.unsettled` **re-ensures** a linked worktree's session through the automatic gate.
