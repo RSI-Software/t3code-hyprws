@@ -1117,7 +1117,6 @@ export interface BranchNamingOptions {
   instructions: string;
 }
 
-
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 export const DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL = Duration.minutes(5);
 

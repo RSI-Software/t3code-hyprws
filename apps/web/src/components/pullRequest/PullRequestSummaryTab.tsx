@@ -1231,4 +1231,3 @@ export function PullRequestSummaryTab({
     </div>
   );
 }
-

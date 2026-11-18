@@ -881,7 +881,6 @@ const layerCommandReadiness = HttpRouter.middleware(
   { global: true },
 );
 
-
 const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(

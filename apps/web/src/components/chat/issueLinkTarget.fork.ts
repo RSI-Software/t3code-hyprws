@@ -71,4 +71,6 @@ export function linearIssueSlugTitle(url: string): string | null {
 export const threadIssueLinkTargets = (
   issues: ReadonlyArray<ThreadIssueLink>,
 ): ReadonlyArray<IssueLinkTarget> =>
-  issues.flatMap((link) => linearIssueLinkTarget(link.url) ?? githubIssueLinkTarget(link.url) ?? []);
+  issues.flatMap(
+    (link) => linearIssueLinkTarget(link.url) ?? githubIssueLinkTarget(link.url) ?? [],
+  );

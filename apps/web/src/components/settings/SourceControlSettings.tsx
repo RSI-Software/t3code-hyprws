@@ -37,6 +37,7 @@ import { m, type MessageResolver } from "../../i18n/messages";
 
 import { GitIcon, JujutsuIcon, type Icon } from "../Icons";
 import { IssueTrackerSettings } from "./IssueTrackerSettings";
+import { GitHubLinkSettingsSectionFork } from "./GitHubLinkSettings.fork"; // fork-hook: github-issues/source-control-settings-import
 import { SourceControlHostSettings } from "./SourceControlHostSettings";
 import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
 import { SourceControlAppSignInSettings } from "./SourceControlAppSignInSettings";
@@ -658,6 +659,9 @@ export function SourceControlSettingsPanel() {
       {environmentId === null ? null : (
         <IssueTrackerSettings key={environmentId} environmentId={environmentId} />
       )}
+      {/* fork-hook: github-issues/source-control-settings-section */}
+      <GitHubLinkSettingsSectionFork />
+      {/* fork-hook-end */}
 
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>

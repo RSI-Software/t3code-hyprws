@@ -48,7 +48,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  CircleDot,
   FileDiff,
   Files,
   Globe2,

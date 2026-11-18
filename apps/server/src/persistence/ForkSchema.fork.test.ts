@@ -15,11 +15,21 @@ layer("ForkSchema", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
-      const link = { url: "https://linear.app/acme/issue/PLAT-24/fix", linkedAt: "2026-09-01T00:00:00.000Z" };
+      const link = {
+        url: "https://linear.app/acme/issue/PLAT-24/fix",
+        linkedAt: "2026-09-01T00:00:00.000Z",
+      };
       const shell = {
         projectId: "project-1",
         issues: [
-          { ...link, host: "linear.app", repository: "acme/plat", number: 24, source: "handoff", snapshot: null },
+          {
+            ...link,
+            host: "linear.app",
+            repository: "acme/plat",
+            number: 24,
+            source: "handoff",
+            snapshot: null,
+          },
           {
             host: "github.com",
             repository: "Acme/Web",

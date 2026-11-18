@@ -312,9 +312,7 @@ export function useGitHubDestinationLinkFork(accept: {
             environmentId={environmentId}
             preferredDestination={preferredDestination}
             onContextMenu={handleContextMenu}
-            onOpen={(destination, event, href) =>
-              open(destination, event, href, input)
-            }
+            onOpen={(destination, event, href) => open(destination, event, href, input)}
           >
             {input.children}
           </GitHubReferenceLink>

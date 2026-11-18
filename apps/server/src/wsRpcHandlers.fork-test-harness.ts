@@ -3,11 +3,16 @@
 import * as Layer from "effect/Layer";
 
 import { CollaboratorSharesFork } from "./collaborator/CollaboratorShares.fork.ts";
+import { CheckoutMutationCoordinator } from "./git/CheckoutMutationCoordinator.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
+import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 
 export const layerUnusedWsRpcServicesFork = Layer.mergeAll(
   Layer.mock(CheckoutMoveFork.CheckoutMoveServiceFork)({}),
+  // The shared-checkout branch guard wraps every WS session's VCS handlers.
+  Layer.mock(CheckoutMutationCoordinator)({}),
+  Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({}),
   Layer.mock(ThreadGroups.ThreadGroupsServiceFork)({}),
   Layer.mock(CollaboratorSharesFork)({
     wrapHandlers: (_subject, handlers) => handlers,

@@ -234,13 +234,16 @@ const domainEventTypes = (events: DomainEventUnion) =>
 
 const now = "2026-01-01T00:00:00.000Z";
 const issue = {
+  tracker: "github",
   host: "github.com",
-  repository: "acme/web",
-  number: 7,
+  scope: "acme/web",
+  key: "7",
+  projectId: "project-compat",
   url: "https://github.com/acme/web/issues/7",
   source: "manual",
   linkedAt: now,
-  snapshot: { title: "Crash on open", state: "open", syncedAt: now },
+  displayKey: "#7",
+  title: "Crash on open",
 };
 const project = {
   id: "project-compat",
@@ -258,7 +261,6 @@ const forkSettings = {
   defaultThreadEnvModeFork: "worktrunk",
   terminalSessionMode: "zmux",
   zmuxAutoSessions: true,
-  githubIssueHandoffPromptTemplate: "Work on #{{number}}",
   followExternalWorkspaceSymlinks: true,
   projectSettingsOverrides: {
     [project.id]: { defaultThreadEnvMode: "worktree", defaultThreadEnvModeFork: "worktrunk" },
@@ -391,18 +393,6 @@ describe("an upstream client reading a fork server", () => {
       },
     );
     expect(pinned).toMatchObject({ kind: "event", event: { type: "thread.pinned" } });
-    // An issue link lands as upstream's metadata event; upstream drops the issues key.
-    const linked = acrossTheWire(
-      fork.OrchestrationV2ThreadStreamItem,
-      upstream.OrchestrationV2ThreadStreamItem,
-      {
-        kind: "event",
-        sequence: 3,
-        event: { ...eventBase, type: "thread.metadata-updated", payload: appThread },
-      },
-    );
-    expect(linked).toMatchObject({ kind: "event", event: { type: "thread.metadata-updated" } });
-    expect(JSON.stringify(linked)).not.toContain("acme/web");
     for (const name of [
       "OrchestrationV2ThreadDetailSnapshot",
       "OrchestrationV2ThreadBoundedSnapshot",
@@ -463,7 +453,7 @@ describe("an upstream client reading a fork server", () => {
     // Upstream retains unknown project override keys, but still drops unknown global settings.
     expect(decoded).not.toHaveProperty("payload.settings.defaultThreadEnvModeFork");
     const wire = JSON.stringify(decoded);
-    for (const key of ["terminalSessionMode", "zmuxAutoSessions", "githubIssueHandoff"]) {
+    for (const key of ["terminalSessionMode", "zmuxAutoSessions"]) {
       expect(wire).not.toContain(key);
     }
   });
