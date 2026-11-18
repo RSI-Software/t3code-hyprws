@@ -275,6 +275,8 @@ export function useGitHubDestinationLinkFork(accept: {
               written={input.written}
               linkTarget={linear}
               referenceStyle={referenceStyle}
+              environmentId={environmentId}
+              preferredProjectId={thread?.projectId ?? null}
               onContextMenu={handleContextMenu}
               // The issue panel takes it when a project here tracks Linear; else the browser.
               onOpen={(event) =>
@@ -310,6 +312,7 @@ export function useGitHubDestinationLinkFork(accept: {
             linkTarget={target}
             referenceStyle={referenceStyle}
             environmentId={environmentId}
+            preferredProjectId={thread?.projectId ?? null}
             preferredDestination={preferredDestination}
             onContextMenu={handleContextMenu}
             onOpen={(destination, event, href) => open(destination, event, href, input)}

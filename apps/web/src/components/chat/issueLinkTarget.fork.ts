@@ -1,4 +1,9 @@
-import type { ThreadIssueLink } from "@t3tools/contracts";
+import {
+  IssueTrackerKind,
+  type IssueTrackerProjectBinding,
+  type ProjectId,
+  type ThreadIssueLink,
+} from "@t3tools/contracts";
 
 /** An issue a chat reference names: GitHub's repository, or Linear's `workspace/TEAM`. */
 export interface IssueLinkTarget {
@@ -74,3 +79,20 @@ export const threadIssueLinkTargets = (
   issues.flatMap(
     (link) => linearIssueLinkTarget(link.url) ?? githubIssueLinkTarget(link.url) ?? [],
   );
+
+export const LINEAR_TRACKER = IssueTrackerKind.make("linear");
+
+/** The project a Linear team reads through: its own binding first, else any Linear binding. */
+export function linearLenderFork(
+  bindings: Readonly<Record<string, IssueTrackerProjectBinding>>,
+  team: string,
+  preferredProjectId: string | null,
+): ProjectId | null {
+  const linear = Object.entries(bindings).filter(
+    ([, binding]) => binding.tracker === LINEAR_TRACKER,
+  );
+  const prefer = (candidates: typeof linear) =>
+    (candidates.find(([projectId]) => projectId === preferredProjectId) ?? candidates[0])?.[0];
+  const own = prefer(linear.filter(([, binding]) => binding.scope.toUpperCase() === team));
+  return ((own ?? prefer(linear)) as ProjectId | undefined) ?? null;
+}
