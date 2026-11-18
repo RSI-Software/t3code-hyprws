@@ -4,6 +4,7 @@ import * as NodeURL from "node:url";
 import { remoteCacheUrl } from "./infra/task-cache/src/remoteCache.ts";
 import { cachedTestTasks } from "./scripts/lib/cached-tests.ts";
 import { FORK_TEST_EXCLUDE } from "./scripts/lib/test-exclude.fork.ts"; // fork-hook: distribution/test-exclude-import
+import { FORK_LINT_OVERRIDES } from "./scripts/lib/lint-overrides.fork.ts"; // fork-hook: fork-meta/untranslated-copy-import
 
 const TEST_EXCLUDE = [
   "**/.repos/**",
@@ -600,6 +601,7 @@ export default defineConfig({
         ],
         rules: { "t3code/no-untranslated-copy": "error" },
       },
+      ...FORK_LINT_OVERRIDES, // fork-hook: fork-meta/untranslated-copy-warn
       {
         // React Compiler owns memoization; upstream rules do not ban redundant useMemo/useCallback.
         files: ["apps/web/src/**/*.{ts,tsx}"],
