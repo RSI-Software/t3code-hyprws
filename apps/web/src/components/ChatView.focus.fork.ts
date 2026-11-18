@@ -13,7 +13,7 @@ import { shouldRefocusComposerOnWindowFocus } from "./ChatView.logic";
 export function shouldAutoFocusComposerOnThreadChange(
   activeElement: Parameters<typeof shouldRefocusComposerOnWindowFocus>[0],
 ): boolean {
-  return shouldRefocusComposerOnWindowFocus(activeElement);
+  return shouldRefocusComposerOnWindowFocus(activeElement, null);
 }
 
 export function useOpenDrawerComposerFocusFork(
