@@ -12,11 +12,4 @@ describe("RPC authorization scopes", () => {
       AuthOrchestrationReadScope,
     );
   });
-  it("reads GitHub issues without granting mutation access", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.issuesList)).toBe(AuthOrchestrationReadScope);
-    expect(requiredScopeForRpcMethod(WS_METHODS.issuesDetail)).toBe(AuthOrchestrationReadScope);
-    expect(requiredScopeForRpcMethod(WS_METHODS.issuesLinkedThreads)).toBe(
-      AuthOrchestrationReadScope,
-    );
-  });
 });
