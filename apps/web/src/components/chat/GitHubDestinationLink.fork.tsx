@@ -2,18 +2,13 @@ import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
 
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
-import {
-  linearIssueLinkTarget,
-  type EnvironmentId,
-  type ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { visibleThreadPullRequests } from "@t3tools/client-runtime/thread-pull-requests";
 
 import { readLocalApi } from "~/localApi";
-import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
+import { namedClipboardTarget, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useProject, useThreadShell } from "~/state/entities";
-import { useRightPanelStore } from "~/rightPanelStore";
 
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { showExternalLinkContextMenu } from "./externalLinkContextMenu";
@@ -24,6 +19,7 @@ import {
   resolveGitHubReferenceHref,
   resolveLinearReferenceHref,
 } from "./githubReferences.fork";
+import { linearIssueLinkTarget, threadIssueLinkTargets } from "./issueLinkTarget.fork";
 import { LinearReferenceLink } from "./LinearReferenceLink.fork";
 
 // Fork: GitHub link destination controls (target parsing, destination policy
@@ -109,6 +105,10 @@ export interface GitHubDestinationRenderInput {
     event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
     targetUrl: string,
   ) => boolean;
+  readonly openIssueLink: (
+    event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
+    targetUrl: string,
+  ) => boolean;
   readonly linkedThreadPullRequestFor: (href: string) => unknown;
   readonly resolveThreadPullRequest: (href: string) => unknown;
   readonly updateThreadPullRequestLink: (href: string, linked: boolean) => Promise<void>;
@@ -159,14 +159,8 @@ export function useGitHubDestinationLinkFork(accept: {
       : null;
   const linked = [
     ...visibleThreadPullRequests(thread?.pullRequests ?? []),
-    ...(thread?.issues ?? []),
+    ...threadIssueLinkTargets(thread?.issues ?? []),
   ];
-  const { threadRef } = accept;
-  const claimPanelOpen = () => {
-    if (!threadRef) return () => true;
-    const revision = useRightPanelStore.getState().markUserAction(threadRef);
-    return () => useRightPanelStore.getState().getUserActionRevision(threadRef) === revision;
-  };
 
   return (() => {
     const reportFailure = (operation: string, target: string, cause: unknown): void => {
@@ -203,9 +197,13 @@ export function useGitHubDestinationLinkFork(accept: {
       destination: GitHubLinkDestination,
       event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
       href: string,
-      openChangeRequestLink: GitHubDestinationRenderInput["openChangeRequestLink"],
+      input: Pick<GitHubDestinationRenderInput, "openChangeRequestLink" | "openIssueLink">,
     ) => {
-      if (destination === "native" && openChangeRequestLink(event, href)) return;
+      if (
+        destination === "native" &&
+        (input.openChangeRequestLink(event, href) || input.openIssueLink(event, href))
+      )
+        return;
       const api = readLocalApi();
       if (!api) {
         toastManager.add({ type: "error", title: "Link opening is unavailable." });
@@ -261,7 +259,7 @@ export function useGitHubDestinationLinkFork(accept: {
             showContextMenu: (items, position) => api.contextMenu.show(items, position),
             openInPreview: previewResult,
             openExternal: (target2) => api.shell.openExternal(target2),
-            copyLink: (target2) => writeTextToClipboard(target2, "link"),
+            copyLink: (target2) => writeTextToClipboard(target2, namedClipboardTarget("link")),
             updateThreadLink: input.updateThreadPullRequestLink,
             reportFailure: (operation, cause) => {
               reportFailure(operation, input.href, cause);
@@ -277,9 +275,8 @@ export function useGitHubDestinationLinkFork(accept: {
               written={input.written}
               linkTarget={linear}
               referenceStyle={referenceStyle}
-              environmentId={environmentId}
               onContextMenu={handleContextMenu}
-              // The issue panel takes it when the thread's server reads Linear; else the browser.
+              // The issue panel takes it when a project here tracks Linear; else the browser.
               onOpen={(event) =>
                 open(
                   changeRequestMode === "native"
@@ -289,7 +286,7 @@ export function useGitHubDestinationLinkFork(accept: {
                       : "external",
                   event,
                   input.href,
-                  input.openChangeRequestLink,
+                  input,
                 )
               }
             >
@@ -314,11 +311,8 @@ export function useGitHubDestinationLinkFork(accept: {
             referenceStyle={referenceStyle}
             environmentId={environmentId}
             preferredDestination={preferredDestination}
-            claimPanelOpen={claimPanelOpen}
             onContextMenu={handleContextMenu}
-            onOpen={(destination, event, href) =>
-              open(destination, event, href, input.openChangeRequestLink)
-            }
+            onOpen={(destination, event, href) => open(destination, event, href, input)}
           >
             {input.children}
           </GitHubReferenceLink>

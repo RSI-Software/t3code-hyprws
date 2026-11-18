@@ -34,9 +34,7 @@ import {
 import { useTimelineRewind } from "./chat/useTimelineRewind";
 import { useThreadLifecycle } from "./chat/useThreadLifecycle";
 import { useRightPanelActions } from "./chat/useRightPanelActions";
-import { useIssuesPanelActionsFork } from "./chat/useRightPanelActions.fork"; // fork-hook: github-issues/add-issues-surface-import
 import { useThreadArtifactsPanelFork } from "./threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/artifacts-panel-import
-import { LinkIssueDialogHost } from "./issues/LinkIssueDialog"; // fork-hook: github-issues/link-dialog-import
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
 import { useComposerSend } from "./chat/useComposerSend";
 import { useComposerResume } from "./chat/useComposerResume";
@@ -3354,12 +3352,6 @@ export default function ChatView(props: ChatViewProps) {
     (files: Parameters<ChatComposerHandle["addDroppedFiles"]>[0]) =>
       composerRef.current?.addDroppedFiles(files),
   );
-  const issuesPanelActionsFork = useIssuesPanelActionsFork(
-    activeThreadRef,
-    activeProject,
-    serverConfig?.environment.capabilities,
-    { runningTurnId: activeRunningTurnId, allowed: !shouldUsePlanSidebarSheet }, // fork-hook: github-issues/add-issues-surface
-  ); // fork-hook: github-issues/add-issues-surface
   const artifactsPanelActionsFork = useThreadArtifactsPanelFork(activeThreadRef, {
     runningTurnId: activeRunningTurnId,
     allowed: !shouldUsePlanSidebarSheet,
@@ -4192,7 +4184,6 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurfaceStable}
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
-          {...issuesPanelActionsFork} // fork-hook: github-issues/issues-launcher-props
           {...artifactsPanelActionsFork} // fork-hook: thread-artifacts/artifacts-launcher-props
           onAddDevice={addDeviceSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
@@ -4217,7 +4208,6 @@ export default function ChatView(props: ChatViewProps) {
         onConfirm={onConfirmRevertStable}
       />
       {embedded ? null : <LinkPullRequestDialogHost />}
-      <LinkIssueDialogHost /* fork-hook: github-issues/link-dialog-host */ />
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
     </div>

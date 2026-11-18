@@ -1,8 +1,8 @@
 import type { ReferenceAutolink } from "@t3tools/client-runtime/source-control-clients";
-import { isLinearIssueKey } from "@t3tools/contracts";
 import type { PluggableList } from "unified";
 
 import { remarkPullRequestAutolinks } from "../pullRequest/pullRequestMarkdown.logic";
+import { isLinearIssueTarget } from "./issueLinkTarget.fork";
 
 // Fork: agents write GitHub references as `#12`, `repo#12` or `owner/repo#12` instead of URLs.
 // The markdown pass marks them with a placeholder href; the anchor renderer resolves it against
@@ -108,7 +108,7 @@ export function resolveLinearReferenceHref(
 ): string | null {
   const [team, number] = href.slice(LINEAR_REFERENCE_HREF_PREFIX.length).split("-");
   const sameTeam = linked.filter(
-    (link) => isLinearIssueKey(link) && link.repository.split("/")[1]?.toUpperCase() === team,
+    (link) => isLinearIssueTarget(link) && link.repository.split("/")[1]?.toUpperCase() === team,
   );
   const matches = sameTeam.filter((link) => String(link.number) === number);
   if (matches.length === 1) return matches[0]!.url;
