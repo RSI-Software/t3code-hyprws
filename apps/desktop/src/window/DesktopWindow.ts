@@ -47,7 +47,11 @@ import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import { m } from "../i18n/messages.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
-import { makeStartupDrain, makeStartupDrainOpeners } from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
+import {
+  makeStartupDrain,
+  makeStartupDrainOpeners,
+  makeStartupEnsureMainFork,
+} from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
 import { HyprlandPlacement } from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
 import type { WindowId } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
@@ -1345,10 +1349,17 @@ export const make = Effect.gen(function* () {
         startupDrain.drain(drainServices, resolveDrainOpeners),
       ),
     }; // fork-hook: multi-window/startup-drain-local-off-def
+  const startupEnsureMainFork = makeStartupEnsureMainFork({
+    earlyProjectLink: startupDrain.earlyProjectLink,
+    ensureMain: ensureMain.pipe(Effect.flatMap(requireWindow)),
+    requestWindow,
+    projectWindow: (ref) => electronWindow.get({ kind: "project", ref }),
+  }); // fork-hook: multi-window/startup-ensure-main-def
 
   return DesktopWindow.of({
     createMain: createMain.pipe(Effect.flatMap(requireWindow)),
     ensureMain: ensureMain.pipe(Effect.flatMap(requireWindow)),
+    ...startupEnsureMainFork, // fork-hook: multi-window/startup-ensure-main
     revealOrCreateMain,
     prepareCaptureReveal: Effect.gen(function* () {
       const forkTarget = yield* captureRevealWindow; // fork-hook: multi-window/window-targets-capture-reveal
