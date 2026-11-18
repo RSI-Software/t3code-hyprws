@@ -18,6 +18,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./useDiscoveredLocalServers", () => ({
   useDiscoveredLocalServers: () => mocks.servers,
 }));
+vi.mock("gt-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("gt-react")>()),
+  T: ({ children }: { children: React.ReactNode }) => children,
+  useGT: () => (text: string) => text,
+  useMessages: () => (text: string) => text,
+}));
 vi.mock("./PreviewFaviconIcon", () => ({
   PreviewFaviconIcon: () => <span data-favicon-icon />,
 }));

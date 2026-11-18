@@ -218,26 +218,25 @@ export function PreviewChromeRow({
             <InputGroupAddon align="inline-end">
               <span className="flex gap-0.5">
                 {onOpenInBrowser && !inputFocused ? (
-              <span className="pointer-events-none flex opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/address:pointer-events-auto group-hover/address:opacity-100">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={onOpenInBrowser}
-                        aria-label={gt("Open in system browser")}
-                        type="button"
-                      />
-                    }
-                  >
-                    <ExternalLink />
-                  </TooltipTrigger>
-                  <TooltipPopup>
-                    <T>Open in system browser</T>
-                  </TooltipPopup>
-                </Tooltip>
-
+                  <span className="pointer-events-none flex opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/address:pointer-events-auto group-hover/address:opacity-100">
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={onOpenInBrowser}
+                            aria-label={gt("Open in system browser")}
+                            type="button"
+                          />
+                        }
+                      >
+                        <ExternalLink />
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        <T>Open in system browser</T>
+                      </TooltipPopup>
+                    </Tooltip>
                   </span>
                 ) : null}
                 {onBookmarkScopeChange && onRemoveBookmark ? (
