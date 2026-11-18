@@ -2072,7 +2072,15 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         "upstream",
         `https://github.com/${UPSTREAM_REPOSITORY}.git`,
       ]);
-    git(runner, root, ["fetch", "--tags", "--force", "upstream"]);
+    // A partial clone (a job's, CI's) keeps its filter: upstream's full blobs add about 750 MiB.
+    const filter = gitResult(runner, root, ["config", "remote.origin.partialclonefilter"]);
+    git(runner, root, [
+      "fetch",
+      ...(filter.status === 0 ? [`--filter=${filter.stdout.trim()}`] : []),
+      "--tags",
+      "--force",
+      "upstream",
+    ]);
     git(runner, root, ["fetch", "origin", HYPRWS_BRANCH]);
     const expectedOld = git(runner, root, ["rev-parse", `origin/${HYPRWS_BRANCH}`]);
     const fetched = fetchMarker(runner, root);
