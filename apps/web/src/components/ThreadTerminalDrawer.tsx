@@ -2,7 +2,6 @@ import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { contextMenuSourceOf } from "../contextMenuSource";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { resolveShortcutCommand } from "../keybindings"; // fork-hook: upstream-fixes/terminal-composer-shortcut-import
-import { writeToRunningTerminalFork } from "../terminal/terminalInput.fork"; // fork-hook: zmux-estate/failed-terminal-input
 import { copyOsc52ClipboardFork } from "../terminal/osc52Clipboard.fork"; // fork-hook: zmux-estate/osc52-clipboard-import
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { msg, T, useGT, useMessages } from "gt-react";
