@@ -50,7 +50,7 @@ export function GitHubReferenceLink({
   const read = useReferenceReadFork(environmentId, href, preferredProjectId);
   // A chip names its reference by title, so it reads up front; a plain link reads on hover.
   const chip = writtenText !== null && referenceStyle === "chip";
-  const summary = useReferenceSummaryFork(read, numbered && (chip || open));
+  const { summary, revalidate } = useReferenceSummaryFork(read, numbered && (chip || open));
   const state = useReferenceStateFork(summary);
   const shortReference = numbered ? `${name}#${linkTarget.number}` : linkTarget.repository;
   // `issues/N` names a pull request too; the read picks the panel, the written URL stays.
@@ -59,8 +59,11 @@ export function GitHubReferenceLink({
   const Icon = state?.Icon ?? (numbered ? GithubIcon : FolderGit2Icon);
   const trigger = referenceTrigger({
     tracker: "github",
-    anchor: referenceAnchorProps(props, href, (event) =>
-      onOpen(preferredDestination, event, preferredDestination === "native" ? panelHref : href),
+    anchor: referenceAnchorProps(
+      { ...props, onPointerEnter: revalidate, onFocus: revalidate },
+      href,
+      (event) =>
+        onOpen(preferredDestination, event, preferredDestination === "native" ? panelHref : href),
     ),
     className,
     children,
@@ -76,8 +79,15 @@ export function GitHubReferenceLink({
   });
 
   if (!numbered || read === null) return trigger;
-  if (read.kind === "pull-request") {
-    return <PullRequestLinkPreview link={trigger} originalUrl={href} target={read.target} />;
+  // An `issues/N` that read as a pull request gets upstream's pull request card too.
+  const pullRequest =
+    read.kind === "pull-request"
+      ? read
+      : summary?.kind === "pull-request"
+        ? read.pullRequest
+        : null;
+  if (pullRequest?.kind === "pull-request") {
+    return <PullRequestLinkPreview link={trigger} originalUrl={href} target={pullRequest.target} />;
   }
   return (
     <ReferenceLinkPreview trigger={trigger} summary={summary} open={open} onOpenChange={setOpen} />

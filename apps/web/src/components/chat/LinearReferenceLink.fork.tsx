@@ -49,13 +49,17 @@ export function LinearReferenceLink({
   const [open, setOpen] = useState(false);
   const read = useReferenceReadFork(environmentId, href, preferredProjectId);
   const chip = writtenText !== null && referenceStyle === "chip";
-  const summary = useReferenceSummaryFork(read, chip || open);
+  const { summary, revalidate } = useReferenceSummaryFork(read, chip || open);
   const state = useReferenceStateFork(summary);
   const title = summary?.title ?? written ?? linearIssueSlugTitle(href);
   const Icon = state?.Icon ?? CircleDashedIcon;
   const trigger = referenceTrigger({
     tracker: "linear",
-    anchor: referenceAnchorProps(props, href, onOpen),
+    anchor: referenceAnchorProps(
+      { ...props, onPointerEnter: revalidate, onFocus: revalidate },
+      href,
+      onOpen,
+    ),
     className,
     children,
     writtenText,
