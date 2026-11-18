@@ -6,7 +6,7 @@ import type { ScopedThreadRef, ThreadArtifactLink } from "@t3tools/contracts";
 import { ArrowUpRightIcon, CopyIcon, MoreHorizontalIcon } from "lucide-react";
 import { useState } from "react";
 
-import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
+import { namedClipboardTarget, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 import { useThreadShell } from "../../state/entities";
 import { PULL_REQUEST_ROW_CLASS, PullRequestRowLines } from "../pullRequest/PullRequestListRow";
@@ -184,7 +184,9 @@ function ArtifactRow({
               <ArrowUpRightIcon className="size-3.5" />
               Open
             </MenuItem>
-            <MenuItem onClick={() => void writeTextToClipboard(link.path, "path")}>
+            <MenuItem
+              onClick={() => void writeTextToClipboard(link.path, namedClipboardTarget("path"))}
+            >
               <CopyIcon className="size-3.5" />
               Copy path
             </MenuItem>
