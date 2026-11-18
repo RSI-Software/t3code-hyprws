@@ -73,10 +73,12 @@ it.effect.skipIf(!symlinksSupported)(
       expect(yield* resolveAsset(htmlToken, "map.html")).toEqual({
         kind: "file",
         path: yield* canonical("map.html"),
+        renderIntent: "file-preview",
       });
       expect(yield* resolveAsset(htmlToken, "map.css")).toEqual({
         kind: "file",
         path: yield* canonical("map.css"),
+        renderIntent: "file-preview",
       });
       expect(yield* resolveAsset(pngToken, "shot.png")).toEqual({
         kind: "file",
