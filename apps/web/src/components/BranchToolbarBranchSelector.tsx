@@ -86,8 +86,6 @@ import {
 
 import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
 import { ComposerControl } from "./chat/ComposerControl";
-import { ThreadIssueBadgeFork } from "./issues/ThreadIssueBadge.fork"; // fork-hook: github-issues/thread-issue-badge-import
-import { ThreadDetailsIssueRowsFork } from "./issues/ThreadDetailsIssueRows.fork"; // fork-hook: github-issues/thread-details-issue-rows-import
 import { ThreadArtifactBadgeFork } from "./threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
 import { ThreadDetailsArtifactRowsFork } from "./threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-details-artifact-rows-import
 import { Button } from "./ui/button"; // fork-hook: zmux-estate/branch-selector-button-import
@@ -948,18 +946,6 @@ export function BranchToolbarBranchSelector({
     );
   }
 
-  const issueBadgeFork =
-    displayMode === "panel" ? null : (
-      <ThreadIssueBadgeFork
-        render={<ComposerControl size="xs" />}
-        issues={serverThread?.issues}
-        onOpenList={() => useRightPanelStore.getState().open(threadRef, "github-issue-links")}
-      />
-    ); // fork-hook: github-issues/thread-issue-badge
-  const issueRowsFork =
-    displayMode === "panel" ? (
-      <ThreadDetailsIssueRowsFork threadRef={threadRef} issues={serverThread?.issues} />
-    ) : null; // fork-hook: github-issues/thread-details-issue-rows
   const artifactBadgeFork =
     displayMode === "panel" ? null : (
       <ThreadArtifactBadgeFork
@@ -1020,7 +1006,6 @@ export function BranchToolbarBranchSelector({
         )}
       >
         {artifactBadgeFork /* fork-hook: thread-artifacts/thread-artifact-badge */}
-        {issueBadgeFork /* fork-hook: github-issues/thread-issue-badge */}
         {displayMode !== "panel" ? (
           <ThreadPullRequestBadgeControl
             render={<ComposerControl size="xs" />}
@@ -1121,7 +1106,6 @@ export function BranchToolbarBranchSelector({
         {displayMode === "panel" ? (
           <ThreadDetailsIssueRows links={linkedIssues} threadRef={threadRef} />
         ) : null}
-        {issueRowsFork /* fork-hook: github-issues/thread-details-issue-rows */}
         {artifactRowsFork /* fork-hook: thread-artifacts/thread-details-artifact-rows */}
       </div>
     </BranchPicker>

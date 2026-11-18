@@ -1335,6 +1335,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
           canOperateHost,
           faviconHost,
           openChangeRequestLink,
+          openIssueLink,
           linkedThreadPullRequestFor,
           resolveThreadPullRequest,
           updateThreadPullRequestLink,
