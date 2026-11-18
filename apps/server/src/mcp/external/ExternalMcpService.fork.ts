@@ -700,6 +700,7 @@ const make = Effect.gen(function* () {
           ...threadDetailFork(
             context.scope,
             target,
+            target.runs.length,
             timeline.totalItems,
             shell,
             context.nowMs,
