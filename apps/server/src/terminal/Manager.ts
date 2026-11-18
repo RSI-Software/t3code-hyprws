@@ -3732,13 +3732,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       increment(terminalSessionsTotal, { lifecycle: eventType }).pipe(
         Effect.andThen(
           Effect.gen(function* () {
-            const shellCandidates = yield* resolveShellCandidates(
+            const plainShellCandidates = yield* resolveShellCandidates(
               shellResolver,
               platform,
               baseEnv,
               session.runtimeEnv?.T3CODE_TERMINAL_SHELL ?? baseEnv.T3CODE_TERMINAL_SHELL,
-            ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
-            const plainShellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
+            ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem)); // fork-hook: zmux-estate/plain-shell-candidates
             const terminalEnv = createTerminalSpawnEnv(
               baseEnv,
               session.runtimeEnv,
@@ -4278,7 +4277,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     terminalPid: number,
     subprocessInspector: TerminalSubprocessInspector,
   ) {
-    const inspectResult = yield* subprocessInspector(terminalPid).pipe(
+    const inspectResult = yield* subprocessInspector(terminalPid, session.shell).pipe(
       Effect.asSome,
       Effect.catch((reason) =>
         Effect.logWarning("failed to check terminal subprocess activity", {
@@ -4602,6 +4601,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           worktreePath: current.worktreePath,
           status: "suspended",
           restarting: false, // fork-hook: zmux-estate/terminal-restarting-init
+          startupError: null,
           pid: null,
           shell: null,
           history,
