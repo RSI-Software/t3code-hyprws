@@ -19,7 +19,7 @@ import { CheckIcon, CopyIcon, PlusIcon, UserIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
-import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { namedClipboardTarget, useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useEnvironmentQueryRefresh, useEnvironmentQuerySelector } from "~/state/query";
@@ -137,7 +137,9 @@ function CollaboratorShareDialog({
   });
   const shares = useEnvironmentQuerySelector(sharesAtom, selectEnvironmentQueryData);
   const { refresh: refreshShares } = useEnvironmentQueryRefresh(sharesAtom);
-  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "collaborator link" });
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    target: namedClipboardTarget("collaborator link"),
+  });
   const [name, setName] = useState("");
   const [state, setState] = useState<ShareState>({ status: "idle" });
   const trimmedName = name.trim();
