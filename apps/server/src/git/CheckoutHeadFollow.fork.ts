@@ -59,11 +59,10 @@ interface WatchedCheckout {
   fiber?: Fiber.Fiber<void, never>;
 }
 
-/** The checkout a thread resolved to at the last watcher sync. */
+/** The checkout a thread resolved to at the last watcher sync; none when its cwd is not a checkout. */
 interface SyncedCheckout {
   readonly worktreePath: string | null;
-  readonly cwd: string;
-  readonly root: string;
+  readonly checkout: { readonly cwd: string; readonly root: string } | undefined;
 }
 
 const make = Effect.gen(function* () {
@@ -182,22 +181,13 @@ const make = Effect.gen(function* () {
     const drifted = (thread: OrchestrationV2ThreadShell) =>
       thread.branch !== null && thread.branch !== branch;
     const shell = yield* threads.getShellSnapshot({ location: "active" });
-    // Only a drifted thread has anything to follow, and only a busy one defers
-    // it; both resolve wherever they run.
-    const candidates = shell.threads.filter(
-      (thread) => drifted(thread) || isThreadBusyOnCheckoutFork(thread),
-    );
-    const checkouts = yield* resolveCheckouts(candidates);
-    const sharing = candidates.filter((thread) => checkouts.get(thread.id)?.root === root);
+    // Under the lease, so resolve only cwds inside this checkout, never every thread's.
+    const checkouts = yield* resolveCheckouts(shell.threads, [root, cwd]);
+    const sharing = shell.threads.filter((thread) => checkouts.get(thread.id)?.root === root);
     if (sharing.some(isThreadBusyOnCheckoutFork)) return markHeadChanged(root, true);
     // The managed session labels the checkout's branch, so an idle checkout
-    // with threads reconciles it even when no thread drifted. Finding those
-    // threads resolves only cwds inside this checkout, never every checkout.
-    if (sharing.length === 0) {
-      const rest = shell.threads.filter((thread) => !candidates.includes(thread));
-      const others = yield* resolveCheckouts(rest, [root, cwd]);
-      if (!rest.some((thread) => others.get(thread.id)?.root === root)) return;
-    }
+    // with threads reconciles it even when no thread drifted.
+    if (sharing.length === 0) return;
     if (Option.isSome(zmux)) {
       const reconciliation = yield* zmux.value.reconcileExisting(cwd);
       if (reconciliation.status === "failed") {
@@ -276,21 +266,23 @@ const make = Effect.gen(function* () {
   const runEndedOnSettledCheckout = (threadId: ThreadId) => {
     const synced = syncedCheckouts.get(threadId);
     return (
-      synced !== undefined &&
+      synced?.checkout !== undefined &&
       knownWorktrees.get(threadId) === synced.worktreePath &&
-      watched.get(synced.root)?.headChanged === false
+      watched.get(synced.checkout.root)?.headChanged === false
     );
   };
 
-  const runWorker = yield* makeDrainableWorker((threadId: ThreadId) =>
-    runEndedOnSettledCheckout(threadId)
+  const runWorker = yield* makeDrainableWorker((threadId: ThreadId) => {
+    // A run's cwd the last sync could not resolve may be a checkout now; the next sync retries it.
+    if (syncedCheckouts.get(threadId)?.checkout === undefined) syncedCheckouts.delete(threadId);
+    return runEndedOnSettledCheckout(threadId)
       ? Effect.void
       : threads.getThreadShell(threadId).pipe(
           Effect.flatMap((thread) => (thread === null ? Effect.void : threadCwd(thread))),
           Effect.flatMap((cwd) => (cwd === undefined ? Effect.void : follow(cwd))),
           Effect.catchCause(logFailure("failed to follow checkout HEAD after a run", { threadId })),
-        ),
-  );
+        );
+  });
 
   const watchCheckoutHead = Effect.fn("CheckoutHeadFollowFork.watchCheckoutHead")(function* (
     root: string,
@@ -359,26 +351,23 @@ const make = Effect.gen(function* () {
 
   const syncWatchers = Effect.fn("CheckoutHeadFollowFork.syncWatchers")(function* () {
     const shell = yield* threads.getShellSnapshot({ location: "active" });
-    // A thread keeps the checkout it resolved to until its worktree changes,
-    // so a topology change resolves only the threads it touched.
+    // A thread keeps the checkout it resolved to, or its failure to resolve, until
+    // its worktree changes, so a topology change resolves only the threads it touched.
     const moved = shell.threads.filter(
       (thread) => syncedCheckouts.get(thread.id)?.worktreePath !== thread.worktreePath,
     );
     const resolved = yield* resolveCheckouts(moved);
     const movedIds = new Set(moved.map((thread) => thread.id));
-    const current = new Map<ThreadId, SyncedCheckout>();
+    const previous = new Map(syncedCheckouts);
+    syncedCheckouts.clear();
+    const desired = new Map<string, string>();
     for (const thread of shell.threads) {
       const checkout = movedIds.has(thread.id)
         ? resolved.get(thread.id)
-        : syncedCheckouts.get(thread.id);
-      if (checkout !== undefined)
-        current.set(thread.id, { worktreePath: thread.worktreePath, ...checkout });
-    }
-    syncedCheckouts.clear();
-    const desired = new Map<string, string>();
-    for (const [threadId, checkout] of current) {
-      syncedCheckouts.set(threadId, checkout);
-      if (!desired.has(checkout.root)) desired.set(checkout.root, checkout.cwd);
+        : previous.get(thread.id)?.checkout;
+      syncedCheckouts.set(thread.id, { worktreePath: thread.worktreePath, checkout });
+      if (checkout !== undefined && !desired.has(checkout.root))
+        desired.set(checkout.root, checkout.cwd);
     }
     for (const [root, entry] of watched) {
       if (desired.get(root) === entry.cwd) continue;
@@ -390,7 +379,7 @@ const make = Effect.gen(function* () {
     });
     // A thread new to a checkout has not followed its HEAD yet.
     for (const thread of moved) {
-      const checkout = current.get(thread.id);
+      const checkout = syncedCheckouts.get(thread.id)?.checkout;
       if (checkout !== undefined) markHeadChanged(checkout.root, true);
     }
   });
