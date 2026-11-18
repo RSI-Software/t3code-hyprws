@@ -40,6 +40,7 @@ const shell = (overrides: Partial<OrchestrationV2AppThread> = {}) =>
     archivedAt: null,
     deletedAt: null,
     settledOverride: "settled",
+    lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
     ...overrides,
   }) as OrchestrationV2AppThread;
 
@@ -369,6 +370,17 @@ describe("settled checkout sessions", () => {
       { settledOverride: null, deletedAt: DateTime.makeUnsafe("2026-10-10T00:00:00Z") },
     ],
     ["a base checkout", { settledOverride: null, worktreePath: "/repo" }],
+    [
+      "a delegated child",
+      {
+        settledOverride: null,
+        lineage: {
+          parentThreadId: ThreadId.make("parent"),
+          relationshipToParent: "subagent",
+          rootThreadId: ThreadId.make("parent"),
+        },
+      },
+    ],
   ] as const)("restore skips %s thread", ([, thread]) =>
     Effect.gen(function* () {
       const h = yield* harness();
