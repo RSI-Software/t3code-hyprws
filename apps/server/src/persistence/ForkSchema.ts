@@ -104,6 +104,10 @@ export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRo
       SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
     `;
   if (!tables.some((table) => table.name === "effect_sql_migrations")) return;
+  // Read first: a current database takes no write, so a `query_only` recheck still passes.
+  const stale =
+    yield* sql`SELECT 1 FROM effect_sql_migrations WHERE migration_id = 48 AND name = ${"ProjectionThreadCheckoutMove"}`;
+  if (stale.length === 0) return;
   yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 48 AND name = ${"ProjectionThreadCheckoutMove"}`;
 });
 
@@ -240,6 +244,7 @@ export const hasPendingForkSchema = Effect.fn("hasPendingForkSchema")(function* 
 export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const added: string[] = [];
+  if (!(yield* hasPendingForkSchema())) return added;
 
   // Tables first, so a column can extend a fork table on a fresh database.
   for (const statement of FORK_TABLES) {

@@ -1601,11 +1601,11 @@ it.layer(
           type: "snapshot",
           snapshot: {
             status: "error",
+            error: expect.stringContaining("Failed to spawn PTY process"),
             label: "zmux/main",
             attachmentStatus: "suspended",
           },
         },
-        { type: "error", message: expect.stringContaining("Failed to spawn PTY process") },
       ]);
       failedRelease();
       yield* Effect.yieldNow;

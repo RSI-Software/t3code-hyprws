@@ -16,6 +16,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as TerminalManager from "./Manager.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
+import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 
 class FakePtyProcess implements PtyAdapter.PtyProcess {
   readonly writes: string[] = [];
@@ -282,7 +283,7 @@ export const createManager = (
         ...(options.subprocessPollIntervalMs !== undefined
           ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
           : {}),
-        processKillGraceMs: options.processKillGraceMs ?? 1,
+        processKillGraceMs: options.processKillGraceMs ?? 0,
         ...(options.managedAttachmentSuspendGraceMs !== undefined
           ? { managedAttachmentSuspendGraceMs: options.managedAttachmentSuspendGraceMs }
           : {}),
@@ -313,7 +314,7 @@ export const createManager = (
         ...(options.resolveOnlyForSettledThread !== undefined
           ? { resolveOnlyForSettledThread: options.resolveOnlyForSettledThread }
           : {}),
-      });
+      }).pipe(Effect.provideService(SpawnExecutableResolution, (command) => command));
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
       const unsubscribe = yield* manager.subscribe((event) =>
         Ref.update(eventsRef, (events) => [...events, event]),
