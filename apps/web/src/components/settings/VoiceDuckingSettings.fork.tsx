@@ -16,7 +16,7 @@ import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from ".
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 
 const valueSettings = [
   {
@@ -117,6 +117,7 @@ function DuckingValueControl({
 }
 
 export function VoiceDuckingSettingsFork() {
+  const searchableSetting = useSearchableSetting();
   const [settings, setSettings] = useState(readVoiceDuckingFork);
   const [devices, setDevices] = useState<VoiceDuckingOutputsFork | null>(null);
   const [error, setError] = useState<string | null>(null);
