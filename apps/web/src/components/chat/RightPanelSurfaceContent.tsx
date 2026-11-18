@@ -27,10 +27,8 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
-import { IssueRightPanelSurfaceFork } from "../issues/IssueRightPanelSurface.fork"; // fork-hook: github-issues/right-panel-content-import
 import { ThreadArtifactsPanelFork } from "../threadArtifacts/ThreadArtifactsPanel.fork"; // fork-hook: thread-artifacts/right-panel-content-import
 import { useThreadArtifactFileRevisionFork } from "../threadArtifacts/threadArtifacts.fork"; // fork-hook: thread-artifacts/file-revision-import
-import { GitHubIssueRightPanelSurfaceFork } from "../githubIssue/GitHubIssueRightPanelSurface.fork"; // fork-hook: github-issues/right-panel-content-import
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -217,17 +215,6 @@ export function RightPanelSurfaceContent(props: {
       );
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
-    case "github-issues": // fork-hook: github-issues/right-panel-content
-    case "github-issue-links": // fork-hook: github-issues/right-panel-content
-    case "github-issue": // fork-hook: github-issues/right-panel-content
-      return (
-        <IssueRightPanelSurfaceFork
-          surface={surface}
-          threadRef={threadRef}
-          environmentId={props.environmentId}
-          projectId={props.pullRequest.projectId}
-        />
-      ); // fork-hook: github-issues/right-panel-content
     case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (

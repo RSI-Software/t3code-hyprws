@@ -308,56 +308,14 @@ apps connected to that server, but the host's own site will not show them, and t
 On mobile, open a changed file and mark it viewed from its header. Viewed files collapse,
 and their marks follow the same rules as on web and desktop.
 
-## Browse GitHub issues
+## GitHub links in chat
 
-Open **GitHub Issues** to read issues from GitHub-backed projects across your connected
-environments. Search by text, filter by Open, Closed, or All, and narrow the list to one project.
-In a desktop window, **All projects** means the projects in that window's project filter.
-
-Opening an issue shows its description, labels, assignees, and newest 100 comments. GitHub issue and
-pull request links in chat show their full `owner/repository#number` identity. Hover a link to open
-it in the native panel, T3 Browser, or your external browser. Native panels can also read
-repositories that are not checked out in the active project, using that project's authenticated
-GitHub host.
+GitHub issue and pull request links in chat show their full `owner/repository#number` identity.
+Hover a link to open it in the native panel, T3 Browser, or your external browser.
 
 Choose the normal-click destination under **Settings → Source Control → GitHub links**. Issues and
 pull requests support all three destinations; other repository links support T3 Browser and the
 external browser. The controls on the link stay available for one-click overrides.
-
-**Work on this issue** opens an empty draft in the issue's project with a short issue reference and
-instruction placed in the composer, unsent. Draft work you already have is never overwritten.
-
-Change that text under **Settings → Source Control → GitHub links**, in **GitHub issue handoff
-prompt**. The template takes `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the
-server environment that owns the issue, so its web and desktop clients use the same prompt.
-
-**Thread links** tie an issue to the threads that work on it:
-
-- **Work on this issue:** the first send links it
-- **Issue panel:** open, link, or unlink threads
-- **Thread:** its **Linked issues** panel lists its links
-- **Badges:** sidebar row and branch toolbar
-- **Details:** thread details and the sidebar hover card
-- **Palette:** link by URL or `#number`
-
-With proactive panels on, a newly linked issue opens **Linked issues**, as a linked pull request does.
-
-A linked issue shows its **type and labels**, and with **sub-issues**, how many are closed. Its chevron **expands or collapses** them; one that has a **linked sub-issue** starts expanded.
-
-**Linear issues** link by **URL only**, from the link dialog or by an agent.
-In chat, a **Linear URL** shows as a chip; a **bare `ENG-123`** links once the thread links an issue in team `ENG`.
-
-To read Linear, add a Linear personal API key under **Settings → Source control → Linear API key**.
-A server's **`LINEAR_API_KEY`** environment variable also works; the Settings key wins.
-The key reads **one workspace**; each server uses its own.
-With a key, a Linear link **opens in the issue panel** with its state, description, images, and comments, and its badge follows its state.
-The panel's **state badge** moves the issue to another of its team's workflow states.
-Without one, a Linear link shows its identifier and its URL's title, and opens in the browser.
-
-The issue panel's menu closes an issue as completed or not planned, and reopens a closed one, which
-needs write access to the repository. Commenting, labeling, and assigning stay on GitHub. Each server
-holding a project needs GitHub CLI installed and authenticated — `gh auth login` for GitHub.com, or
-`gh auth login --hostname <host>` for GitHub Enterprise.
 
 ## Troubleshooting
 
