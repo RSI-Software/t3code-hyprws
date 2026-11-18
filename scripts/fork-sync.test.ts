@@ -1428,7 +1428,7 @@ it("exits 0 with already applied when the fork sits on the tag", () => {
   );
 });
 
-it("adds the upstream remote a fresh clone lacks, then syncs", () => {
+it("adds the upstream remote a fresh partial clone lacks, fetches it with the clone's filter, then syncs", () => {
   withFixture(
     {
       forkContent: "line1\nline2 fork\nline3\n",
@@ -1443,9 +1443,19 @@ it("adds the upstream remote a fresh clone lacks, then syncs", () => {
         ["config", `url.${local}.insteadOf`, "https://github.com/pingdotgg/t3code.git"],
         f.root,
       );
-      const { runner } = exec();
+      f.git(["config", "remote.origin.partialclonefilter", "blob:none"], f.root);
+      const { runner, calls } = exec();
       const code = capture(() => run(["v1.0.0"], { runner, root: f.root })).value;
       assert.strictEqual(code, 0);
+      assert.isTrue(
+        calls.some(
+          ({ command, args }) =>
+            command === "git" &&
+            args.includes("fetch") &&
+            args.includes("--filter=blob:none") &&
+            args.at(-1) === "upstream",
+        ),
+      );
       assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "already-applied");
       assert.strictEqual(
         f.git(["config", "remote.upstream.url"], f.root),
