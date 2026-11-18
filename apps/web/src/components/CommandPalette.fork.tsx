@@ -1,9 +1,7 @@
-// Fork-owned command-palette "Go to Issues" entry. Upstream `CommandPalette.tsx` carries only
-// marked hook lines pointing here; the capability probe, the navigation command, and the
-// action item are built in this module.
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+// Fork-owned command-palette entries. Upstream `CommandPalette.tsx` carries only marked hook
+// lines pointing here.
 import { projectFilterProjectKeys } from "@t3tools/client-runtime/state/project-filter";
-import { CircleDotIcon, LinkIcon, ListFilterIcon, SearchIcon } from "lucide-react";
+import { ListFilterIcon, SearchIcon } from "lucide-react";
 import { useState } from "react";
 
 import { openProjectChooser, useProjectChooserHostValue } from "../projectChooser.fork";
@@ -17,90 +15,7 @@ import {
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
 } from "./CommandPalette.logic";
-import type { EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
-import { openLinkIssueDialog } from "./issues/LinkIssueDialog";
-import { useRightPanelStore } from "../rightPanelStore";
-
-/**
- * The palette's Issues navigation entry, or `null` when no reachable
- * environment advertises the read-only GitHub Issues capability.
- */
-export function buildIssuesActionItemFork(input: {
-  environments: ReadonlyArray<{
-    readonly serverConfig?: {
-      readonly environment: { readonly capabilities: { readonly githubIssues?: boolean } };
-    } | null;
-  }>;
-  navigate: (options: never) => Promise<void>;
-}): CommandPaletteActionItem | null {
-  const issuesSupported = input.environments.some(
-    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
-  );
-  if (!issuesSupported) return null;
-  return {
-    kind: "action",
-    value: "action:issues",
-    searchTerms: ["issues", "github", "bugs", "go to"],
-    title: "Go to Issues",
-    icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await input.navigate({ to: "/issues", search: { state: "open" } } as never);
-    },
-  };
-}
-
-/**
- * The palette's "Link issue to thread" entry for the active thread
- * (RSI-Software/t3code-hyprws#1432), or `null` where its environment keeps no
- * issue links. It carries no default keybinding.
- */
-export function buildLinkIssueActionItemFork(
-  activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined,
-  capabilities: { readonly threadIssues?: boolean } | undefined,
-): CommandPaletteActionItem | null {
-  if (!activeThread || capabilities?.threadIssues !== true) return null;
-  const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
-  return {
-    kind: "action",
-    value: "action:link-github-issue",
-    searchTerms: ["link issue to thread", "github", "linear", "attach", "track"],
-    title: "Link issue to thread",
-    icon: <LinkIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      openLinkIssueDialog(threadRef);
-    },
-  };
-}
-
-/**
- * The twin of "Show linked pull requests": opens the active thread's Linked issues tab, disabled
- * while it has none. `null` where its environment keeps no issue links.
- */
-export function buildShowLinkedIssuesActionItemFork(
-  activeThread:
-    | {
-        readonly environmentId: EnvironmentId;
-        readonly id: ThreadId;
-        readonly issues?: ReadonlyArray<unknown> | undefined;
-      }
-    | null
-    | undefined,
-  capabilities: { readonly threadIssues?: boolean } | undefined,
-): CommandPaletteActionItem | null {
-  if (!activeThread || capabilities?.threadIssues !== true) return null;
-  const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
-  return {
-    kind: "action",
-    value: "action:open-thread-issues",
-    searchTerms: ["issues", "linked", "github", "linear", "tracked"],
-    title: "Show linked issues",
-    disabled: (activeThread.issues ?? []).length === 0,
-    icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      useRightPanelStore.getState().open(threadRef, "github-issue-links");
-    },
-  };
-}
+import type { ScopedProjectRef } from "@t3tools/contracts";
 
 /**
  * The palette's "Choose projects" entry (RSI-Software/t3code-hyprws#1352), or
