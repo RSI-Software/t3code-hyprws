@@ -109,12 +109,19 @@ export function conversationForkBudgetFork(context: string, notice: string, comp
 
 export function conversationForkTurnInputFork(
   message: ProviderAdapterV2TurnInput["message"],
+  missedAttachments: ProviderAdapterV2TurnInput["message"]["attachments"],
   text: string,
   userText: string,
 ) {
   if (text === userText) return {};
   return {
-    message: { ...message, text },
+    message: {
+      ...message,
+      text,
+      ...(missedAttachments.length === 0
+        ? {}
+        : { attachments: [...missedAttachments, ...message.attachments] }),
+    },
     inlineContextLength: text.length - userText.length,
   };
 }

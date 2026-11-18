@@ -1909,6 +1909,7 @@ export const layer: Layer.Layer<
                     : { inlineContextLength: text.length - userText.length }),
                   ...conversationForkTurnInputFork(
                     turnInput.message,
+                    missedAttachments,
                     goalCommand ? userText : withInlineContext(forkAwareContextFork, userText),
                     userText,
                   ), // fork-hook: upstream-fixes/conversation-fork-context-text
