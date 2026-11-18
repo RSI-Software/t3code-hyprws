@@ -10,12 +10,6 @@ import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
-import {
-  CrumbsBackButtonFork,
-  crumbsNumberLabelFork,
-  CrumbsNumberTextLinkFork,
-  useCrumbsSubjectFork,
-} from "./PullRequestDetailCrumbs.fork"; // fork-hook: github-issues/detail-crumbs-import
 
 import { changeRequestTermKind } from "./changeRequestTerm";
 
@@ -43,9 +37,6 @@ const ROW_CLASS_NAME =
 
 function BackButton({ onBack, focusable }: { onBack: () => void; focusable: boolean }) {
   const gt = useGT();
-  const forkSubject = useCrumbsSubjectFork(); // fork-hook: github-issues/detail-crumbs-back-subject
-  if (forkSubject)
-    return <CrumbsBackButtonFork onBack={onBack} focusable={focusable} subject={forkSubject} />; // fork-hook: github-issues/detail-crumbs-back
   return (
     <Tooltip>
       <TooltipTrigger
@@ -83,14 +74,7 @@ function NumberLink({
   focusable: boolean;
 }) {
   const gt = useGT();
-  const forkSubject = useCrumbsSubjectFork(); // fork-hook: github-issues/detail-crumbs-number-subject
   const openLink = useOpenLink(threadRef);
-  if (forkSubject?.numberText)
-    return (
-      <CrumbsNumberTextLinkFork
-        {...{ forkSubject, detail, toneClassName, openOnHostText, focusable }}
-      />
-    ); // fork-hook: github-issues/detail-crumbs-number-text
   return (
     <Tooltip>
       <TooltipTrigger
@@ -116,7 +100,6 @@ function NumberLink({
                 number: detail.number,
               },
             )}
-            {...crumbsNumberLabelFork(forkSubject, detail.number)} // fork-hook: github-issues/detail-crumbs-number-label
           >
             #{detail.number}
             <ExternalLinkIcon aria-hidden className="size-2.5" />
