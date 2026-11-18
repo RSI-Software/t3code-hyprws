@@ -1,13 +1,10 @@
-import type { EnvironmentId, GitHubReferenceSummary } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import type { GitHubReferenceStyle } from "@t3tools/contracts/settings";
 import { ExternalLinkIcon, FolderGit2Icon, GithubIcon } from "lucide-react";
 import { useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode } from "react";
 
 import { RelativeTime } from "~/components/RelativeTime";
-import { issueEnvironment } from "~/state/issues";
 import { useLinkedReference, useSyncStaleLinkedReference } from "~/state/linkedReferences.fork";
-import { useEnvironmentQuery } from "~/state/query";
-import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import { PullRequestActorAvatar } from "../pullRequest/pullRequestPresentation";
 import { InlineButton } from "../ui/button";
@@ -31,8 +28,6 @@ export interface GitHubReferenceLinkProps extends Omit<
   readonly referenceStyle: GitHubReferenceStyle;
   readonly environmentId: EnvironmentId | null;
   readonly preferredDestination: GitHubLinkDestination;
-  /** Claims the panel for a late open; the check fails once a newer panel choice lands. */
-  readonly claimPanelOpen: () => () => boolean;
   readonly onOpen: (
     destination: GitHubLinkDestination,
     event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
@@ -49,7 +44,6 @@ export function GitHubReferenceLink({
   onOpen,
   preferredDestination,
   referenceStyle,
-  claimPanelOpen,
   written: writtenText,
   ...props
 }: GitHubReferenceLinkProps) {
@@ -58,58 +52,18 @@ export function GitHubReferenceLink({
   const [open, setOpen] = useState(false);
   const name = linkTarget.repository.split("/")[1];
   const numbered = linkTarget.number !== null;
-  // A titled chip needs its title up front; a plain link reads only once its card opens.
-  const readTarget =
-    numbered && environmentId !== null
-      ? {
-          environmentId,
-          input: {
-            host: "github.com",
-            repository: linkTarget.repository,
-            number: linkTarget.number!,
-          },
-        }
-      : null;
-  // A thread-linked reference reads the snapshot the server keeps synced; only others ask GitHub
-  // up front. An open card reads GitHub for the author and times a snapshot lacks.
+  // A thread-linked pull request reads the snapshot the server keeps synced; others show the reference.
   const linked = useLinkedReference(environmentId, linkTarget.repository, linkTarget.number);
-  const query = useEnvironmentQuery(
-    readTarget && (open || (linked === null && referenceStyle === "chip"))
-      ? issueEnvironment.reference(readTarget)
-      : null,
-  );
-  const readReference = useAtomQueryRunner(issueEnvironment.reference, {
-    reportFailure: false,
-    reportDefect: false,
-  });
   useSyncStaleLinkedReference(environmentId, linked);
-  const summary = linked?.summary ?? query.data;
-  const details = query.data ?? (summary?.kind === "pull-request" ? summary : null);
-  // `issues/N` names a pull request too; the read picks the panel, the written URL stays.
-  const panelHref = (read: GitHubReferenceSummary | null | undefined) =>
-    read && read.kind !== linkTarget.kind ? read.url : href;
+  const summary = linked?.summary ?? null;
   const state = summary ? referenceStatePresentation(summary) : null;
   const shortReference = numbered ? `${name}#${linkTarget.number}` : linkTarget.repository;
-
+  // `issues/N` names a pull request too; the snapshot picks the panel, the written URL stays.
+  const panelHref = summary && linkTarget.kind !== "pull-request" ? summary.url : href;
   const open_ = (
     destination: GitHubLinkDestination,
     event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
-  ) => {
-    // An unread `issues/N` may be a pull request; ask before choosing the panel.
-    if (destination !== "native") {
-      onOpen(destination, event, href);
-      return;
-    }
-    if (summary || readTarget === null || linkTarget.kind !== "issue") {
-      onOpen(destination, event, panelHref(summary));
-      return;
-    }
-    const stillCurrent = claimPanelOpen();
-    void readReference(readTarget).then((result) => {
-      if (!stillCurrent()) return;
-      onOpen(destination, event, panelHref(result._tag === "Success" ? result.value : null));
-    });
-  };
+  ) => onOpen(destination, event, destination === "native" ? panelHref : href);
   const Icon = state?.Icon ?? (numbered ? GithubIcon : FolderGit2Icon);
   const trigger = referenceTrigger({
     tracker: "github",
@@ -133,16 +87,7 @@ export function GitHubReferenceLink({
       <PreviewCardPopup align="start" className="w-80 max-w-[calc(100vw-2rem)]">
         <div className="p-3">
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {details?.ownerAvatarUrl ? (
-              <img
-                aria-hidden
-                alt=""
-                src={details.ownerAvatarUrl}
-                className="size-4 shrink-0 rounded-sm bg-muted object-cover"
-              />
-            ) : (
-              <GithubIcon aria-hidden className="size-3.5 shrink-0" />
-            )}
+            <GithubIcon aria-hidden className="size-3.5 shrink-0" />
             <span className="min-w-0 truncate">{linkTarget.repository}</span>
             <InlineButton
               aria-label={`Open ${linkTarget.repository}${numbered ? `#${linkTarget.number}` : ""} on GitHub`}
@@ -164,28 +109,23 @@ export function GitHubReferenceLink({
           </div>
           {numbered ? (
             <p className="mt-1.5 text-sm font-medium leading-snug text-foreground text-pretty">
-              {summary?.title ??
-                (query.isPending
-                  ? "Loading…"
-                  : query.error
-                    ? "Couldn't read this from GitHub"
-                    : "Not found on GitHub")}
+              {summary?.title ?? written ?? shortReference}
             </p>
           ) : null}
-          {details ? (
+          {summary ? (
             <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              {details.author ? (
+              {summary.author ? (
                 <>
                   <PullRequestActorAvatar
-                    actor={{ ...details.author, name: null }}
+                    actor={{ ...summary.author, name: null }}
                     className="size-4"
                   />
-                  <span className="truncate">{details.author.login}</span>
+                  <span className="truncate">{summary.author.login}</span>
                   <span aria-hidden>·</span>
                 </>
               ) : null}
               <span className="shrink-0">
-                updated <RelativeTime timestamp={details.updatedAt} />
+                updated <RelativeTime timestamp={summary.updatedAt} />
               </span>
             </div>
           ) : null}
