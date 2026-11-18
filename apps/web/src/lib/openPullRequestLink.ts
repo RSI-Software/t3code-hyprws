@@ -31,7 +31,7 @@ import { environmentServerConfigsAtom, serverEnvironment } from "../state/server
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { reviewEnvironment } from "../state/review";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
-import { linkPreferenceFork, openIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
+import { linkPreferenceFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null, url: string) {
   const projects = useProjects();
@@ -101,24 +101,6 @@ export function useOpenChangeRequestLink(
     const resolvedThreadRef = targetThreadRef ?? threadRef;
     const resolvedPanelRef = panelRef ?? resolvedThreadRef;
     const openPullRequest = () => {
-      // Read at click time: every provider status push replaces the config map, and
-      // subscribing would hand every rendered link a new handler. Projects likewise, so a
-      // link can resolve against a snapshot that arrived after this handler was built.
-      const serverConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
-      const allProjects = readProjects(); // fork-hook: github-issues/issue-link-projects
-      if (
-        openIssueLinkFork({
-          event,
-          targetUrl,
-          resolvedThreadRef,
-          allProjects,
-          serverConfigs,
-          primaryEnvironmentId,
-          navigate,
-        })
-      ) {
-        return true;
-      } // fork-hook: github-issues/issue-link-claim
       const target = pullRequestLinkPanelTarget({
         url: targetUrl,
         environmentId: resolvedThreadRef?.environmentId ?? targetEnvironmentId,

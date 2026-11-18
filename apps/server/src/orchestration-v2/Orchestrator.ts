@@ -227,7 +227,6 @@ import {
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { pullRequestWatchWakePrefix } from "./pullRequestWatch.ts";
-import { dispatchThreadIssueCommandFork } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/orchestrator-issues-import
 import { threadArtifactsDispatchFork } from "./ThreadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestrator-artifacts-import
 import { threadArtifactNoOpAcceptedFork } from "./ThreadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestrator-empty-plan-import
 import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
@@ -699,9 +698,6 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.pull-request-watch.checks-reopen":
     case "thread.pull-request.sync":
-    case "thread.issue.link": // fork-hook: github-issues/orchestrator-thread-id-link
-    case "thread.issue.unlink": // fork-hook: github-issues/orchestrator-thread-id-unlink
-    case "thread.issue-link.sync": // fork-hook: github-issues/orchestrator-thread-id-sync
     case "thread.artifact.link": // fork-hook: thread-artifacts/orchestrator-thread-id-link
     case "thread.artifact.unlink": // fork-hook: thread-artifacts/orchestrator-thread-id-unlink
     case "thread.artifact.observe": // fork-hook: thread-artifacts/orchestrator-thread-id-observe
@@ -16471,16 +16467,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.guest-message.dismiss":
         yield* dispatchGuestShare(command, events, effects);
         break;
-      case "thread.issue.link": // fork-hook: github-issues/orchestrator-dispatch-link
-      case "thread.issue.unlink": // fork-hook: github-issues/orchestrator-dispatch-unlink
-      case "thread.issue-link.sync": // fork-hook: github-issues/orchestrator-dispatch-sync
-        yield* dispatchThreadIssueCommandFork({
-          command,
-          getThread: projectionStore.getThread(command.threadId).pipe(mapDispatchError(command)),
-          emit: emit(events, command),
-          refuse: (cause) => mapDispatchError(command)(Effect.fail(cause)),
-        }); // fork-hook: github-issues/orchestrator-dispatch-call
-        break; // fork-hook: github-issues/orchestrator-dispatch-break
       case "thread.artifact.link": // fork-hook: thread-artifacts/orchestrator-dispatch-link
       case "thread.artifact.unlink": // fork-hook: thread-artifacts/orchestrator-dispatch-unlink
       case "thread.artifact.observe": // fork-hook: thread-artifacts/orchestrator-dispatch-observe
