@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   CommandId,
+  type OrchestrationV2ThreadShell,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -139,6 +140,29 @@ describe("thread launch worktree integrations (fork)", () => {
           createHooks: { status: "completed" },
           calls,
         }),
+      ),
+    );
+  });
+
+  it.effect("leaves a delegated child's zmux session to first terminal open", () => {
+    const calls: Calls = { bind: [], createHooks: [] };
+    const child = { lineage: { relationshipToParent: "subagent" } } as OrchestrationV2ThreadShell;
+    return integrate({ type: "worktree" }).pipe(
+      Effect.map((checkout) => {
+        assert.deepStrictEqual(calls.bind, []);
+        assert.strictEqual(checkout?.status, "done");
+      }),
+      Effect.provide(
+        Layer.merge(
+          integrationLayers({
+            bind: { status: "bound", target: "project/feature", outcome: "created" },
+            createHooks: { status: "completed" },
+            calls,
+          }),
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: () => Effect.succeed(child),
+          }),
+        ),
       ),
     );
   });
