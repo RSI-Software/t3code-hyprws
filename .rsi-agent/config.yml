@@ -1,5 +1,5 @@
-# Agent job sizes for rsi-agent; profiles live in its docs/k3s-runbook.md.
-jobs:
-  profile: standard
-  workflows:
-    fork-sync: heavy
+# Agent job size for rsi-agent; sizes live in RSI-Software/rsi apps/rsi-agent/server/providers/job-size.ts.
+# Job scratch lives in RAM: fork-sync holds ~6 GiB of files (one install, two checkouts), and its first
+# fork:ci peaks at 10.6 GiB at 2 CPUs, over standard's 10Gi limit.
+sandbox:
+  size: heavy
