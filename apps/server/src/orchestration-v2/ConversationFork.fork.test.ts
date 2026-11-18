@@ -4,6 +4,7 @@ import {
   EventId,
   MessageId,
   NodeId,
+  IssueTrackerKind,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -106,13 +107,16 @@ it.effect("a conversation fork resets source controls and keeps source children"
       ],
       issues: [
         {
+          tracker: IssueTrackerKind.make("github"),
           host: "github.com",
-          repository: linkedPr.repository,
-          number: 43,
+          scope: linkedPr.repository,
+          key: "43",
+          projectId,
           url: "https://github.com/RSI-Software/t3code-hyprws/issues/43",
           source: "agent",
           linkedAt: DateTime.formatIso(now),
-          snapshot: null,
+          displayKey: "#43",
+          title: "Linked issue",
         },
       ],
       artifacts: [
