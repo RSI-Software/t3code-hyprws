@@ -15,8 +15,6 @@ const FORK_COLUMNS: ReadonlyArray<{
   { table: "auth_device_authorizations", column: "mcp_policy_json", definition: "TEXT" },
   // The run an external MCP interrupt committed to, read back by its retry.
   { table: "auth_external_mcp_requests", column: "pinned_target", definition: "TEXT" },
-  // When the legacy import folded a V1 issue link into its V2 thread; set rows never import again.
-  { table: "projection_thread_issues", column: "imported_at", definition: "TEXT" },
   // A stopped collaborator share's thread shell, frozen when sharing stopped; null while live.
   { table: "fork_colleague_shares", column: "frozen_shell_json", definition: "TEXT" },
   // What a live share's collaborator messages may do: `send`, or `approve` to wait for the host.
@@ -29,22 +27,6 @@ const FORK_COLUMNS: ReadonlyArray<{
  * and an upgraded one both simply have them afterwards.
  */
 const FORK_TABLES = [
-  // V1 thread ↔ GitHub issue links for the github-issues domain. V2 keeps links
-  // on the thread payload; only the legacy import reads this table, so it stays
-  // for databases that predate V2 and fresh ones alike.
-  `CREATE TABLE IF NOT EXISTS projection_thread_issues (
-    thread_id TEXT NOT NULL,
-    host TEXT NOT NULL,
-    repository TEXT NOT NULL,
-    number INTEGER NOT NULL,
-    url TEXT NOT NULL,
-    source TEXT NOT NULL,
-    linked_at TEXT NOT NULL,
-    snapshot_json TEXT,
-    PRIMARY KEY (thread_id, host, repository, number)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_projection_thread_issues_issue
-    ON projection_thread_issues(host, repository, number)`,
   // Owner-approved native client requests for the device-auth domain. Only a
   // digest of the device code is stored; rows prune once expired.
   `CREATE TABLE IF NOT EXISTS auth_device_authorizations (
@@ -129,8 +111,124 @@ export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRo
   yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 48 AND name = ${"ProjectionThreadCheckoutMove"}`;
 });
 
+// Payload columns that hold thread issue links under `$.issues`.
+const ISSUE_LINK_PAYLOADS = [
+  { table: "orchestration_v2_projection_threads", key: "thread_id", column: "payload_json" },
+  { table: "fork_colleague_shares", key: "rowid", column: "frozen_shell_json" },
+] as const;
+
+type LegacyIssueLink = {
+  readonly host: string;
+  readonly repository: string;
+  readonly number: number;
+  readonly url: string;
+  readonly source?: string;
+  readonly linkedAt: string;
+  readonly snapshot?: { readonly title?: string } | null;
+};
+
+/**
+ * A link the retired fork issue panel stored (`host`, `repository`, `number`) in upstream's
+ * tracker-keyed shape. Linear kept `workspace/TEAM` in `repository`; GitHub its `owner/repo`.
+ */
+function upstreamIssueLinkFork(link: LegacyIssueLink, projectId: string) {
+  const linear = link.host.toLowerCase() === "linear.app";
+  const scope = linear
+    ? (link.repository.split("/")[1] ?? link.repository).toUpperCase()
+    : link.repository.toLowerCase();
+  const key = linear ? `${scope}-${link.number}` : String(link.number);
+  const displayKey = linear ? key : `#${link.number}`;
+  return {
+    tracker: linear ? "linear" : "github",
+    host: link.host.toLowerCase(),
+    scope,
+    key,
+    projectId,
+    url: link.url,
+    source: link.source === "agent" ? "agent" : "manual",
+    linkedAt: link.linkedAt,
+    displayKey,
+    title: link.snapshot?.title?.trim() || displayKey,
+  };
+}
+
+type IssueLinkIdentity = {
+  readonly tracker: string;
+  readonly host: string;
+  readonly scope: string;
+  readonly key: string;
+};
+
+/** A payload with each legacy link rewritten and repeats of one issue dropped. */
+function rewriteLegacyIssueLinksFork(json: string): string {
+  const payload = JSON.parse(json) as {
+    projectId: string;
+    issues: ReadonlyArray<LegacyIssueLink | IssueLinkIdentity>;
+  };
+  const seen = new Set<string>();
+  payload.issues = payload.issues.flatMap((link) => {
+    const next = "tracker" in link ? link : upstreamIssueLinkFork(link, payload.projectId);
+    const identity = JSON.stringify([next.tracker, next.host, next.scope, next.key]);
+    if (seen.has(identity)) return [];
+    seen.add(identity);
+    return [next];
+  });
+  return JSON.stringify(payload);
+}
+
+const LEGACY_ISSUE_LINK_FILTER = (column: string) => `${column} IS NOT NULL
+  AND json_valid(${column})
+  AND EXISTS (
+    SELECT 1 FROM json_each(${column}, '$.issues')
+    WHERE json_extract(value, '$.tracker') IS NULL
+  )`;
+
+const tableExists = (sql: SqlClient.SqlClient, table: string) =>
+  sql`SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ${table}`.pipe(
+    Effect.map((rows) => rows.length > 0),
+  );
+
+/** Rewrites every stored fork-shaped issue link so thread payloads decode under upstream. */
+const repairForkIssueLinks = Effect.fn("repairForkIssueLinks")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  let repaired = 0;
+  for (const { table, key, column } of ISSUE_LINK_PAYLOADS) {
+    if (!(yield* tableExists(sql, table))) continue;
+    const rows = yield* sql<{ readonly id: string | number; readonly payload: string }>`
+      SELECT ${sql.literal(key)} AS id, ${sql.literal(column)} AS payload
+      FROM ${sql.literal(table)}
+      WHERE ${sql.literal(LEGACY_ISSUE_LINK_FILTER(column))}
+    `;
+    for (const row of rows) {
+      yield* sql`
+        UPDATE ${sql.literal(table)} SET ${sql.literal(column)} = ${rewriteLegacyIssueLinksFork(row.payload)}
+        WHERE ${sql.literal(key)} = ${row.id}
+      `;
+      repaired += 1;
+    }
+  }
+  if (repaired > 0) {
+    yield* Effect.log("Fork issue links rewritten for upstream Issues").pipe(
+      Effect.annotateLogs({ repaired }),
+    );
+  }
+});
+
+const hasLegacyIssueLinks = Effect.fn("hasLegacyIssueLinks")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  for (const { table, column } of ISSUE_LINK_PAYLOADS) {
+    if (!(yield* tableExists(sql, table))) continue;
+    const rows = yield* sql`
+      SELECT 1 FROM ${sql.literal(table)} WHERE ${sql.literal(LEGACY_ISSUE_LINK_FILTER(column))} LIMIT 1
+    `;
+    if (rows.length > 0) return true;
+  }
+  return false;
+});
+
 export const hasPendingForkSchema = Effect.fn("hasPendingForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
+  if (yield* hasLegacyIssueLinks()) return true;
   for (const { table, column } of FORK_COLUMNS) {
     const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(${sql.literal(table)})`;
     if (!columns.some((existing) => existing.name === column)) return true;
@@ -159,6 +257,8 @@ export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
     yield* sql`ALTER TABLE ${sql.literal(table)} ADD COLUMN ${sql.literal(column)} ${sql.literal(definition)}`;
     added.push(`${table}.${column}`);
   }
+
+  yield* repairForkIssueLinks();
 
   if (added.length > 0) {
     yield* Effect.log("Fork schema columns added").pipe(Effect.annotateLogs({ added }));
