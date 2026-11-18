@@ -4,6 +4,7 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import type { ScopedProjectRef } from "@t3tools/contracts";
 
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
@@ -60,6 +61,8 @@ const makeStartupDrainImpl = Effect.gen(function* () {
   // Claimed with one atomic Ref.modify and reset when the body finishes, so a
   // later backend restart drains anew.
   const drainWaiters = yield* Ref.make<Deferred.Deferred<void> | undefined>(undefined);
+  // The first deep link staged before any drain; bootstrap's early window shows it.
+  const firstProjectLinkRef = yield* Ref.make<Option.Option<ScopedProjectRef>>(Option.none());
 
   const queueStartupIntent = Effect.fn("desktop.startupDrain.queue")(function* (
     request: WindowRequest,
@@ -236,7 +239,24 @@ const makeStartupDrainImpl = Effect.gen(function* () {
     if (isExplicitLaunchRequest(request) || !hasPendingRestore) {
       yield* queueStartupIntent(request);
     }
+    if (request.kind === "project-link") {
+      yield* Ref.update(
+        firstProjectLinkRef,
+        Option.orElseSome(() => request.ref),
+      );
+    }
     return { queued: true } as const;
+  });
+
+  /**
+   * The project a cold start's early window shows instead of the hub: the first
+   * staged deep link, until a drain starts. The drain then dispatches that same
+   * link, which reuses the window.
+   */
+  const earlyProjectLink = Effect.gen(function* () {
+    if (yield* Ref.get(readyToDispatchRef)) return Option.none<ScopedProjectRef>();
+    if ((yield* Ref.get(drainWaiters)) !== undefined) return Option.none<ScopedProjectRef>();
+    return yield* Ref.get(firstProjectLinkRef);
   });
 
   // Loads the windows an update relaunch left behind, queued until the backend is
@@ -257,10 +277,42 @@ const makeStartupDrainImpl = Effect.gen(function* () {
     stageRestore,
     markNotReady,
     queueStartupIntent,
+    earlyProjectLink,
   } as const;
 });
 
 export const makeStartupDrain = makeStartupDrainImpl;
+
+/**
+ * Fork-only: overrides DesktopWindow's `ensureMain`, which bootstrap calls while
+ * the backend boots. A cold launch from a project link opens that project's
+ * window there, so the hub never opens beside it.
+ */
+export const makeStartupEnsureMainFork = <E>(input: {
+  readonly earlyProjectLink: Effect.Effect<Option.Option<ScopedProjectRef>>;
+  readonly ensureMain: Effect.Effect<Electron.BrowserWindow, E>;
+  readonly requestWindow: (request: WindowRequest) => Effect.Effect<void, E>;
+  readonly projectWindow: (
+    ref: ScopedProjectRef,
+  ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
+  // Optional, so the spread overriding upstream's own `ensureMain` type-checks.
+}): { readonly ensureMain?: Effect.Effect<Electron.BrowserWindow, E> } => ({
+  ensureMain: Effect.flatMap(
+    input.earlyProjectLink,
+    Option.match({
+      onNone: () => input.ensureMain,
+      onSome: (ref) =>
+        input
+          .requestWindow({ kind: "project-link", ref })
+          .pipe(
+            Effect.andThen(input.projectWindow(ref)),
+            Effect.flatMap(
+              Option.match({ onNone: () => input.ensureMain, onSome: Effect.succeed }),
+            ),
+          ),
+    }),
+  ),
+});
 
 /**
  * Fork-only: lazy opener bundle for the startup drain. Resolved at drain
