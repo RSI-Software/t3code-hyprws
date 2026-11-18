@@ -152,7 +152,8 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
     permits.withPermits(1)(
       Effect.gen(function* () {
         const thread = yield* projections.getThread(threadId);
-        if (isSettled(thread)) return;
+        // Delegated children bind lazily on terminal open, as at launch.
+        if (isSettled(thread) || thread.lineage.relationshipToParent === "subagent") return;
         const linked = yield* linkedLane(thread);
         if (Option.isNone(linked)) return;
         const bound = yield* binder.bind(linked.value.lane, { projectPath: linked.value.root });
