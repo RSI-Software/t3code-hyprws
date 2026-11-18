@@ -1,5 +1,6 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { GitHubReferenceStyle } from "@t3tools/contracts/settings";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { FolderGit2Icon, GithubIcon } from "lucide-react";
 import { useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode } from "react";
 
@@ -48,14 +49,25 @@ export function GitHubReferenceLink({
   const name = linkTarget.repository.split("/")[1];
   const numbered = linkTarget.number !== null;
   const read = useReferenceReadFork(environmentId, href, preferredProjectId);
+  // An `issues/N` that read as a pull request stays one; upstream's card then reads it.
+  const [promotedHref, setPromotedHref] = useState<string | null>(null);
+  const promoted = promotedHref === href && read?.kind === "issue" && read.pullRequest !== null;
   // A chip names its reference by title, so it reads up front; a plain link reads on hover.
   const chip = writtenText !== null && referenceStyle === "chip";
-  const { summary, revalidate } = useReferenceSummaryFork(read, numbered && (chip || open));
+  const { summary, revalidate } = useReferenceSummaryFork(
+    read,
+    numbered && (chip || (open && !promoted)),
+  );
+  if (!promoted && read?.kind === "issue" && summary?.kind === "pull-request") {
+    setPromotedHref(href);
+    setOpen(false);
+  }
   const state = useReferenceStateFork(summary);
   const shortReference = numbered ? `${name}#${linkTarget.number}` : linkTarget.repository;
   // `issues/N` names a pull request too; the read picks the panel, the written URL stays.
-  const panelHref =
-    summary?.kind === "pull-request" && linkTarget.kind !== "pull-request" ? summary.url : href;
+  const panelHref = promoted
+    ? (sourceControlClients.changeRequestUrlFromReferenceAutolink(href) ?? href)
+    : href;
   const Icon = state?.Icon ?? (numbered ? GithubIcon : FolderGit2Icon);
   const trigger = referenceTrigger({
     tracker: "github",
@@ -79,13 +91,7 @@ export function GitHubReferenceLink({
   });
 
   if (!numbered || read === null) return trigger;
-  // An `issues/N` that read as a pull request gets upstream's pull request card too.
-  const pullRequest =
-    read.kind === "pull-request"
-      ? read
-      : summary?.kind === "pull-request"
-        ? read.pullRequest
-        : null;
+  const pullRequest = read.kind === "pull-request" ? read : promoted ? read.pullRequest : null;
   if (pullRequest?.kind === "pull-request") {
     return <PullRequestLinkPreview link={trigger} originalUrl={href} target={pullRequest.target} />;
   }

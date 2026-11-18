@@ -178,9 +178,12 @@ export function useReferenceSummaryFork(
     enabled ? (pullRequestTarget?.environmentId ?? null) : null,
     enabled ? (pullRequestTarget?.input ?? null) : null,
   );
+  // An issue read that failed over to its pull request is expected to fail; it stays settled.
+  const queries = pullRequest.data !== null ? [pullRequest] : [issue, pullRequest];
   const revalidate = () => {
-    for (const query of [issue, pullRequest]) {
-      if (query.dataUpdatedAt > 0 && Date.now() - query.dataUpdatedAt > REVALIDATE_AFTER_MS) {
+    for (const query of queries) {
+      if (query.isPending) continue;
+      if (query.error !== null || Date.now() - query.dataUpdatedAt > REVALIDATE_AFTER_MS) {
         query.refresh();
       }
     }
