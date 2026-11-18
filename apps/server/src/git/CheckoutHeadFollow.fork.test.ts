@@ -320,7 +320,7 @@ describe("CheckoutHeadFollowFork", () => {
     }).pipe(Effect.provide(VcsLayer), Effect.scoped),
   );
 
-  it.effect("resolves only drifted threads and threads inside the followed checkout", () =>
+  it.effect("resolves only threads inside the followed checkout", () =>
     Effect.gen(function* () {
       const { root, feature } = yield* makeRepository;
       const harness = yield* makeHarness(root, [
@@ -334,10 +334,12 @@ describe("CheckoutHeadFollowFork", () => {
         expect(yield* harness.nextWatch).toBe("open");
         yield* follower.drain;
         harness.lookups.projects = 0;
+        harness.resolved.length = 0;
 
         // Only thread-1 differs from `main`, and it runs in another checkout;
         // the idle root threads still reconcile their managed session.
         yield* follower.follow(root);
+        expect(harness.resolved).not.toContain(feature);
         expect(harness.lookups).toEqual({ projects: 1, reconciles: 1 });
         expect(yield* Queue.size(harness.dispatched)).toBe(0);
 
@@ -407,7 +409,11 @@ describe("CheckoutHeadFollowFork", () => {
   it.effect("resolves only the threads a topology change moved", () =>
     Effect.gen(function* () {
       const { root, feature } = yield* makeRepository;
-      const harness = yield* makeHarness(root, [shell("thread-1", feature, "feature")]);
+      const removed = `${feature}-removed`;
+      const harness = yield* makeHarness(root, [
+        shell("thread-1", feature, "feature"),
+        shell("thread-removed", removed, "removed"),
+      ]);
       yield* Effect.gen(function* () {
         expect(yield* harness.nextWatch).toBe("open");
         harness.resolved.length = 0;
@@ -415,6 +421,7 @@ describe("CheckoutHeadFollowFork", () => {
         expect(yield* harness.nextWatch).toBe("open");
         expect(harness.resolved).toContain(root);
         expect(harness.resolved).not.toContain(feature);
+        expect(harness.resolved).not.toContain(removed);
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.provide(VcsLayer), Effect.scoped),
   );
