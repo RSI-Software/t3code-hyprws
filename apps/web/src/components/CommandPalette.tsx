@@ -58,9 +58,6 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
-import { buildIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
-import { buildLinkIssueActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-link-issue-import
-import { buildShowLinkedIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-show-linked-issues-import
 import { buildShowArtifactsActionItemFork } from "./threadArtifacts/threadArtifactsPalette.fork"; // fork-hook: thread-artifacts/command-palette-show-artifacts-import
 import { useForkThreadActionItemFork } from "./threadForkPalette.fork"; // fork-hook: thread-fork/command-palette-fork-thread-import
 import { buildShareWithCollaboratorActionItemFork } from "./collaborator/collaboratorPalette.fork"; // fork-hook: colleague-collab/command-palette-share-import
@@ -1826,21 +1823,6 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
-  const issuesActionItem = buildIssuesActionItemFork({
-    environments,
-    navigate,
-  }); // fork-hook: github-issues/command-palette-entry
-  if (issuesActionItem) actionItems.push(issuesActionItem); // fork-hook: github-issues/command-palette-entry-push
-  const linkIssueActionItem = buildLinkIssueActionItemFork(
-    activeThread,
-    activeThreadServerConfig?.environment.capabilities,
-  ); // fork-hook: github-issues/command-palette-link-issue
-  if (linkIssueActionItem) actionItems.push(linkIssueActionItem); // fork-hook: github-issues/command-palette-link-issue-push
-  const showLinkedIssuesItem = buildShowLinkedIssuesActionItemFork(
-    activeThread,
-    activeThreadServerConfig?.environment.capabilities,
-  ); // fork-hook: github-issues/command-palette-show-linked-issues
-  if (showLinkedIssuesItem) actionItems.push(showLinkedIssuesItem); // fork-hook: github-issues/command-palette-show-linked-issues-push
   const showArtifactsItem = buildShowArtifactsActionItemFork(activeThread); // fork-hook: thread-artifacts/command-palette-show-artifacts
   if (showArtifactsItem) actionItems.push(showArtifactsItem); // fork-hook: thread-artifacts/command-palette-show-artifacts-push
   if (forkThreadItem) actionItems.push(forkThreadItem); // fork-hook: thread-fork/command-palette-fork-thread-push
