@@ -9,7 +9,6 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Context from "effect/Context"; // fork-hook: upstream-fixes/mcp-visibility-import
 import * as Fiber from "effect/Fiber"; // fork-hook: upstream-fixes/mcp-visibility-import
 import * as HttpServerRequest from "effect/http/HttpServerRequest"; // fork-hook: upstream-fixes/mcp-visibility-import
 import * as Option from "effect/Option";
