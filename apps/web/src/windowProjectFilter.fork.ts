@@ -71,7 +71,7 @@ export function filterProjectsToWindow<Project extends WindowFilterableProject>(
 }
 
 /** The scoped project keys this window's filter shows; `null` shows every project. */
-export function useWindowProjectKeys(): ReadonlySet<string> | null {
+function useWindowProjectKeys(): ReadonlySet<string> | null {
   const state = windowProjectFilterState();
   const stored = useSyncExternalStore(state.subscribe, state.get);
   const projects = useProjects();

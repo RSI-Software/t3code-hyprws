@@ -98,8 +98,6 @@ import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import * as ToolSearchHandlers from "./toolkits/toolSearch/handlers.ts";
 import { ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
-import { IssuesToolkitHandlersLiveFork } from "./toolkits/issues/handlers.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
-import { IssuesToolkitFork } from "./toolkits/issues/tools.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
 import * as IssuesHandlers from "./toolkits/issues/handlers.ts";
 import { IssuesToolkit } from "./toolkits/issues/tools.ts";
 import { ArtifactsToolkitHandlersLiveFork } from "./toolkits/artifacts/handlers.fork.ts"; // fork-hook: thread-artifacts/mcp-artifacts-toolkit-import
@@ -1606,7 +1604,6 @@ export const layerTools = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
-  toolkitRegistration(IssuesToolkitFork, IssuesToolkitHandlersLiveFork), // fork-hook: github-issues/mcp-issues-toolkit
   layerIssuesToolkit,
   toolkitRegistration(ArtifactsToolkitFork, ArtifactsToolkitHandlersLiveFork), // fork-hook: thread-artifacts/mcp-artifacts-toolkit
   toolkitRegistration(ThreadGroupsToolkitFork, ThreadGroupsToolkitHandlersLiveFork), // fork-hook: thread-ordering/mcp-thread-groups-toolkit

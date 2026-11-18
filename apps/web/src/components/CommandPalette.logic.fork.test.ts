@@ -4,13 +4,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   browseInputEndPaddingClass,
   buildThreadActionItems,
-  filterCommandPaletteGroups,
   type CommandPaletteActionItem,
 } from "./CommandPalette.logic";
 import { makeThreadFixture } from "../test-fixtures";
 import {
-  buildLinkIssueActionItemFork,
-  buildShowLinkedIssuesActionItemFork,
   refreshNewThreadInViewFork,
   scopePaletteProjectEntriesFork,
   scopePalettePickerProjectsFork,
@@ -148,41 +145,5 @@ describe("palette project scope", () => {
     expect(withProjectScopeToggleFork(results, { projectKeys: null, toggle: null }, null)).toBe(
       results,
     );
-  });
-});
-
-describe("link GitHub issue action", () => {
-  const linkItem = buildLinkIssueActionItemFork(
-    { environmentId: EnvironmentId.make("local"), id: ThreadId.make("thread-1") },
-    { threadIssues: true },
-  );
-  const search = (query: string) =>
-    filterCommandPaletteGroups({
-      activeGroups: [{ value: "actions", label: "Actions", items: linkItem ? [linkItem] : [] }],
-      query,
-      isInSubmenu: false,
-      projectSearchItems: [],
-      threadSearchItems: [],
-    }).flatMap((group) => group.items.map((item) => item.value));
-
-  it("matches its own title and its short query", () => {
-    expect(search("link issue to thread")).toEqual(["action:link-github-issue"]);
-    expect(search("link github issue")).toEqual(["action:link-github-issue"]);
-    expect(search("link linear issue")).toEqual(["action:link-github-issue"]);
-  });
-});
-
-describe("show linked issues action", () => {
-  const thread = { environmentId: EnvironmentId.make("local"), id: ThreadId.make("thread-1") };
-
-  it("needs an environment that keeps issue links, and a link to open", () => {
-    expect(buildShowLinkedIssuesActionItemFork(thread, {})).toBeNull();
-    expect(buildShowLinkedIssuesActionItemFork(thread, { threadIssues: true })?.disabled).toBe(
-      true,
-    );
-    expect(
-      buildShowLinkedIssuesActionItemFork({ ...thread, issues: [{}] }, { threadIssues: true })
-        ?.disabled,
-    ).toBe(false);
   });
 });
