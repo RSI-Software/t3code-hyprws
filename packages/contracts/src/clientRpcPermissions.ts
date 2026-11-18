@@ -106,7 +106,6 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // Send stores and sends a report from a thread's turn: the bar of running that thread.
   [WS_METHODS.agentFeedbackAnswerRequest]: AuthOrchestrationOperateScope,
 
-  [WS_METHODS.issuesSetState]: AuthOrchestrationOperateScope, // fork-hook: github-issues/rpc-client-guard
   [WS_METHODS.threadGroupsMutateFork]: AuthOrchestrationOperateScope, // fork-hook: thread-ordering/thread-groups-rpc-client-guard
   [WS_METHODS.collaboratorShareThreadFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.collaboratorUnshareThreadFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard

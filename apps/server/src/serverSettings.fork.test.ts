@@ -109,23 +109,5 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ManagedPolicy.laye
         );
       }).pipe(Effect.provide(makeServerSettingsLayer())),
     );
-
-    it.effect("keeps the Linear API key in the secret store, out of the file and clients", () =>
-      Effect.gen(function* () {
-        const serverConfig = yield* ServerConfig.ServerConfig;
-        const fileSystem = yield* FileSystem.FileSystem;
-        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-
-        const saved = yield* serverSettings.updateSettings({ linearApiKey: "lin_api_secret" });
-        const client = ServerSettingsModule.redactServerSettingsForClient(saved, {
-          secretReferences: true,
-        });
-
-        assert.strictEqual((yield* serverSettings.getSettings).linearApiKey, "lin_api_secret");
-        assert.notInclude(yield* fileSystem.readFileString(serverConfig.settingsPath), "lin_api");
-        assert.notInclude(JSON.stringify(client), "lin_api");
-        assert.notStrictEqual(client.linearApiKey, "");
-      }).pipe(Effect.provide(makeServerSettingsLayer())),
-    );
   },
 );
