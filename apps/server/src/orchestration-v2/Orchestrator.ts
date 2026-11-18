@@ -9539,15 +9539,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* dispatchDelegatedRoundFork({
           command: { ...command, continueTaskId: command.continueTaskId },
           parentRunId: parentRun.id,
-          subagents: yield* projectionStore
-            .getThreadRecords(command.parentThreadId, ["subagents"])
+          ...(yield* projectionStore
+            .getThreadRecords(command.parentThreadId, ["subagents", "turnItems"], {
+              subagentIds: [command.continueTaskId],
+              turnItemNodeIds: [command.continueTaskId],
+              turnItemTypes: ["subagent"],
+            })
             .pipe(
-              Effect.map((records) => records.subagents),
               Effect.mapError(
                 (cause) =>
                   new OrchestratorProjectionError({ threadId: command.parentThreadId, cause }),
               ),
-            ),
+            )),
           loadChild: (threadId) =>
             projectionStore
               .getThreadRecords(threadId, ["runs"])
@@ -14773,7 +14776,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 },
               },
             ]),
-        ...(laterRoundFork || parentTurnItem === undefined // fork-hook: delegated-rounds/keep-original-turn-item
+        ...(parentTurnItem === undefined
           ? []
           : [
               {
@@ -14786,7 +14789,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 payload: {
                   ...parentTurnItem,
                   status: terminalStatus,
-                  result: result.text,
+                  ...(laterRoundFork ? {} : { result: result.text }), // fork-hook: delegated-rounds/keep-original-turn-item
                   completedAt: now,
                   updatedAt: now,
                 },
