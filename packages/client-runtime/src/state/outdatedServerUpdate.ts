@@ -108,7 +108,7 @@ export function trackOutdatedServerUpdate<A extends { readonly targetVersion: st
           stage: currentStage,
           fromVersion,
           targetVersion,
-          message: serverUpdateFailureMessage(Cause.squash(exit.cause)),
+          ...serverUpdateFailure(Cause.squash(exit.cause)),
         });
       }),
     ),

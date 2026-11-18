@@ -141,6 +141,7 @@ export const runStagedServicePreflight = Effect.fn("cloud.service_preflight.run_
     readonly targetVersion: string;
     readonly databasePath: string;
     readonly launcherProtocol: SupportedLauncherProtocol;
+    readonly onPreflightFork?: (preflight: ServicePreflightResult | undefined) => void; // fork-hook: upstream-fixes/migration-backup-label
   }) {
     const step = "running the staged service preflight";
     const command = pinnedRuntimeCommand(input.runtime);
@@ -173,6 +174,7 @@ export const runStagedServicePreflight = Effect.fn("cloud.service_preflight.run_
       ),
     );
     const preflight = decodeServicePreflightResult(parsed, input.launcherProtocol);
+    input.onPreflightFork?.(preflight); // fork-hook: upstream-fixes/migration-backup-label
     if (preflight === undefined || preflight.version !== input.targetVersion) {
       return yield* new PinnedRuntimeInstallError({
         step: "verifying the staged service preflight",

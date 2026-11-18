@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   publishSettledServerUpdateState,
   ServerUpdateTerminalError,
-  serverUpdateFailureMessage,
+  serverUpdateFailure,
   serverUpdateRestartElapsedSeconds,
   serverUpdateRestartStartedAt,
   serverUpdateStateAtom,
@@ -129,7 +129,7 @@ describe("server update progress", () => {
       status: "failed",
       stage: "resuming",
       ...versions,
-      message: serverUpdateFailureMessage(error),
+      message: serverUpdateFailure(error).message,
     } as const;
     expect(rolledBack.message).toBe("Update rolled back: Health check failed");
     for (const version of [null, versions.fromVersion]) {

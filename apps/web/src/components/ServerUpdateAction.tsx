@@ -55,12 +55,9 @@ const UPDATE_STAGE_LABELS: Record<ServerUpdateStage, string> = {
 };
 const pendingUpdateEnvironmentIds = new Set<EnvironmentId>();
 
-export function serverUpdateStageLabel(
-  stage: ServerUpdateStage,
-  resolve: MessageResolver = m,
-): string {
+function serverUpdateStageLabel(stage: ServerUpdateStage, resolve: MessageResolver = m): string {
   return resolve(UPDATE_STAGE_LABELS[stage]);
-}
+} // fork-hook: upstream-fixes/server-update-completed-banner
 
 /** Why the environment's policy refuses server updates, read outside render. */
 function readUpdatesDenial(environmentId: EnvironmentId): string | undefined {

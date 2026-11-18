@@ -236,6 +236,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
             targetVersion,
             databasePath: serverConfig.dbPath,
             launcherProtocol,
+            onPreflightFork: (preflight) => (preflightFork = preflight), // fork-hook: upstream-fixes/migration-backup-label
           }),
       }).pipe(
         Effect.mapError((error) => {
