@@ -1,20 +1,14 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { GitHubReferenceStyle } from "@t3tools/contracts/settings";
-import { ExternalLinkIcon, FolderGit2Icon, GithubIcon } from "lucide-react";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { FolderGit2Icon, GithubIcon } from "lucide-react";
 import { useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode } from "react";
 
-import { RelativeTime } from "~/components/RelativeTime";
-import { useLinkedReference, useSyncStaleLinkedReference } from "~/state/linkedReferences.fork";
-
-import { PullRequestActorAvatar } from "../pullRequest/pullRequestPresentation";
-import { InlineButton } from "../ui/button";
-import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
+import { PullRequestLinkPreview } from "../pullRequest/PullRequestLinkPreview";
 import type { GitHubLinkDestination, GitHubLinkTarget } from "./GitHubDestinationLink.fork";
-import {
-  referenceAnchorProps,
-  referenceStatePresentation,
-  referenceTrigger,
-} from "./referenceTrigger.fork";
+import { ReferenceLinkPreview, useReferenceStateFork } from "./ReferenceLinkPreview.fork";
+import { useReferenceReadFork, useReferenceSummaryFork } from "./referenceSummary.fork";
+import { referenceAnchorProps, referenceTrigger } from "./referenceTrigger.fork";
 
 export interface GitHubReferenceLinkProps extends Omit<
   ComponentPropsWithoutRef<"a">,
@@ -27,6 +21,7 @@ export interface GitHubReferenceLinkProps extends Omit<
   readonly linkTarget: GitHubLinkTarget;
   readonly referenceStyle: GitHubReferenceStyle;
   readonly environmentId: EnvironmentId | null;
+  readonly preferredProjectId: string | null;
   readonly preferredDestination: GitHubLinkDestination;
   readonly onOpen: (
     destination: GitHubLinkDestination,
@@ -43,6 +38,7 @@ export function GitHubReferenceLink({
   linkTarget,
   onOpen,
   preferredDestination,
+  preferredProjectId,
   referenceStyle,
   written: writtenText,
   ...props
@@ -52,22 +48,35 @@ export function GitHubReferenceLink({
   const [open, setOpen] = useState(false);
   const name = linkTarget.repository.split("/")[1];
   const numbered = linkTarget.number !== null;
-  // A thread-linked pull request reads the snapshot the server keeps synced; others show the reference.
-  const linked = useLinkedReference(environmentId, linkTarget.repository, linkTarget.number);
-  useSyncStaleLinkedReference(environmentId, linked);
-  const summary = linked?.summary ?? null;
-  const state = summary ? referenceStatePresentation(summary) : null;
+  const read = useReferenceReadFork(environmentId, href, preferredProjectId);
+  // An `issues/N` that read as a pull request stays one; upstream's card then reads it.
+  const [promotedHref, setPromotedHref] = useState<string | null>(null);
+  const promoted = promotedHref === href && read?.kind === "issue" && read.pullRequest !== null;
+  // A chip names its reference by title, so it reads up front; a plain link reads on hover.
+  const chip = writtenText !== null && referenceStyle === "chip";
+  const { summary, revalidate } = useReferenceSummaryFork(
+    read,
+    numbered && (chip || (open && !promoted)),
+  );
+  if (!promoted && read?.kind === "issue" && summary?.kind === "pull-request") {
+    setPromotedHref(href);
+    setOpen(false);
+  }
+  const state = useReferenceStateFork(summary);
   const shortReference = numbered ? `${name}#${linkTarget.number}` : linkTarget.repository;
-  // `issues/N` names a pull request too; the snapshot picks the panel, the written URL stays.
-  const panelHref = summary && linkTarget.kind !== "pull-request" ? summary.url : href;
-  const open_ = (
-    destination: GitHubLinkDestination,
-    event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
-  ) => onOpen(destination, event, destination === "native" ? panelHref : href);
+  // `issues/N` names a pull request too; the read picks the panel, the written URL stays.
+  const panelHref = promoted
+    ? (sourceControlClients.changeRequestUrlFromReferenceAutolink(href) ?? href)
+    : href;
   const Icon = state?.Icon ?? (numbered ? GithubIcon : FolderGit2Icon);
   const trigger = referenceTrigger({
     tracker: "github",
-    anchor: referenceAnchorProps(props, href, (event) => open_(preferredDestination, event)),
+    anchor: referenceAnchorProps(
+      { ...props, onPointerEnter: revalidate, onFocus: revalidate },
+      href,
+      (event) =>
+        onOpen(preferredDestination, event, preferredDestination === "native" ? panelHref : href),
+    ),
     className,
     children,
     writtenText,
@@ -81,56 +90,12 @@ export function GitHubReferenceLink({
     },
   });
 
+  if (!numbered || read === null) return trigger;
+  const pullRequest = read.kind === "pull-request" ? read : promoted ? read.pullRequest : null;
+  if (pullRequest?.kind === "pull-request") {
+    return <PullRequestLinkPreview link={trigger} originalUrl={href} target={pullRequest.target} />;
+  }
   return (
-    <PreviewCard open={open} onOpenChange={setOpen}>
-      <PreviewCardTrigger render={trigger} delay={300} closeDelay={150} />
-      <PreviewCardPopup align="start" className="w-80 max-w-[calc(100vw-2rem)]">
-        <div className="p-3">
-          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <GithubIcon aria-hidden className="size-3.5 shrink-0" />
-            <span className="min-w-0 truncate">{linkTarget.repository}</span>
-            <InlineButton
-              aria-label={`Open ${linkTarget.repository}${numbered ? `#${linkTarget.number}` : ""} on GitHub`}
-              onClick={(event) => {
-                setOpen(false);
-                onOpen("external", event, href);
-              }}
-            >
-              {numbered ? <span className={state?.toneClassName}>#{linkTarget.number}</span> : null}
-              <ExternalLinkIcon aria-hidden className="size-2.5" />
-            </InlineButton>
-            {state ? (
-              <state.Icon
-                role="img"
-                aria-label={state.label}
-                className={`ml-auto size-3.5 shrink-0 ${state.toneClassName}`}
-              />
-            ) : null}
-          </div>
-          {numbered ? (
-            <p className="mt-1.5 text-sm font-medium leading-snug text-foreground text-pretty">
-              {summary?.title ?? written ?? shortReference}
-            </p>
-          ) : null}
-          {summary ? (
-            <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              {summary.author ? (
-                <>
-                  <PullRequestActorAvatar
-                    actor={{ ...summary.author, name: null }}
-                    className="size-4"
-                  />
-                  <span className="truncate">{summary.author.login}</span>
-                  <span aria-hidden>·</span>
-                </>
-              ) : null}
-              <span className="shrink-0">
-                updated <RelativeTime timestamp={summary.updatedAt} />
-              </span>
-            </div>
-          ) : null}
-        </div>
-      </PreviewCardPopup>
-    </PreviewCard>
+    <ReferenceLinkPreview trigger={trigger} summary={summary} open={open} onOpenChange={setOpen} />
   );
 }
