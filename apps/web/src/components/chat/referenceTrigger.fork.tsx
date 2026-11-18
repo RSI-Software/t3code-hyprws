@@ -2,19 +2,6 @@ import type { GitHubReferenceStyle } from "@t3tools/contracts/settings";
 import type { ComponentPropsWithoutRef, MouseEvent, ReactElement, ReactNode } from "react";
 
 import { ContextChip, ContextChipLabel } from "../ContextChip";
-import { PULL_REQUEST_STATE_PRESENTATION } from "../pullRequest/pullRequestIcons";
-
-/** A thread-linked pull request as a chat reference shows it, from the thread's synced snapshot. */
-export interface PullRequestReferenceSummary {
-  readonly title: string;
-  readonly url: string;
-  readonly state: "open" | "closed" | "draft" | "merged";
-  readonly author: { readonly login: string; readonly avatarUrl: string | null } | null;
-  readonly updatedAt: string;
-}
-
-export const referenceStatePresentation = (summary: PullRequestReferenceSummary) =>
-  PULL_REQUEST_STATE_PRESENTATION[summary.state];
 
 type AnchorProps = Omit<ComponentPropsWithoutRef<"a">, "children" | "href" | "onClick">;
 
@@ -65,7 +52,7 @@ export function referenceTrigger(input: {
     readonly detail: string | null;
     readonly ariaLabel: string;
   };
-}): ReactElement {
+}): ReactElement<ComponentPropsWithoutRef<"a">> {
   const data = `data-${input.tracker}-reference`;
   if (input.writtenText === null || input.referenceStyle !== "chip") {
     return (
