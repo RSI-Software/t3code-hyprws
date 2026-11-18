@@ -130,9 +130,11 @@ it.effect("a delegated task continues on the same child, one result per round", 
 
     const afterRound1 = yield* readParent;
     const node = afterRound1.nodes.find((candidate) => candidate.id === opened.id);
-    const turnItem = afterRound1.turnItems.find(
-      (candidate) => candidate.type === "subagent" && candidate.subagentId === opened.id,
-    );
+    const taskTurnItem = (parent: typeof afterRound1) =>
+      parent.turnItems
+        .filter((candidate) => candidate.type === "subagent")
+        .find((candidate) => candidate.subagentId === opened.id);
+    const turnItem = taskTurnItem(afterRound1)!;
     assert.equal(afterRound1.subagents[0]!.status, "interrupted");
     assert.equal((yield* resultTransfers).length, 1);
     // task_status acknowledges the round it reads; the next round still wakes.
@@ -151,6 +153,8 @@ it.effect("a delegated task continues on the same child, one result per round", 
     assert.equal(reopened.runId, parentRun.id);
     assert.isNull(reopened.result);
     assert.deepEqual(reopened.completionDelivery, { state: "pending", observedByRunId: null });
+    // The open turn item holds the parent Waiting after its run ends.
+    assert.equal(taskTurnItem(yield* readParent)?.status, "running");
     const child = yield* projections.getThreadProjection(childThreadId);
     const round2Run = child.runs.find((run) => run.ordinal === 2)!;
     assert.ok(
@@ -173,12 +177,10 @@ it.effect("a delegated task continues on the same child, one result per round", 
       afterRound2.nodes.find((candidate) => candidate.id === opened.id),
       node,
     );
-    assert.deepEqual(
-      afterRound2.turnItems.find(
-        (candidate) => candidate.type === "subagent" && candidate.subagentId === opened.id,
-      ),
-      turnItem,
-    );
+    const turnItemAfterRound2 = taskTurnItem(afterRound2)!;
+    assert.equal(turnItemAfterRound2.status, "interrupted");
+    assert.equal(turnItemAfterRound2.runId, turnItem.runId);
+    assert.equal(turnItemAfterRound2.result, turnItem.result);
 
     // Upstream thread_send creates a separate task in this same child.
     yield* orchestrator.dispatch({
