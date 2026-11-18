@@ -409,6 +409,7 @@ const makeHarness = () => {
       })),
     getProjectThreadRecords: (input) => Effect.sync(() => projection(input.threadId) as never),
     getThreadRecords: (threadId) => Effect.sync(() => projection(threadId) as never),
+    getRunCount: (threadId) => Effect.sync(() => projection(threadId).runs.length),
     listProjectThreads: (input) =>
       Effect.sync(() =>
         [...projections.values()]
