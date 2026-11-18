@@ -7,7 +7,7 @@ import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
 import type { UnifiedSettings } from "@t3tools/contracts";
 
 import { SettingsRow, SettingResetButton } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Switch } from "../ui/switch";
 
@@ -20,6 +20,7 @@ export const externalSymlinksRestoreLabelFork = (settings: UnifiedSettings): Arr
 
 /** The Settings → General row for following external workspace symlinks. */
 export function ExternalSymlinksSettingsRowFork() {
+  const searchableSetting = useSearchableSetting();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
 
@@ -32,7 +33,7 @@ export function ExternalSymlinksSettingsRowFork() {
         settings.followExternalWorkspaceSymlinks !==
         DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks ? (
           <SettingResetButton
-            label="external workspace symlinks"
+            ariaLabel="Reset external workspace symlinks to default"
             onClick={() =>
               updateSettings({
                 followExternalWorkspaceSymlinks:

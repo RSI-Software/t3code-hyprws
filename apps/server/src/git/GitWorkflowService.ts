@@ -378,7 +378,7 @@ export const make = Effect.gen(function* () {
       return detectGitRepositoryForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
           isGitRepository
-            ? gitManager.localStatus(input, options)
+            ? gitManager.localStatus(input, options).pipe(withWorktrunkFlag(input.cwd)) // fork-hook: worktrunk-hooks/local-status-flag
             : Effect.succeed(nonRepositoryLocalStatus()),
         ),
       );

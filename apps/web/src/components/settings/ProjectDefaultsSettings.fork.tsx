@@ -28,7 +28,7 @@ export const workspaceEnvModeResetActionFork = (
   if (workspaceEnvMode === DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode) return null;
   return (
     <SettingResetButton
-      label="default workspace"
+      ariaLabel="Reset default workspace to default"
       onClick={() =>
         updateSettings(
           toWireThreadEnvModeOverrideFields(
