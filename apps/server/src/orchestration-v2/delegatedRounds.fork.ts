@@ -12,6 +12,7 @@ import {
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
+  type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -196,6 +197,7 @@ export const dispatchDelegatedRoundFork = Effect.fn("dispatchDelegatedRoundFork"
   readonly command: DelegatedRoundCommandFork & { readonly continueTaskId: string };
   readonly parentRunId: OrchestrationV2Run["id"];
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
+  readonly turnItems: ReadonlyArray<OrchestrationV2TurnItem>;
   readonly loadChild: (threadId: OrchestrationV2AppThread["id"]) => Effect.Effect<
     | {
         readonly thread: OrchestrationV2AppThread;
@@ -240,6 +242,21 @@ export const dispatchDelegatedRoundFork = Effect.fn("dispatchDelegatedRoundFork"
     occurredAt: now,
     payload: decided,
   });
+  // The reopened row is what marks the parent Waiting once its own run ends.
+  const turnItem = input.turnItems.find(
+    (candidate) => candidate.type === "subagent" && candidate.subagentId === decided.id,
+  );
+  if (turnItem !== undefined) {
+    yield* input.emit({
+      type: "turn-item.updated",
+      threadId: command.parentThreadId,
+      ...(turnItem.runId === null ? {} : { runId: turnItem.runId }),
+      ...(turnItem.nodeId === null ? {} : { nodeId: turnItem.nodeId }),
+      driver: decided.driver,
+      occurredAt: now,
+      payload: { ...turnItem, status: "running", completedAt: null, updatedAt: now },
+    });
+  }
   yield* input.sendToChild({
     type: "message.dispatch",
     createdBy: command.createdBy,
