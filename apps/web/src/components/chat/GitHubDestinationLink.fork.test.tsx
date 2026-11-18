@@ -1,3 +1,4 @@
+import { IssueTrackerKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -12,6 +13,7 @@ import {
   resolveGitHubReferenceHref,
   resolveLinearReferenceHref,
 } from "./githubReferences.fork";
+import { LINEAR_TRACKER, linearLenderFork } from "./issueLinkTarget.fork";
 
 describe("GitHub link destinations", () => {
   it.each([
@@ -144,5 +146,18 @@ describe("Linear references written as text", () => {
       "ENG-42#7",
       "ENG-42",
     ]);
+  });
+
+  it("reads a Linear issue through its team's project, else any project on Linear", () => {
+    const bindings = {
+      github: { tracker: IssueTrackerKind.make("github"), scope: "acme/app" },
+      ops: { tracker: LINEAR_TRACKER, scope: "OPS" },
+      eng: { tracker: LINEAR_TRACKER, scope: "eng" },
+      thread: { tracker: LINEAR_TRACKER, scope: "WEB" },
+    };
+    expect(linearLenderFork(bindings, "ENG", "thread")).toBe("eng");
+    expect(linearLenderFork(bindings, "DES", "thread")).toBe("thread");
+    expect(linearLenderFork(bindings, "DES", null)).toBe("ops");
+    expect(linearLenderFork({ github: bindings.github }, "ENG", null)).toBeNull();
   });
 });
