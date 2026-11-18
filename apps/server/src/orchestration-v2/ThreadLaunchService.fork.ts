@@ -1,5 +1,5 @@
 // Fork-owned post-create step for a V2 launch's thread worktree: bind the checkout's managed
-// zmux session, then run Worktrunk create hooks for a Worktrunk-mode launch. Neither fails the
+// zmux session (not for delegated children), then run Worktrunk create hooks for a Worktrunk-mode launch. Neither fails the
 // launch: a failure lands on the setup card and persists as a run-less `system_notice` turn item
 // so it survives a reload. Services are looked up optionally so upstream harnesses need none.
 import { type ThreadId, TurnItemId } from "@t3tools/contracts";
@@ -11,6 +11,7 @@ import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as EventSink from "./EventSink.ts";
+import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 
 interface ThreadWorktreeCreatedFork {
@@ -30,6 +31,16 @@ export const makeThreadWorktreeIntegrationsFork = Effect.gen(function* () {
   const worktrunk = yield* Effect.serviceOption(WorktrunkHookRunner.WorktrunkHookRunner);
   const eventSink = yield* Effect.serviceOption(EventSink.EventSinkV2);
   const ids = yield* IdAllocator.IdAllocatorV2;
+  const threads = yield* Effect.serviceOption(ThreadManagement.ThreadManagementService);
+
+  // A delegated child's session is created on first terminal open, not at launch.
+  const isDelegatedChild = (threadId: ThreadId) =>
+    Option.isNone(threads)
+      ? Effect.succeed(false)
+      : threads.value.getThreadShell(threadId).pipe(
+          Effect.map((shell) => shell?.lineage.relationshipToParent === "subagent"),
+          Effect.orElseSucceed(() => false),
+        );
 
   /** One notice per launch: a retried launch rewrites it instead of stacking a second. */
   const persistFailures = Effect.fn("ThreadLaunchService.persistFailures")(
@@ -83,7 +94,7 @@ export const makeThreadWorktreeIntegrationsFork = Effect.gen(function* () {
     const notes: Array<string> = [];
     const failures: Array<string> = [];
 
-    if (Option.isSome(zmux)) {
+    if (Option.isSome(zmux) && !(yield* isDelegatedChild(input.threadId))) {
       const bound = yield* zmux.value.bind(input.worktreePath, { projectPath: input.projectCwd });
       if (bound.status === "failed") {
         failures.push(`${bound.notice.summary}: ${bound.notice.detail}`);
