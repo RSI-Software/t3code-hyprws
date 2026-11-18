@@ -135,6 +135,7 @@ import { isHostedByThisApp } from "../sidebar/useUpdateEverything";
 import {
   ExternalSymlinksSettingsRowFork,
   externalSymlinksRestoreLabelFork,
+  ShowIgnoredFilesSettingsRowFork,
 } from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
 import { terminalRestoreDefaultsFork, terminalRestoreLabelsFork } from "./TerminalSettings.fork"; // fork-hook: zmux-estate/settings-restore-import
 
@@ -1221,27 +1222,9 @@ export function GeneralSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          {...searchableSetting("show-ignored-files")}
-          description="Include gitignored paths in workspace file trees. They remain hidden by default."
-          resetAction={
-            settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles ? (
-              <SettingResetButton
-                label="ignored files"
-                onClick={() =>
-                  updateSettings({ showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.showIgnoredFiles}
-              onCheckedChange={(checked) => updateSettings({ showIgnoredFiles: Boolean(checked) })}
-              aria-label="Show ignored files in workspace file trees"
-            />
-          }
-        />
+        {/* fork-hook: workspace-files/show-ignored-files-row */}
+        <ShowIgnoredFilesSettingsRowFork />
+        {/* fork-hook-end */}
 
         {/* fork-hook: upstream-fixes/settings-row-mount */}
         <ExternalSymlinksSettingsRowFork />

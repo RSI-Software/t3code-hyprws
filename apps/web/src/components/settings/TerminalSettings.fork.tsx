@@ -10,7 +10,7 @@ import {
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 const LAUNCH_MODE_LABELS: Record<TerminalSessionMode, string> = {
@@ -34,6 +34,7 @@ export const terminalRestoreDefaultsFork = {
 };
 
 export function TerminalSettingsFork() {
+  const searchableSetting = useSearchableSetting();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
 
@@ -46,7 +47,7 @@ export function TerminalSettingsFork() {
         resetAction={
           settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode ? (
             <SettingResetButton
-              label="default terminal"
+              ariaLabel="Reset default terminal to default"
               onClick={() =>
                 updateSettings({
                   terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
@@ -85,7 +86,7 @@ export function TerminalSettingsFork() {
         resetAction={
           settings.zmuxAutoSessions !== DEFAULT_UNIFIED_SETTINGS.zmuxAutoSessions ? (
             <SettingResetButton
-              label="automatic zmux sessions"
+              ariaLabel="Reset automatic zmux sessions to default"
               onClick={() =>
                 updateSettings({ zmuxAutoSessions: DEFAULT_UNIFIED_SETTINGS.zmuxAutoSessions })
               }
