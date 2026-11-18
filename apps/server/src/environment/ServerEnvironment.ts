@@ -25,7 +25,6 @@ import * as ProcessRunner from "../processRunner.ts";
 import { isSpeechPlatformSupported } from "../speech/platform.ts";
 import { resolveServerEnvironmentLabel } from "./ServerEnvironmentLabel.ts";
 import { detectServerEnvironmentMachineKind } from "./ServerEnvironmentMachine.ts";
-import { linearIssuesConfiguredFork } from "../issues/LinearIssueService.fork.ts"; // fork-hook: github-issues/server-environment-linear-import
 
 export class ServerEnvironmentIdPersistenceError extends Schema.TaggedError<ServerEnvironmentIdPersistenceError>()(
   "ServerEnvironmentIdPersistenceError",
@@ -228,14 +227,10 @@ export const make = Effect.gen(function* () {
       questionAttachments: true,
       fileAttachments: { maxUploadBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES },
       pullRequests: true,
-      githubIssues: true, // fork-hook: github-issues/server-environment-capability
-      linearIssues: yield* linearIssuesConfiguredFork, // fork-hook: github-issues/server-environment-linear-capability
       pullRequestChecks: true,
       threadGroupsFork: true, // fork-hook: thread-ordering/server-environment-thread-groups-capability
       collaboratorsFork: true, // fork-hook: colleague-collab/server-environment-capability
       speechRemoteModelFork: true, // fork-hook: voice-input/server-environment-capability
-      githubIssueStateChange: true, // fork-hook: github-issues/server-environment-state-change-capability
-      threadIssues: true, // fork-hook: github-issues/server-environment-thread-issues-capability
       issues: true,
       linkedThreadRefreshes: true,
       issueLinkedThreads: true,

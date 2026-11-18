@@ -11,25 +11,72 @@ import { hasPendingMigrations, runMigrations } from "./Migrations.ts";
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("ForkSchema", (it) => {
-  it.effect("creates the thread issue link table and its issue index idempotently", () =>
+  it.effect("rewrites fork-shaped issue links to upstream's shape", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
-      assert.isFalse(yield* hasPendingMigrations());
+      const link = {
+        url: "https://linear.app/acme/issue/PLAT-24/fix",
+        linkedAt: "2026-09-01T00:00:00.000Z",
+      };
+      const shell = {
+        projectId: "project-1",
+        issues: [
+          {
+            ...link,
+            host: "linear.app",
+            repository: "acme/plat",
+            number: 24,
+            source: "handoff",
+            snapshot: null,
+          },
+          {
+            host: "github.com",
+            repository: "Acme/Web",
+            number: 7,
+            url: "https://github.com/Acme/Web/issues/7",
+            source: "agent",
+            linkedAt: link.linkedAt,
+            snapshot: { title: "Broken build" },
+          },
+        ],
+      };
       yield* sql`
-        INSERT INTO projection_thread_issues (thread_id, host, repository, number, url, source, linked_at)
-        VALUES ('thread-1', 'github.com', 'acme/web', 7, 'https://github.com/acme/web/issues/7', 'manual', '2026-09-01T00:00:00.000Z')
+        INSERT INTO fork_colleague_shares (subject, thread_id, colleague_name, created_at, frozen_shell_json)
+        VALUES ('s', 'thread-1', 'Sam', ${link.linkedAt}, ${JSON.stringify(shell)})
       `;
-      // A rerun keeps the rows: the pass never rebuilds a table it already made.
+      assert.isTrue(yield* hasPendingMigrations());
       yield* ensureForkSchema();
-      const rows = yield* sql<{ readonly threadId: string }>`
-        SELECT thread_id AS "threadId" FROM projection_thread_issues
+      assert.isFalse(yield* hasPendingMigrations());
+      const [row] = yield* sql<{ readonly json: string }>`
+        SELECT frozen_shell_json AS json FROM fork_colleague_shares
       `;
-      assert.deepStrictEqual(rows, [{ threadId: "thread-1" }]);
-      const indexes = yield* sql<{ readonly name: string }>`
-        PRAGMA index_list(projection_thread_issues)
-      `;
-      assert.ok(indexes.some((index) => index.name === "idx_projection_thread_issues_issue"));
+      assert.deepStrictEqual(JSON.parse(row!.json).issues, [
+        {
+          tracker: "linear",
+          host: "linear.app",
+          scope: "PLAT",
+          key: "PLAT-24",
+          projectId: "project-1",
+          url: link.url,
+          source: "manual",
+          linkedAt: link.linkedAt,
+          displayKey: "PLAT-24",
+          title: "PLAT-24",
+        },
+        {
+          tracker: "github",
+          host: "github.com",
+          scope: "acme/web",
+          key: "7",
+          projectId: "project-1",
+          url: "https://github.com/Acme/Web/issues/7",
+          source: "agent",
+          linkedAt: link.linkedAt,
+          displayKey: "#7",
+          title: "Broken build",
+        },
+      ]);
     }),
   );
 });

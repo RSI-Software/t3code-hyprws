@@ -6,7 +6,6 @@ import { Atom } from "effect/reactivity";
 import { useEffect, useEffectEvent } from "react";
 
 import { connectionAtomRuntime } from "../connection/runtime";
-import { issueEnvironment } from "./issues";
 import {
   linkedReferenceIndex,
   linkedReferenceKey,
@@ -15,8 +14,8 @@ import {
 import { environmentThreadShells } from "./threads";
 import { useAtomCommand } from "./use-atom-command";
 
-// The servers' own freshness window; past it a snapshot the sweeps skip (a closed issue, a closed
-// or settled pull request) may be wrong, so a chip showing it asks for one shared reread.
+// The servers' own freshness window; past it a snapshot the sweeps skip (a closed or settled pull
+// request) may be wrong, so a chip showing it asks for one shared reread.
 const STALE_AFTER_MS = 5 * 60 * 1_000;
 
 // A reader reporting a state makes the server reread that pull request for every linked thread.
@@ -61,14 +60,11 @@ export function useSyncStaleLinkedReference(
   environmentId: EnvironmentId | null,
   linked: LinkedReference | null,
 ) {
-  const syncIssues = useAtomCommand(issueEnvironment.syncThreadLinks, { reportFailure: false });
   const reportState = useAtomCommand(reportPullRequestState, { reportFailure: false });
   const sync = useEffectEvent((environmentId: EnvironmentId, linked: LinkedReference) => {
     if (Date.now() - Date.parse(linked.syncedAt) < STALE_AFTER_MS) return;
     const { summary } = linked;
-    if (summary.kind === "issue") {
-      void syncIssues({ environmentId, input: { threadId: linked.threadId, scope: "stale" } });
-    } else if (summary.state !== "merged") {
+    if (summary.state !== "merged") {
       void reportState({
         environmentId,
         input: {
