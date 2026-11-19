@@ -1,7 +1,8 @@
 // This device's project filter (RSI-Software/t3code-hyprws#1351), kept as a
 // device-local preference. The single-select chooser's picks write it, and the
 // Home list's and the sidebar's selected project follow it.
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import {
   ALL_PROJECTS_FILTER,
   projectFilterFromKey,
@@ -13,7 +14,8 @@ import { AsyncResult } from "effect/reactivity";
 import { useEffect, useMemo, useRef } from "react";
 
 import { appAtomRegistry } from "../../state/atom-registry";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { useWorkspaceState } from "../../state/workspace";
 import type { ResolvedHomeListOptions } from "./home-list-options";
 import { buildHomeProjectScopes } from "./homeThreadList";
@@ -24,7 +26,7 @@ import { buildHomeProjectScopes } from "./homeThreadList";
  * so the pick itself, not a key change, has to reach the preference.
  */
 export function pickMobileProjectFilter(projectKey: string | null): void {
-  appAtomRegistry.set(updateMobilePreferencesAtom, {
+  void runAtomCommand(appAtomRegistry, saveMobilePreferences, {
     projectFilter: projectFilterFromKey(projectKey),
   });
 }
@@ -48,7 +50,7 @@ export function useMobileProjectFilter(
   setSelectedProjectKey: (key: string | null) => void,
 ) {
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   const loaded = AsyncResult.isSuccess(preferences);
   const stored = (loaded && preferences.value.projectFilter) || ALL_PROJECTS_FILTER;
   const { environments, state } = useWorkspaceState();
@@ -73,7 +75,7 @@ export function useMobileProjectFilter(
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the reconciled filter back to the persisted device preferences store
   useEffect(() => {
-    if (loaded && filter !== stored) savePreferences({ projectFilter: filter });
+    if (loaded && filter !== stored) void savePreferences({ projectFilter: filter });
   }, [filter, loaded, savePreferences, stored]);
 
   // The chooser can only show a key its environment filter lists.
