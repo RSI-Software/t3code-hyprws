@@ -1,4 +1,5 @@
 # Agent job size for rsi-agent; sizes live in RSI-Software/rsi apps/rsi-agent/server/providers/job-size.ts.
-# rsi#1934 replaced `jobs:` with `sandbox:` and dropped per-workflow sizes; the old block failed validation, so jobs ran light (4Gi) and fork-sync OOM-killed.
+# Job scratch lives in RAM: fork-sync holds ~6 GiB of files (one install, two checkouts), and its first
+# fork:ci peaks at 10.6 GiB at 2 CPUs, over standard's 10Gi limit.
 sandbox:
-  size: standard
+  size: heavy
