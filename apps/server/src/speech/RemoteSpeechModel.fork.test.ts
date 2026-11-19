@@ -52,7 +52,7 @@ const harness = Effect.fn(function* () {
     output: yield* Queue.make<string | Uint8Array | Socket.CloseEvent>(),
   };
   const opened: Array<{ url: string; headers: unknown }> = [];
-  const hooks = { removing: Effect.void };
+  const hooks = { removing: Effect.void, downloadCancelled: false };
   const layer = RemoteSpeechModel.layer((url, headers) =>
     Effect.sync(() => {
       opened.push({ url, headers });
@@ -73,6 +73,8 @@ const harness = Effect.fn(function* () {
       Layer.mergeAll(
         Layer.mock(SpeechService.SpeechService)({
           models: () => Effect.succeed({ models: [localModel] }),
+          downloadModel: () =>
+            Effect.sync(() => ({ models: [localModel], cancelled: hooks.downloadCancelled })),
           transcribe: () => Effect.succeed("local text"),
           updateAcceleration: () => Effect.succeed({ supported: false, reason: "local status" }),
           linkModels: () =>
@@ -174,6 +176,16 @@ describe("remote speech model", () => {
             [SPEECH_REMOTE_MODEL_ID_FORK, true],
             ["local", false],
           ]);
+
+          for (const cancelled of [false, true]) {
+            h.downloadCancelled = cancelled;
+            const downloaded = yield* speech.downloadModel("local");
+            expect(downloaded.cancelled).toBe(cancelled);
+            expect(downloaded.models.map(({ id, active }) => [id, active])).toEqual([
+              [SPEECH_REMOTE_MODEL_ID_FORK, true],
+              ["local", false],
+            ]);
+          }
 
           const removed = yield* speech.removeModel("local");
           expect(h.settings.speechModelId).toBe(SPEECH_REMOTE_MODEL_ID_FORK);

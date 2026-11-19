@@ -385,8 +385,8 @@ const make = Effect.fn("RemoteSpeechModel.make")(function* (openSocket: OpenReal
     models,
     // Upstream calls answer with its own catalog; every model change answers with the wrapped one.
     downloadModel: Effect.fn("RemoteSpeechModel.downloadModel")(function* (modelId: string) {
-      yield* local.downloadModel(modelId);
-      return yield* models(false);
+      const { cancelled } = yield* local.downloadModel(modelId);
+      return { ...(yield* models(false)), cancelled };
     }),
     linkModels: Effect.fn("RemoteSpeechModel.linkModels")(function* (source: string) {
       const remote = yield* selected;
