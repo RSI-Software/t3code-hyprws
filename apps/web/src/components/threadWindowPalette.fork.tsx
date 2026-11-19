@@ -9,13 +9,16 @@ import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "./CommandPalette
 
 /** The thread menus' "Open in New Window", where this client opens desktop windows. */
 export function buildOpenThreadWindowActionItemFork(
-  activeThread: {
-    readonly environmentId: EnvironmentId;
-    readonly id: ThreadId;
-    readonly projectId: ProjectId;
-  } | null,
+  activeThread:
+    | {
+        readonly environmentId: EnvironmentId;
+        readonly id: ThreadId;
+        readonly projectId: ProjectId;
+      }
+    | null
+    | undefined,
 ): CommandPaletteActionItem | null {
-  if (activeThread === null || !canOpenDesktopWindow()) return null;
+  if (activeThread == null || !canOpenDesktopWindow()) return null;
   const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
   return {
     kind: "action",
