@@ -93,6 +93,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowServi
               execute: (input) => Effect.die(`spawned Git in ${input.cwd}`),
             }),
           ),
+          Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: zmux-estate/removed-worktree-test-layer
+          Layer.provide(makeWorktrunkHookRunnerLayer()), // fork-hook: worktrunk-hooks/removed-worktree-test-layer
         ),
       ),
     ),
