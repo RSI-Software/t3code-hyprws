@@ -1967,7 +1967,7 @@ export const layer: Layer.Layer<
                   ...conversationForkTurnInputFork(
                     turnInput.message,
                     missedAttachments,
-                    goalCommand ? userText : withInlineContext(forkAwareContextFork, userText),
+                    goalCommand ? userText : withInlineContext(forkAwareContextFork, requestText),
                     userText,
                   ), // fork-hook: upstream-fixes/conversation-fork-context-text
                 });
