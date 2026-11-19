@@ -9,6 +9,7 @@ import {
 import { vi } from "vite-plus/test";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
@@ -85,6 +86,7 @@ describe("thread group edits", () => {
       const { mutate } = createThreadGroupEnvironmentAtoms(runtime);
       const registry = AtomRegistry.make();
       yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+      yield* AtomRegistry.mount(registry, sessions(ENVIRONMENT_ID));
       registry.set(
         sessions(ENVIRONMENT_ID),
         AsyncResult.success({
@@ -105,13 +107,13 @@ describe("thread group edits", () => {
           input: { type: "rename", groupId: "g1", title } as ThreadGroupMutationFork,
         });
 
-      const first = rename("First");
-      const second = rename("Second");
+      const first = yield* rename("First").pipe(Effect.forkScoped);
+      const second = yield* rename("Second").pipe(Effect.forkScoped);
       yield* Deferred.await(firstSent);
       yield* Deferred.succeed(replies[0]!, undefined);
-      expect(yield* Effect.promise(() => first)).toMatchObject({ _tag: "Success" });
+      expect(yield* Fiber.join(first)).toMatchObject({ revision: 1 });
       yield* Deferred.succeed(replies[1]!, undefined);
-      expect(yield* Effect.promise(() => second)).toMatchObject({ _tag: "Success" });
+      expect(yield* Fiber.join(second)).toMatchObject({ revision: 2 });
       // The second waits for the first reply, so the server applies them in order.
       expect(events).toEqual(["sent First", "answered First", "sent Second", "answered Second"]);
     }).pipe(Effect.scoped),
