@@ -21,6 +21,7 @@ import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserSession from "../../preview/BrowserSession.ts";
+import * as LoopbackTunnel from "../../preview/LoopbackTunnel.ts";
 import { previewManagerFixtureLayer } from "../../preview/Manager.fork-test-harness.ts";
 import { type WindowId, windowIdPreloadArgument } from "../../window/WindowId.fork.ts";
 
@@ -262,7 +263,12 @@ describe("fork preview IPC ownership", () => {
         });
       }).pipe(
         Effect.provideService(ElectronWindow.ElectronWindow, windows),
-        Effect.provide(managerLayer),
+        Effect.provide(
+          Layer.mergeAll(
+            managerLayer,
+            Layer.mock(LoopbackTunnel.LoopbackTunnel, { route: () => Effect.void }),
+          ),
+        ),
         Effect.scoped,
       );
     },
