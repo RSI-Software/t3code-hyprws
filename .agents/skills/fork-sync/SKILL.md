@@ -166,14 +166,20 @@ vp run fork:sync [<tag>]
 ## Decisions
 
 **Land, then ask:** a product call never stalls the sync; it lands on the default, and a human answers after.
-Record a call **only when user-visible behaviour changes**, as one line in `.t3/fork-sync/<tag>.decisions.md` in the main checkout:
+Record a call **only when an app user would notice it**, as one line in `.t3/fork-sync/<tag>.decisions.md` in the main checkout:
 
 - **A fork feature** retired, or its behaviour changed
 - **An upstream feature** the fork drops or alters
 
-**Never record** behaviour-preserving work: fixture and test adaptation, kept upstream code, or a Reshape that keeps behaviour.
+**Never record:**
 
-- **One line:** the feature, the call, the alternative
+- **Behaviour-kept** work: fixtures, tests, a Reshape
+- **Kept upstream code** the fork had no stake in
+- **Dev-only** changes: scripts, dev runner, launchers
+- **Cosmetic** changes: an icon, glyph, or animation
+
+**One line** in a user's words, naming no component, hook, or symbol: `<where>: now <X>, was <Y>; alternative: <Z>`.
+
 - **References:** full fork form; upstream in code spans
 - **Carried:** the next marker's trailers
 - **Resumed marker:** its items merge into the file
@@ -181,7 +187,7 @@ Record a call **only when user-visible behaviour changes**, as one line in `.t3/
 - **No items:** nothing posted
 
 ```md
-- FilePreviewPanel: truncated `.md` stays read-only; alternative: the rich editor
+- Branch picker: now blocked during a running turn, was allowed; alternative: allow it again
 ```
 
 ## Fold
