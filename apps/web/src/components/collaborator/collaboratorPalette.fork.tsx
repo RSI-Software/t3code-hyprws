@@ -14,9 +14,9 @@ import { openCollaboratorShareDialog } from "./collaboratorShareDialogState.fork
 
 /** The thread menus' "Share with collaborator…", for an operator of the active thread. */
 export function buildShareWithCollaboratorActionItemFork(
-  activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null,
+  activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined,
 ): CommandPaletteActionItem | null {
-  if (activeThread === null) return null;
+  if (activeThread == null) return null;
   if (!readEnvironmentScope(activeThread.environmentId, AuthOrchestrationOperateScope)) return null;
   const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
   return {
