@@ -1860,12 +1860,13 @@ it("rewrites the one standing issue for a new target and supersedes older open o
   );
 });
 
-it("relabels an unchanged body once, only after the job budget has passed", () => {
+it("relabels an unchanged body once, after its job settles or the job budget has passed", () => {
   const report = blockedReport("5".repeat(40));
   const publish = (
     stamp: string,
     labels: ReadonlyArray<string>,
     previous = attentionIssueBody(report),
+    sticky?: string,
   ) => {
     const writes: Array<{ readonly args: ReadonlyArray<string>; readonly body: string }> = [];
     const recording = exec({
@@ -1884,6 +1885,7 @@ it("relabels an unchanged body once, only after the job budget has passed", () =
               title: report.blocked!.title,
               body: `${previous}\n${stamp}`,
               labels: labels.map((name) => ({ name })),
+              comments: sticky === undefined ? [] : [{ body: `<!-- rsi:fork-sync -->\n${sticky}` }],
             },
           ]),
         );
@@ -1896,6 +1898,11 @@ it("relabels an unchanged body once, only after the job budget has passed", () =
   // still labelled, or a job may still be running: no write
   assert.deepStrictEqual(publish("", ["ci", "rsi:fork-sync"]), []);
   assert.deepStrictEqual(publish("<!-- agent-labelled:2026-09-21T09:00:00.000Z -->", ["ci"]), []);
+  const recent = "<!-- agent-labelled:2026-09-21T09:00:00.000Z -->";
+  assert.deepStrictEqual(publish(recent, ["ci"], undefined, "**running**: the agent works"), []);
+  // a job that settled inside the budget, such as one whose push lost its lease, retries at once
+  const [settled] = publish(recent, ["ci"], undefined, "**refused** `6b06ba4`: remote head moved");
+  assert.strictEqual(settled!.args[settled!.args.indexOf("--add-label") + 1], "rsi:fork-sync");
   // the job's label is gone and the body never moved: one retry
   const [retry, ...rest] = publish("<!-- agent-labelled:2026-09-21T07:00:00.000Z -->", ["ci"]);
   assert.deepStrictEqual(rest, []);
