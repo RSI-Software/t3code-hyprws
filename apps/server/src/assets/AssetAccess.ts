@@ -60,10 +60,7 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { toHostDrivePath } from "../workspace/hostDrivePath.ts";
-import {
-  externalSymlinksAllowed,
-  externalTargetRelativePath,
-} from "../workspace/ExternalSymlinks.fork.ts"; // fork-hook: upstream-fixes/asset-external-symlinks-follow
+import { externalSymlinksAllowed } from "../workspace/ExternalSymlinks.fork.ts"; // fork-hook: upstream-fixes/asset-external-symlink-containment
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import { extractIcnsPng } from "./icns.ts";
@@ -339,9 +336,9 @@ const resolveCanonicalWorkspaceFile = Effect.fn("AssetAccess.resolveCanonicalWor
 
     const path = yield* Path.Path;
     const relative = path.relative(canonicalRoot.value, canonicalFile.value);
-    if (relative === "") return null; // fork-hook: upstream-fixes/asset-external-symlinks-follow
-    const escapes = relative.startsWith("..") || path.isAbsolute(relative); // fork-hook: upstream-fixes/asset-external-symlinks-follow
-    if (escapes && !(yield* externalSymlinksAllowed)) return null; // fork-hook: upstream-fixes/asset-external-symlinks-follow
+    if (relative === "") return null; // fork-hook: upstream-fixes/asset-external-symlink-containment
+    const escapes = relative.startsWith("..") || path.isAbsolute(relative); // fork-hook: upstream-fixes/asset-external-symlink-containment
+    if (escapes && !(yield* externalSymlinksAllowed)) return null; // fork-hook: upstream-fixes/asset-external-symlink-containment
 
     if (input.previewBaseRelativePath !== undefined) {
       // The opened entry's own folder may be hidden; nothing below it, or reached outside it, may.
@@ -355,8 +352,6 @@ const resolveCanonicalWorkspaceFile = Effect.fn("AssetAccess.resolveCanonicalWor
         belowBase.startsWith("..") || path.isAbsolute(belowBase) ? relative : belowBase;
       if (!isPreviewDependencyPath(dependency, path)) return null;
     }
-    const dependencyPath = escapes ? externalTargetRelativePath(relative) : relative; // fork-hook: upstream-fixes/asset-external-symlinks-follow
-    if (input.previewDependency && !isPreviewDependencyPath(dependencyPath, path)) return null; // fork-hook: upstream-fixes/asset-external-symlinks-follow
 
     const info = yield* ProjectFaviconResolver.optionOnNotFound(
       fileSystem.stat(canonicalFile.value),

@@ -21,10 +21,3 @@ export const externalSymlinksAllowed: Effect.Effect<boolean> = Effect.serviceOpt
         ),
   ),
 );
-
-/** A realpath relative to the workspace root without the `..` steps an allowed escape takes. */
-export const externalTargetRelativePath = (relative: string): string => {
-  const segments = relative.split(/[\\/]/);
-  const start = segments.findIndex((segment) => segment !== "..");
-  return segments.slice(start === -1 ? segments.length : start).join("/");
-};
