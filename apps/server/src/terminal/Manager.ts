@@ -3391,6 +3391,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         normalizedRuntimeEnv(input.env),
         platform,
         yield* HostProcess.HomeDirectory,
+        session.threadId,
       ), // fork-hook: zmux-estate/retarget-spawn-env-platform
     );
     const resolved = yield* (
