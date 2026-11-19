@@ -92,6 +92,9 @@ const provider = {
   skills: [],
 } satisfies ServerProvider;
 
+const toolMessage = (text: string) =>
+  `[T3 Code: this message came through T3 Code's tools, not from the user typing in this chat.]\n\n${text}`;
+
 /** Turns stay running until the test completes or interrupts them. */
 const makeAdapter = () => {
   const started: Array<string> = [];
@@ -251,7 +254,7 @@ const makeAdapter = () => {
     }),
   );
   /** Waits until the provider has received the steer carrying `text`. */
-  const steerReached = (text: string) => Deferred.await(steerSignal(text));
+  const steerReached = (text: string) => Deferred.await(steerSignal(toolMessage(text)));
   return { adapter, started, steered, complete, holdStarts, steerReached };
 };
 
@@ -558,7 +561,7 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         yield* waitForProjection(orchestrator, threadId, hasRun("completed"));
         // No run is left to steer, but the retry is the same request.
         assert.deepEqual(yield* service.sendToThread(principal, steer), steered);
-        assert.deepEqual(provider.steered, ["steer"]);
+        assert.deepEqual(provider.steered, [toolMessage("steer")]);
 
         const next = yield* service.sendToThread(principal, {
           threadId,
@@ -583,7 +586,7 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         assert.equal(after.runs.at(-1)?.id, third.runId);
         assert.equal(after.runs.at(-1)?.status, "running");
         assert.notEqual(first.runs[0]?.id, third.runId);
-        assert.deepEqual(provider.started, ["first", "second", "third"]);
+        assert.deepEqual(provider.started, ["first", "second", "third"].map(toolMessage));
         assert.equal(
           after.messages.filter((message) => message.role === "user" && message.text === "steer")
             .length,
@@ -614,7 +617,7 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
           ...steered,
           status: "completed",
         });
-        assert.deepEqual(provider.steered, ["steer"]);
+        assert.deepEqual(provider.steered, [toolMessage("steer")]);
 
         const next = yield* service.sendToThread(principal, {
           threadId,
@@ -671,7 +674,7 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         const latest = yield* orchestrator.getThreadProjection(threadId);
         assert.equal(latest.runs.at(-1)?.id, fourth.runId);
         assert.equal(latest.runs.at(-1)?.status, "running");
-        assert.deepEqual(provider.started, ["first", "second", "third", "fourth"]);
+        assert.deepEqual(provider.started, ["first", "second", "third", "fourth"].map(toolMessage));
       }),
     ),
   );
@@ -986,7 +989,7 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         assert.deepEqual(provider.steered, []);
         assert.equal((yield* send("vetted", "auto", vetted)).delivery, "steered");
         yield* provider.steerReached("vetted");
-        assert.deepEqual(provider.steered, ["vetted"]);
+        assert.deepEqual(provider.steered, [toolMessage("vetted")]);
 
         // The owner restarts the run: same run id, new attempt.
         const runId = running.runs[0]!.id;
@@ -1032,11 +1035,11 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
           })
           .pipe(Effect.flip);
         assert.equal(late._tag, "OrchestratorDispatchError");
-        assert.deepEqual(provider.steered, ["vetted"]);
+        assert.deepEqual(provider.steered, [toolMessage("vetted")]);
         const current = restarted.runs[0]!.activeAttemptId!;
         assert.equal((yield* send("current", "auto", current)).delivery, "steered");
         yield* provider.steerReached("current");
-        assert.deepEqual(provider.steered, ["vetted", "current"]);
+        assert.deepEqual(provider.steered, ["vetted", "current"].map(toolMessage));
       }),
     ),
   );
