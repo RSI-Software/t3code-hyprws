@@ -213,7 +213,8 @@ The run **adopts the newest open `ci` issue** titled `hyprws sync blocked` or `h
 - **Never post** a sync issue to `pingdotgg/t3code`
 
 A blocked run, or one failed at **`carry`, `hooks`, or `ci`**, adds **`rsi:fork-sync`**, which starts rsi-agent's `fork-sync` job; it labels on create or on a **new key line** (`sync-failure` or `blocking-sha`).
-A rerun on the **same key relabels once**, after the job budget (`AGENT_RETRY_AFTER_MS` in `scripts/fork-sync.ts`); a **second miss waits for a human**.
+A rerun on the **same key relabels once**, as soon as the job's sticky comment **settles** (a refused push too), else after the job budget (`AGENT_RETRY_AFTER_MS` in `scripts/fork-sync.ts`); a **second miss waits for a human**.
+The settled sticky itself dispatches that rerun, so the retry never waits on GitHub's best-effort `schedule`.
 While the issue carries **`rsi:agent-halted`**, the driver adds no label and the body says a human must act.
 
 The land run also keeps **one driver comment**, `<!-- hyprws:sync-driver -->`, edited in place at each step.
