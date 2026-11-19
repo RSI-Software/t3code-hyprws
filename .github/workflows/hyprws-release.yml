@@ -318,7 +318,8 @@ jobs:
     if: |
       !failure() && !cancelled() && needs.preflight.result == 'success' &&
       needs.preflight.outputs.gate_proceed == 'true'
-    runs-on: ubuntu-latest
+    # Native modules link the runner's glibc; upstream builds on 24.04, under the 2.39 ceiling.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       T3CODE_RELAY_URL: ${{ vars.T3CODE_RELAY_URL }}
