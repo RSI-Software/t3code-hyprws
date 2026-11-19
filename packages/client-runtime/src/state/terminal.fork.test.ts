@@ -1,4 +1,5 @@
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { expect, it } from "vite-plus/test";
 
@@ -19,11 +20,11 @@ it("sends the attached input's attachment with resize, initial input, reopen, an
   const written = Promise.withResolvers<void>();
   const command = (name: string) => ({
     label: name,
-    run: async (_registry: AtomRegistry.AtomRegistry, value: { readonly input: unknown }) => {
-      calls.push({ command: name, input: value.input });
-      if (name === "write") written.resolve();
-      return AsyncResult.success(undefined);
-    },
+    run: (_registry: AtomRegistry.AtomRegistry, value: { readonly input: unknown }) =>
+      Effect.sync(() => {
+        calls.push({ command: name, input: value.input });
+        if (name === "write") written.resolve();
+      }),
   });
   const session = createTerminalSession(
     {
