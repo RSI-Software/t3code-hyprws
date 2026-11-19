@@ -20,12 +20,12 @@ import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "./CommandPalette
  * operator. Disabled while the thread is busy or a fork of it is in flight.
  */
 export function useForkThreadActionItemFork(
-  activeThread: EnvironmentThreadShell | null,
+  activeThread: EnvironmentThreadShell | null | undefined,
 ): CommandPaletteActionItem | null {
   const dispatch = useThreadForkDispatchFork();
   // The orchestrator refuses a busy fork anyway, so a minute's precision is enough here.
   const now = useNowMinute();
-  if (activeThread === null) return null;
+  if (activeThread == null) return null;
   const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
   if (!readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)) return null;
   const state = forkThreadMenuStateFork(
