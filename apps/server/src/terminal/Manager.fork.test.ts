@@ -260,7 +260,7 @@ it.layer(
         worktreePath: destination,
         env: { T3CODE_WORKTREE_PATH: destination },
       });
-      expect(sourceProcess.killSignals[0]).toBe("SIGTERM");
+      expect(sourceProcess.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
       expect(ptyAdapter.spawnInputs).toHaveLength(2);
       expect(moved).toMatchObject({ cwd: destination, worktreePath: destination });
       expect(inspectionCount).toBeGreaterThanOrEqual(3);
@@ -584,7 +584,7 @@ it.layer(
       const moved = yield* manager.open(
         openInput({ cwd: nestedCwd, worktreePath: destination, cols: 132, rows: 41 }),
       );
-      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(sourceProcess?.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
       expect(moved).toMatchObject({
         cwd: nestedCwd,
         worktreePath: destination,
@@ -618,7 +618,7 @@ it.layer(
         openInput({ cwd: destination, worktreePath: destination, cols: 434, rows: 15 }),
       );
 
-      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(sourceProcess?.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
       expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
       expect(ptyAdapter.spawnInputs[1]).toMatchObject({ cols: 434, rows: 15 });
       expect(moved.history).toBe(redraw);
@@ -874,7 +874,7 @@ it.layer(
       move.interruptUnsafe();
       expect(move.pollUnsafe()).toBeUndefined();
 
-      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(sourceProcess?.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
       expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
       yield* Deferred.succeed(releaseBarrier, undefined);
       yield* Fiber.await(move);
@@ -1237,7 +1237,7 @@ it.layer(
       yield* Deferred.succeed(releaseBarrier, undefined);
       const moved = yield* Fiber.join(move);
 
-      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(sourceProcess?.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
       expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
       expect(moved).toMatchObject({
         cwd: destination,
@@ -1263,7 +1263,7 @@ it.layer(
       yield* TestClock.adjust("4999 millis");
       expect(ptyProcess?.killSignals).toEqual([]);
       yield* TestClock.adjust("1 milli");
-      expect(ptyProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(ptyProcess?.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
   it.effect("treats a first-attach deadline racing process exit as an explicit no-op", () =>
@@ -1338,7 +1338,7 @@ it.layer(
       secondRelease();
       yield* Effect.yieldNow;
       yield* TestClock.adjust("1500 millis");
-      expect(ptyProcess.killSignals[0]).toBe("SIGTERM");
+      expect(ptyProcess.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
   it.effect("re-resolves a suspended checkout after its zmux target is renamed", () =>
@@ -1381,7 +1381,7 @@ it.layer(
       firstRelease();
       yield* Effect.yieldNow;
       yield* TestClock.adjust("1500 millis");
-      expect(firstProcess.killSignals[0]).toBe("SIGTERM");
+      expect(firstProcess.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
       expect(siblingProcess.killSignals).toEqual([]);
       const resumedEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
       const resumedRelease = yield* manager.attachStream(
@@ -1572,7 +1572,7 @@ it.layer(
       yield* TestClock.adjust("1500 millis");
       const ptyProcess = ptyAdapter.processes[0];
       expect(ptyProcess).toBeDefined();
-      expect(ptyProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(ptyProcess?.killSignals.slice(0, 2)).toEqual(["SIGHUP", "SIGTERM"]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
   it.effect("retries a failed exact-target resume on the next visibility demand", () =>

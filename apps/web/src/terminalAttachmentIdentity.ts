@@ -26,7 +26,7 @@ export function ownTerminalAttachments<
   Session extends {
     readonly target: { readonly terminalId: string; readonly attachmentId?: string };
   },
->(sessions: ReadonlyArray<Session> | null) {
+>(sessions: ReadonlyArray<Session> | null | undefined) {
   return sessions?.filter(
     (session) => session.target.attachmentId === terminalAttachmentId(session.target.terminalId),
   );
