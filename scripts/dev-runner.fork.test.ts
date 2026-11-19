@@ -82,7 +82,7 @@ const spawnedEnv = (input: {
       ),
       Effect.provideService(HostProcess.Platform, "linux"),
       Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
-      Effect.provideService(HostProcess.HomeDirectory, input.cwd),
+      Effect.provideService(HostProcess.HomeDirectory, NodeOS.homedir()),
       Effect.provideService(HostProcess.Environment, input.ambient ?? {}),
     );
     return captured;
