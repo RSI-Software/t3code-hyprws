@@ -84,12 +84,15 @@ const AGENT_LABEL = "rsi:fork-sync";
 const AGENT_STEPS: ReadonlySet<string> = new Set(["carry", "hooks", "ci"]);
 /**
  * Every labelling write stamps its time. An unlabelled issue whose body has not
- * moved since then holds a job that failed or made no progress; once the job
- * budget (45 min run, 12 min push) has surely passed, that body relabels once,
- * and a second miss waits for a human.
+ * moved since then holds a job that failed, lost its push, or made no progress;
+ * once its sticky comment settles, or the job budget (45 min run, 12 min push)
+ * has surely passed, that body relabels once, and a second miss waits for a human.
  */
 const AGENT_STAMP_PATTERN = /^<!-- agent-labelled:(\S+)( retried)? -->$/m;
 const AGENT_RETRY_AFTER_MS = 75 * 60 * 1000;
+/** rsi-agent's one sticky comment per issue; hyprws-sync-resolution.yml reads the same states. */
+const AGENT_STICKY_MARKER = "<!-- rsi:fork-sync -->";
+const AGENT_LIVE_STATES = ["**running**", "**pushing**"];
 /** rsi-agent's own stop after repeated failed jobs; it refuses every `rsi:` label while set. */
 const AGENT_HALTED_LABEL = "rsi:agent-halted";
 const AGENT_HALTED_LINE =
@@ -1579,6 +1582,7 @@ export interface OpenBlockIssue {
   readonly title: string;
   readonly body: string;
   readonly labels?: ReadonlyArray<{ readonly name: string }>;
+  readonly comments?: ReadonlyArray<{ readonly body: string }>;
 }
 
 /**
@@ -1623,7 +1627,7 @@ export const githubClient = (
           titlePhrase,
           ...repo,
           "--json",
-          "number,title,body,labels",
+          "number,title,body,labels,comments",
         ],
         { cwd: root },
       ),
@@ -1764,10 +1768,15 @@ const upsertStandingIssue = (
   // only the issue's key line makes a run new and earns a fresh label
   const keyOf = (text: string): string | undefined => text.match(ISSUE_KEY_PATTERN)?.at(-1);
   const newKey = keyOf(standing.body) !== keyOf(body);
+  const sticky = standing.comments?.findLast(({ body }) => body.includes(AGENT_STICKY_MARKER));
+  const jobSettled =
+    sticky !== undefined && !AGENT_LIVE_STATES.some((state) => sticky.body.includes(state));
   const retryDue =
     !standingLabels.includes(AGENT_LABEL) &&
     stamp?.[2] === undefined &&
-    (stamp === null || Date.parse(now) - Date.parse(stamp[1]!) >= AGENT_RETRY_AFTER_MS);
+    (stamp === null ||
+      jobSettled ||
+      Date.parse(now) - Date.parse(stamp[1]!) >= AGENT_RETRY_AFTER_MS);
   const relabel = labels.length > 0 && !halted && (newKey || retryDue);
   // the machine title suffix never matches the render, so the decision is on
   // the normalised body alone
