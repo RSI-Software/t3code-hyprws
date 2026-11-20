@@ -1567,7 +1567,7 @@ export const layerWithOptions = (
                     { discard: true },
                   ).pipe(logReleaseFailure(input.providerSessionId));
                   // fork-hook: upstream-fixes/deliberate-session-release
-                  if (input.reason === "manual_shutdown") {
+                  if (input.reason === "manual_shutdown" && input.detachedThreadId === undefined) {
                     for (const threadId of entry.attachedThreadIds) {
                       // fork-hook: upstream-fixes/release-interrupts-fault-tolerant
                       // A read failure must not skip the teardown below: the
