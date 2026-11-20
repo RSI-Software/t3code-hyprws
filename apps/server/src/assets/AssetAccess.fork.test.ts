@@ -17,6 +17,7 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { ASSET_ROUTE_PREFIX, issueAssetUrl, resolveAsset } from "./AssetAccess.ts";
 import * as AssetSigner from "./AssetSigner.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
+import * as WorkspacePreviewRevisions from "./WorkspacePreviewRevisions.ts";
 
 const layerConfig = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-asset-access-fork-test-",
@@ -26,6 +27,7 @@ const layerTest = Layer.mergeAll(
   Layer.mock(ProjectFaviconResolver.ProjectFaviconResolver)({}),
   Layer.mock(NativeAppIconResolver.NativeAppIconResolver)({}),
   WorkspacePaths.layer,
+  WorkspacePreviewRevisions.layer,
   ServerSettings.layerTest(),
   AssetSigner.layer.pipe(
     Layer.provideMerge(ServerSecretStore.layer.pipe(Layer.provide(layerConfig))),
