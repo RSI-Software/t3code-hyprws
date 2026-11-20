@@ -15339,11 +15339,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       forkedFrom?.type !== "node"
     )
       return;
-    const progress = delegatedRoundProgressFork(
-      childControls,
-      childControls.thread.lineage.parentThreadId,
-      { includeFollowups: true },
-    ); // fork-hook: delegated-rounds/finalize-progress
     // Each task of this child names it, so the parent's other tasks stay unread.
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, ["subagents"], {
       subagentChildThreadIds: [childThreadId],
@@ -15360,10 +15355,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         task.childThreadId === childThreadId &&
         !(task.result !== null && resultSent),
     );
-    const { controls: childControls, progress } = yield* readDelegatedChildControls(
+    const { controls: childControls } = yield* readDelegatedChildControls(
       childThreadId,
       openTasks.map((task) => task.id),
-    );
+    ); // fork-hook: delegated-rounds/finalize-controls
+    const progress = delegatedRoundProgressFork(
+      {
+        ...childControls,
+        ...(yield* projectionStore.getThreadRecords(childThreadId, ["messages"], {
+          messageRoles: ["user"],
+          messageRunIds: childControls.runs.map((run) => run.id),
+        })),
+      },
+      parentThreadId,
+      { includeFollowups: true },
+    ); // fork-hook: delegated-rounds/finalize-progress
     for (const task of openTasks) {
       // A cancelled task does not wait for the work its cancel is stopping.
       const cancelled = task.cancelledRunId !== undefined;
