@@ -1,14 +1,18 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
   MessageId,
   NodeId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderSessionId,
+  ProviderThreadId,
   type RunId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -232,7 +236,58 @@ it.effect("a delegated task continues on the same child, one result per round", 
     const round3Run = (yield* projections.getThreadProjection(childThreadId)).runs.find(
       (run) => run.ordinal === 4,
     )!;
-    yield* endRound(childThreadId, round3Run.id, "round-3");
+    // Cancel a completed round before its provider's background-work roster clears.
+    const now = yield* DateTime.now;
+    yield* eventSink.write({
+      commandId: CommandId.make("command:runtime-reconcile:round-3-background"),
+      events: [
+        {
+          id: EventId.make("event:round-3-completed"),
+          type: "run.updated",
+          threadId: childThreadId,
+          runId: round3Run.id,
+          occurredAt: now,
+          payload: { ...round3Run, status: "completed", startedAt: now, completedAt: now },
+        },
+        {
+          id: EventId.make("event:round-3-background"),
+          type: "provider-thread.updated",
+          threadId: childThreadId,
+          occurredAt: now,
+          payload: {
+            id: ProviderThreadId.make("provider-thread:rounds"),
+            driver: adapter.driver,
+            providerInstanceId: instanceId,
+            providerSessionId: ProviderSessionId.make("provider-session:rounds"),
+            appThreadId: childThreadId,
+            ownerNodeId: null,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            status: "active",
+            firstRunOrdinal: null,
+            lastRunOrdinal: null,
+            handoffIds: [],
+            forkedFrom: null,
+            pendingBackgroundTasks: [
+              { taskId: "background", kind: "command", description: "Build", awaited: true },
+            ],
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      ],
+    });
+    yield* orchestrator.cancelDelegatedTask({
+      parentThreadId,
+      taskId: opened.id,
+      command: {
+        type: "thread.stop",
+        commandId: CommandId.make("cancel-round-3"),
+        threadId: childThreadId,
+        stopDelegatedTasks: false,
+      },
+      stopDescendants: () => Effect.void,
+    });
     assert.equal((yield* readParent).subagents[0]!.status, "interrupted");
     assert.deepEqual(
       (yield* resultTransfers).map((transfer) => transfer.sourcePoint.runId),

@@ -14906,7 +14906,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         childControls,
         childControls.thread.lineage.parentThreadId,
       ); // fork-hook: delegated-rounds/round-progress
-      if (taskRuns.length === 0 && progress.state !== "result_available") return; // fork-hook: delegated-rounds/round-result-gate
+      if (
+        taskRuns.length === 0 &&
+        (options.task.cancelledRunId === undefined
+          ? progress.state !== "result_available"
+          : progress.state === "working")
+      )
+        return; // fork-hook: delegated-rounds/round-result-gate
       const childRun =
         taskRuns.length === 0
           ? options.task.id === forkedFrom.nodeId
