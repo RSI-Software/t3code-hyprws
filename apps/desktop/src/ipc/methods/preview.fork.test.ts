@@ -305,6 +305,7 @@ describe("fork preview IPC ownership", () => {
         subscribeOwnedPointerEvents: () => Effect.void,
         subscribeOwnedOpenLinks: () => Effect.void,
       } as never),
+      Effect.provide(Layer.mock(LoopbackTunnel.LoopbackTunnel, { route: () => Effect.void })),
     );
   });
 

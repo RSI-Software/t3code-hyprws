@@ -102,6 +102,10 @@ function codexTranscriptAcrossMove(
   const resume = transcript.entries.findIndex(
     (entry) => entry.type === "expect_outbound" && entry.label === "thread/resume",
   );
+  const resumeConfig = transcript.entries.findLastIndex(
+    (entry, index) =>
+      index < resume && entry.type === "expect_outbound" && entry.label === "config/read",
+  );
   const before = transcript.entries.slice(0, exit);
   const lastId = Math.max(
     ...before.map((entry) =>
@@ -114,9 +118,11 @@ function codexTranscriptAcrossMove(
   const resumeId = (transcript.entries[resume] as { readonly frame: { readonly id: number } }).frame
     .id;
   // Requests after the move continue this connection's id sequence.
-  const shift = unsubscribeId + 1 - resumeId;
+  const configId = (transcript.entries[resumeConfig] as { readonly frame: { readonly id: number } })
+    .frame.id;
+  const shift = unsubscribeId + 1 - configId;
   const after = transcript.entries
-    .slice(resume)
+    .slice(resumeConfig)
     // The live connection already named this thread; only a fresh runtime repeats it.
     .filter(
       (entry) =>
