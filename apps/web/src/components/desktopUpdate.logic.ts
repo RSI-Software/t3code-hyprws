@@ -1,4 +1,3 @@
-import { desktopTrackMismatchText } from "@t3tools/client-runtime/state/server";
 import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
 import { desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
 import { msg } from "gt-react";
@@ -157,14 +156,6 @@ export function getDesktopUpdateButtonTooltip(
       return resolve(
         msg("Update {version} downloaded. Click to restart and install.", {
           version: state.downloadedVersion,
-        }),
-      );
-    }
-    if (state.trackMismatch !== undefined) {
-      return resolve(
-        desktopTrackMismatchText({
-          buildChannel: state.trackMismatch.buildChannel,
-          savedChannel: state.channel,
         }),
       );
     }

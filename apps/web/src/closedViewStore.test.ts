@@ -58,13 +58,7 @@ describe("closedViewStore", () => {
       id: "bad",
       kind: "panel-tab",
       threadRef: refA,
-      surface: { kind: "thread", id: "thread:x" },
-    },
-    {
-      id: "bad",
-      kind: "panel-tab",
-      threadRef: refA,
-      surface: { kind: "linked-thread", id: "linked-thread:x", viaEnvironmentId: "env-1" },
+      surface: { kind: "side-chat", id: "side-chat:x" },
     },
   ])("discards incomplete saved views %j while retaining valid history", async (entry) => {
     const id = useClosedViewStore.getState().remember(diff(refA));
@@ -100,8 +94,7 @@ describe("closedViewStore", () => {
     const sideChatId = store.remember({
       kind: "panel-tab",
       threadRef: refA,
-      // Saved before a side chat's tab became a `thread` surface.
-      surface: { id: "side-chat:side", kind: "side-chat", threadId: "side" } as never,
+      surface: { id: "side-chat:side", kind: "side-chat", threadId: ThreadId.make("side") },
     });
     const publicId = store.remember(diff(refA));
     const browserId = store.remember({
@@ -135,9 +128,6 @@ describe("closedViewStore", () => {
       publicId,
       sideChatId,
     ]);
-    expect(useClosedViewStore.getState().entries.at(-1)).toMatchObject({
-      surface: { id: "thread:side", kind: "thread", threadId: "side" },
-    });
     const saved = JSON.stringify(await storage!.getItem(name!));
     expect(saved).not.toContain("private.example");
     expect(saved).not.toContain("Private page");

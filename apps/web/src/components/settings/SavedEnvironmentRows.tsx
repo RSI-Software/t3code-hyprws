@@ -78,11 +78,9 @@ type SavedBackendListRowProps = {
   onSetEnabled: (environmentId: EnvironmentId, enabled: boolean) => void;
   onRemove: (environment: EnvironmentPresentation) => void;
   onAddRoute: (environment: EnvironmentPresentation) => void;
-  /** The map's details open on a machine's routes; the list keeps them folded. */
-  initialRoutesOpen?: boolean;
 };
 
-export function savedBackendStatus(
+function savedBackendStatus(
   environment: EnvironmentPresentation,
   resolve: MessageResolver = m,
 ): {
@@ -130,11 +128,10 @@ export function SavedBackendListRow({
   onSetEnabled,
   onRemove,
   onAddRoute,
-  initialRoutesOpen = false,
 }: SavedBackendListRowProps) {
   const messages = useMessages();
   const gt = useGT();
-  const [routesOpen, setRoutesOpen] = useState(initialRoutesOpen);
+  const [routesOpen, setRoutesOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [diagnosisOpen, setDiagnosisOpen] = useState(false);
   const environmentId = environment.environmentId;
@@ -916,21 +913,10 @@ function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnable
 export function CloudRemoteEnvironmentRows({
   primaryEnvironmentId,
   savedEnvironments,
-  only,
 }: {
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly savedEnvironments: ReadonlyArray<EnvironmentPresentation>;
-  readonly only?: EnvironmentId;
 }) {
-  if (only !== undefined) {
-    return (
-      <CloudEnvironmentConnectRows
-        only={only}
-        primaryEnvironmentId={primaryEnvironmentId}
-        savedEnvironments={savedEnvironments}
-      />
-    );
-  }
   return hasCloudPublicConfig() ? (
     <CloudEnvironmentConnectRows
       primaryEnvironmentId={primaryEnvironmentId}

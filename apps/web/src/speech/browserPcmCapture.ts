@@ -1,19 +1,15 @@
-import {
-  VoiceTranscriptionError,
-  type PreparedVoiceTranscription,
-  type VoiceRecorder,
-  type VoiceStreamingSession,
-  type VoiceInputErrorCode,
-  type VoiceTranscriptionOptions,
+import type {
+  PreparedVoiceTranscription,
+  VoiceRecorder,
+  VoiceStreamingSession,
+  VoiceInputErrorCode,
+  VoiceTranscriptionOptions,
 } from "@t3tools/client-runtime/voice-input";
-import * as Schema from "effect/Schema";
 import { requestMicrophone } from "./requestMicrophone";
 import workletUrl from "./pcmWorklet.ts?worker&url";
 import { VoiceRecorderDuckingFork } from "./ducking.fork"; // fork-hook: voice-input/ducking-import
 import { msg } from "gt-react";
 import { m } from "../i18n/messages";
-
-const isVoiceTranscriptionError = Schema.is(VoiceTranscriptionError);
 
 type PreparedBrowserTranscription = PreparedVoiceTranscription & {
   readonly streaming?: VoiceStreamingSession & { readonly feed: (pcm: Float32Array) => void };
@@ -26,10 +22,7 @@ export function createBrowserPcmCapture(
     readonly onDurationLimit: () => void;
     readonly onError: (message: string, code?: VoiceInputErrorCode) => void;
   },
-  prepare: (
-    options: VoiceTranscriptionOptions,
-    canStream: () => boolean,
-  ) => Promise<PreparedBrowserTranscription>,
+  prepare: (options: VoiceTranscriptionOptions) => Promise<PreparedBrowserTranscription>,
 ) {
   let stream: MediaStream | undefined;
   let recordingUri: string | null = null;
@@ -38,7 +31,6 @@ export function createBrowserPcmCapture(
   let worklet: AudioWorkletNode | undefined;
   let durationTimer: ReturnType<typeof setTimeout> | undefined;
   let signal: AbortSignal | undefined;
-  let stopAcceptingAudio: (() => void) | undefined;
   let feed: ((pcm: Float32Array) => void) | undefined;
   let stopped:
     | { readonly resolve: () => void; readonly reject: (error: Error) => void }
@@ -59,8 +51,6 @@ export function createBrowserPcmCapture(
     stopped?.resolve();
     stopped = undefined;
     chunks = [];
-    stopAcceptingAudio?.();
-    stopAcceptingAudio = undefined;
     feed = undefined;
     input.onLevel(0);
   };
@@ -189,51 +179,12 @@ export function createBrowserPcmCapture(
       if (recordingUri === uri) recordingUri = null;
     },
     transcriber: {
-      prepare: async (options: VoiceTranscriptionOptions): Promise<PreparedVoiceTranscription> => {
+      prepare: async (options: VoiceTranscriptionOptions) => {
+        const prepared = await prepare(options);
+        options.signal.throwIfAborted();
         signal = options.signal;
-        let acceptingAudio = true;
-        stopAcceptingAudio = () => {
-          acceptingAudio = false;
-        };
-        const canStream = () => acceptingAudio && !options.signal.aborted;
-        let streaming: VoiceStreamingSession | undefined;
-        let destination: PreparedBrowserTranscription | undefined;
-        const pending = prepare(options, canStream)
-          .then((prepared) => {
-            options.signal.throwIfAborted();
-            destination = prepared;
-            if (canStream() && prepared.streaming) {
-              streaming = prepared.streaming;
-              feed = prepared.streaming.feed;
-              for (const chunk of chunks) feed(chunk);
-              chunks = [];
-            }
-            return prepared;
-          })
-          .catch((cause: unknown) => {
-            const error = new VoiceTranscriptionError({
-              code: "preparation-failed",
-              message: isVoiceTranscriptionError(cause)
-                ? cause.message
-                : m(msg("Could not prepare voice transcription.")),
-              cause,
-            });
-            if (canStream()) input.onError(error.message);
-            throw error;
-          });
-        void pending.catch(() => {});
-        return {
-          get locale() {
-            return destination?.locale ?? "auto";
-          },
-          get streaming() {
-            return streaming;
-          },
-          async transcribe(uri, transcriptionOptions) {
-            const prepared = await pending;
-            return prepared.transcribe(uri, transcriptionOptions);
-          },
-        };
+        feed = prepared.streaming?.feed;
+        return prepared;
       },
     },
   };

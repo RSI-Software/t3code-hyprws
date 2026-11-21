@@ -200,33 +200,31 @@ export function T3ConnectProfilePage() {
                   size="small"
                 />
               ) : (
-                <View pointerEvents={deregisteringEnvironmentId === null ? "auto" : "none"}>
-                  <Menu
-                    actions={environmentMenuActions}
-                    isAnchoredToRight
-                    onPressAction={() =>
-                      confirmDeregister(environment, () => void handleDeregister(environment))
-                    }
+                <Menu
+                  actions={environmentMenuActions}
+                  isAnchoredToRight
+                  onPressAction={() =>
+                    confirmDeregister(environment, () => void handleDeregister(environment))
+                  }
+                >
+                  <Pressable
+                    accessibilityLabel={gt("Actions for {environment}", {
+                      environment: environment.label,
+                    })}
+                    accessibilityRole="button"
+                    disabled={deregisteringEnvironmentId !== null}
+                    className="size-[30px] items-center justify-center active:opacity-60 disabled:opacity-50"
                   >
-                    <Pressable
-                      accessibilityLabel={gt("Actions for {environment}", {
-                        environment: environment.label,
-                      })}
-                      accessibilityRole="button"
-                      disabled={deregisteringEnvironmentId !== null}
-                      className="size-[30px] items-center justify-center active:opacity-60 disabled:opacity-50"
-                    >
-                      <View className="rotate-90">
-                        <SymbolView
-                          name="ellipsis"
-                          size={18}
-                          tintColorClassName={"accent-clerk-foreground-muted"}
-                          type="monochrome"
-                        />
-                      </View>
-                    </Pressable>
-                  </Menu>
-                </View>
+                    <View className="rotate-90">
+                      <SymbolView
+                        name="ellipsis"
+                        size={18}
+                        tintColorClassName={"accent-clerk-foreground-muted"}
+                        type="monochrome"
+                      />
+                    </View>
+                  </Pressable>
+                </Menu>
               )
             }
           />

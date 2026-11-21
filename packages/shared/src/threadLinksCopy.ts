@@ -28,12 +28,12 @@ export function unknownThreadLinkLabel(
 export function relabelThreadLinks(
   markdown: string,
   messageEnvironmentId: EnvironmentId,
-  title: (ref: ScopedThreadRef, label: string | undefined) => string | undefined,
+  title: (ref: ScopedThreadRef) => string | undefined,
   resolve: MFunctionType = mFallback,
 ): string {
   return replaceThreadLinks(markdown, (written, label) => {
     for (const ref of threadLinkCandidates(written, messageEnvironmentId)) {
-      const current = title(ref, label);
+      const current = title(ref);
       if (current === undefined) continue;
       return formatThreadLink(
         { environmentId: written.environmentId, threadId: ref.threadId },

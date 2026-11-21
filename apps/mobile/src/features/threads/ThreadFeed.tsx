@@ -85,7 +85,7 @@ import {
 } from "@t3tools/contracts";
 import type { ToolCallVisibility } from "@t3tools/contracts/settings";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import { hasThreadLinks, hostedThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
+import { hostedThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
 import {
   parseComposerContextHref,
@@ -297,7 +297,6 @@ import {
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useEnvironmentQuery } from "../../state/query";
-import { useLinkedEnvironments } from "../../state/peerLinks";
 import { serverEnvironment } from "../../state/server";
 import { useModelMentions } from "../../state/model-mentions";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
@@ -323,7 +322,6 @@ import { resolveUserMessageIntentBadge } from "./userMessageIntentBadge";
 import { fileChipClipboardPath, fileChipMenu, resolveFileChipTarget } from "./fileChipMenu";
 import { useFileChipShare } from "./useFileChipShare";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
-import { useOpenThreadLink } from "./useOpenThreadLink";
 import {
   MarkdownImageAvailableWidthContext,
   ThreadMarkdownImage,
@@ -1330,11 +1328,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
   const gt = useGT();
-  const liveMarkdown = useLiveThreadLinkLabels(
-    props.markdown,
-    props.environmentId,
-    useLinkedEnvironments(hasThreadLinks(props.markdown) ? props.environmentId : null),
-  );
+  const liveMarkdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
   const [quoteSelection, setQuoteSelection] = useState<{
     markdown: string;
     selectors: ReturnType<typeof collectMobileAssistantTextSelectors>;
@@ -2802,13 +2796,9 @@ function UserMessageContent(props: UserMessageContentProps) {
   const gt = useGT();
   const [selected, setSelected] = useState<{ contextId: string; label: string } | null>(null);
   const navigation = useNavigation();
-  const openThreadLink = useOpenThreadLink(props.environmentId);
+  const openLinkedThread = useOpenLinkedThread();
   const { selectedThread } = useThreadSelection();
-  const liveText = useLiveThreadLinkLabels(
-    props.text,
-    props.environmentId,
-    useLinkedEnvironments(hasThreadLinks(props.text) ? props.environmentId : null),
-  );
+  const liveText = useLiveThreadLinkLabels(props.text, props.environmentId);
   const threadIcons = useThreadChipIcons(props.environmentId, liveText, props.context?.records);
   const text = replaceComposerContextReferences(liveText, (ref) => {
     const available = props.context?.records.some((record) => record.contextId === ref.contextId);
@@ -2826,7 +2816,10 @@ function UserMessageContent(props: UserMessageContentProps) {
       return;
     }
     if (record?.kind === "thread" && "threadId" in record) {
-      openThreadLink(scopeThreadRef(record.environmentId, record.threadId));
+      openLinkedThread({
+        environmentId: String(record.environmentId),
+        threadId: String(record.threadId),
+      });
       return;
     }
     const document = composerDocumentAttachmentRecord(record);
@@ -3145,7 +3138,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const duoColumns = useNativeWorkspaceColumnsSupported() && isDuoDevice(deviceType);
   const openPullRequest = useOpenPullRequest();
   const navigation = useNavigation();
-  const openThreadLink = useOpenThreadLink(props.environmentId);
+  const openLinkedThread = useOpenLinkedThread();
   const openLocalPreview = useOpenLocalPreview();
   const previewTunnelOff = useEnvironmentPreviewTunnelOff(props.environmentId);
   // Without the tunnel, loopback links fall through to the system browser like any other link.
@@ -3443,7 +3436,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
     if (parseThreadLinkHref(href)) {
       const target = resolveLinkedThread(href);
-      if (target) openThreadLink(target);
+      if (target) {
+        openLinkedThread({
+          environmentId: String(target.environmentId),
+          threadId: String(target.threadId),
+        });
+      }
       return;
     }
     const media = resolveMarkdownMediaPreview(href, {

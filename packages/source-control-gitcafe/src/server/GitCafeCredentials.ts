@@ -55,20 +55,10 @@ export class GitCafeCliFailedError extends Schema.TaggedError<GitCafeCliFailedEr
   }
 }
 
-export class GitCafeCliTimeoutError extends Schema.TaggedError<GitCafeCliTimeoutError>()(
-  "GitCafeCliTimeoutError",
-  { host: Schema.String, timeoutMs: Schema.Number, cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return `The GitCafe CLI did not hand over a credential for ${this.host} within ${this.timeoutMs / 1000} seconds. The server may be overloaded; try again.`;
-  }
-}
-
 export type GitCafeCredentialUnavailableError =
   | GitCafeCliMissingError
   | GitCafeNotSignedInError
   | GitCafeCliFailedError
-  | GitCafeCliTimeoutError
   | SettingsSecretUnresolvedError;
 
 export class GitCafeCredentials extends Context.Service<
@@ -133,9 +123,7 @@ export const make = Effect.gen(function* () {
             ? new GitCafeCliMissingError({ host })
             : error._tag === "VcsProcessExitError"
               ? new GitCafeNotSignedInError({ host })
-              : error._tag === "VcsProcessTimeoutError"
-                ? new GitCafeCliTimeoutError({ host, timeoutMs: error.timeoutMs, cause: error })
-                : new GitCafeCliFailedError({ host, cause: error }),
+              : new GitCafeCliFailedError({ host, cause: error }),
         ),
         Effect.map((output) => credentialPassword(output.stdout)),
         Effect.filterOrFail(
@@ -176,10 +164,7 @@ export const make = Effect.gen(function* () {
       Exit.isSuccess(exit)
         ? TOKEN_TTL
         : Exit.findErrorOption(exit).pipe(
-              Option.exists(
-                (error) =>
-                  error._tag === "GitCafeCliFailedError" || error._tag === "GitCafeCliTimeoutError",
-              ),
+              Option.exists((error) => error._tag === "GitCafeCliFailedError"),
             )
           ? Duration.zero
           : MISSING_TTL,

@@ -612,7 +612,6 @@ export class VoiceInputController {
         if (this.isCurrent(operationToken)) {
           if (
             this.dependencies.retryFailedRecording &&
-            errorCode(error) !== "preparation-failed" &&
             !this.liveTranscription &&
             !transcription.streaming &&
             recordingUri

@@ -288,9 +288,7 @@ function UserMessageContent({ row }: { row: Extract<TimelineRow, { kind: "messag
     <WorkflowOpeningBlock
       opening={ctx.workflowOpening}
       environmentId={ctx.activeThreadEnvironmentId}
-      onOpenThread={(threadId, intent) =>
-        ctx.onOpenThread(ThreadId.make(threadId), undefined, intent)
-      }
+      onOpenThread={(threadId) => ctx.onOpenThread(ThreadId.make(threadId))}
     />
   ) : resolveUserMessagePresentation(row.message).attribution === "automation" ? (
     <AutomationMessageRow row={row} />

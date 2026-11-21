@@ -13,13 +13,7 @@ import {
 // Separate keys: a stale window saving ordinary preferences must not restore either grant.
 const AUDIO_KEY = "t3code:voice-audio-grant:v1";
 const CLEANUP_KEY = "t3code:voice-cleanup-grant:v1";
-// "device" is Apple Speech in the macOS desktop app. Audio stays on this device, so it stays out of the shared contract.
-const AudioDestination = Schema.Union([
-  VoiceTranscriptionDestination,
-  Schema.Struct({ kind: Schema.Literal("device") }),
-]);
-export type AudioDestination = typeof AudioDestination.Type;
-const Grant = Schema.Struct({ id: Schema.String, destination: AudioDestination });
+const Grant = Schema.Struct({ id: Schema.String, destination: VoiceTranscriptionDestination });
 const AudioGrant = Schema.NullOr(Grant);
 const sameGrant = Schema.toEquivalence(AudioGrant);
 const SavedChoice = Schema.Union([AudioGrant, Schema.Literal("off")]);
@@ -68,7 +62,7 @@ function replaceChoice(choice: AudioChoice, previous = readChoice()) {
     window.localStorage.removeItem(savedKey(old.id));
 }
 
-export function chooseAudioDestination(destination: AudioDestination | null) {
+export function chooseAudioDestination(destination: VoiceTranscriptionDestination | null) {
   replaceChoice(destination ? { id: randomUUID(), destination } : "off");
 }
 

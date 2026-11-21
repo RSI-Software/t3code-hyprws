@@ -12,8 +12,7 @@ import type {
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { lazy, Suspense } from "react";
-import { LinkedThreadPane } from "./LinkedThreadPane";
-import SideThreadPane from "./SideThreadPane";
+import SideChatPane from "./SideChatPane";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
 import type { SideChatParentPanel } from "../../lib/sideChatPane";
@@ -216,28 +215,19 @@ export function RightPanelSurfaceContent(props: {
       );
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
-    case "thread":
+    case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (
-        <SideThreadPane
+        <SideChatPane
           key={surface.id}
           parentRef={threadRef}
-          surface={surface}
+          threadId={surface.threadId}
           parentPanel={props.sideChatParentPanel}
           onClose={() => onCloseSurface(surface)}
         />
       );
     case "thread-artifacts": // fork-hook: thread-artifacts/right-panel-content
       return <ThreadArtifactsPanelFork threadRef={threadRef} />; // fork-hook: thread-artifacts/right-panel-content
-    case "linked-thread":
-      return (
-        <LinkedThreadPane
-          key={surface.id}
-          panelRef={threadRef}
-          surface={surface}
-          visible={visible && props.activeSurfaceId === surface.id}
-        />
-      );
     case "device":
       return (
         <Suspense fallback={null}>

@@ -19,13 +19,7 @@ type ModelLanguages = Pick<
   "languages" | "supportsLanguageDetection"
 >;
 
-export function SpeechLanguageSelect({
-  model,
-  automaticLabel,
-}: {
-  readonly model: ModelLanguages | null;
-  readonly automaticLabel?: string | undefined;
-}) {
+export function SpeechLanguageSelect({ model }: { readonly model: ModelLanguages | null }) {
   const gt = useGT();
   const locale = useLocale();
   const preference = useClientSettings((settings) => settings.speechLanguage);
@@ -36,8 +30,7 @@ export function SpeechLanguageSelect({
         preference,
       )
     : preference;
-  const effectiveLabel =
-    resolved === "auto" ? (automaticLabel ?? gt("Auto-detect")) : languageLabel(resolved, locale);
+  const effectiveLabel = resolved === "auto" ? gt("Auto-detect") : languageLabel(resolved, locale);
   const unavailable =
     preference !== "auto" && preference !== resolved
       ? gt("{language} unavailable", { language: languageLabel(preference, locale) })

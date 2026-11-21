@@ -5,7 +5,6 @@ import {
   type EnvironmentMachineKind,
   type OrchestrationV2TurnItem,
   type PeerLinkRequestAnswerInput,
-  type PeerLinkName,
   type PeerLinkSummary,
   resolveEnvironmentMachineKind,
   type ServerConfig,
@@ -28,11 +27,11 @@ export const offersLinkedEnvironments = (
   config?.environment.capabilities.peerLinks === true && config.settings.linkedEnvironmentsEnabled;
 
 /**
- * The machines an environment's agents can work on, by name: its unexpired links (the server
- * leaves out expired ones), named as this client names them, else as the link does.
+ * The machines an environment's agents can work on, by name: its links that have not
+ * expired, named as this client names them, else as the link does.
  */
 export function linkedEnvironmentNames(input: {
-  readonly links: ReadonlyArray<PeerLinkName>;
+  readonly links: ReadonlyArray<Pick<PeerLinkSummary, "environmentId" | "label" | "status">>;
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly label: string;
@@ -42,8 +41,10 @@ export function linkedEnvironmentNames(input: {
     input.environments.map((environment) => [environment.environmentId, environment.label]),
   );
   return new Map(
-    input.links.map(
-      (link) => [link.environmentId, names.get(link.environmentId) ?? link.label] as const,
+    input.links.flatMap((link) =>
+      link.status === "expired"
+        ? []
+        : [[link.environmentId, names.get(link.environmentId) ?? link.label] as const],
     ),
   );
 }
@@ -111,8 +112,7 @@ export function linkableMachines(input: {
   readonly environments: ReadonlyArray<
     EnvironmentPresentation & { readonly environmentId: EnvironmentId }
   >;
-  /** Null lists every machine, for a view that is not about one environment. */
-  readonly threadEnvironmentId: EnvironmentId | null;
+  readonly threadEnvironmentId: EnvironmentId;
   readonly links: ReadonlyArray<Pick<PeerLinkSummary, "environmentId" | "status">>;
   readonly connect: ReadonlyMap<string, RelayDiscoveredEnvironment>;
 }): ReadonlyArray<LinkableMachine> {

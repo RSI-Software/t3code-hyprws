@@ -22,13 +22,13 @@ interface CollectState {
   readonly truncated: boolean;
 }
 
-interface CollectUint8StreamInput<E> {
+export const collectUint8StreamText = <E>(input: {
   readonly stream: Stream.Stream<Uint8Array, E>;
   readonly maxBytes?: number | undefined;
-}
-
-export const collectUint8StreamChunks = <E>(input: CollectUint8StreamInput<E>) => {
+  readonly truncatedMarker?: string | null | undefined;
+}): Effect.Effect<CollectedUint8StreamText, E> => {
   const maxBytes = input.maxBytes ?? Number.POSITIVE_INFINITY;
+  const truncatedMarker = input.truncatedMarker ?? "";
 
   return input.stream.pipe(
     Stream.runFold(
@@ -64,21 +64,17 @@ export const collectUint8StreamChunks = <E>(input: CollectUint8StreamInput<E>) =
         };
       },
     ),
-  );
-};
-
-export const collectUint8StreamText = <E>(
-  input: CollectUint8StreamInput<E> & { readonly truncatedMarker?: string | null | undefined },
-): Effect.Effect<CollectedUint8StreamText, E> =>
-  collectUint8StreamChunks(input).pipe(
-    Effect.map(({ chunks, bytes, truncated }) => {
-      const decoded = decodeUtf8(Buffer.concat(chunks, bytes));
-      const marker = input.truncatedMarker ?? "";
+    Effect.map((state): CollectedUint8StreamText => {
+      const decoded = decodeUtf8(Buffer.concat(state.chunks, state.bytes));
       return {
-        text: truncated ? decoded.text + marker : decoded.text,
-        bytes,
-        truncated,
+        text:
+          state.truncated && truncatedMarker.length > 0
+            ? `${decoded.text}${truncatedMarker}`
+            : decoded.text,
+        bytes: state.bytes,
+        truncated: state.truncated,
         invalidUtf8: decoded.invalidUtf8,
       };
     }),
   );
+};

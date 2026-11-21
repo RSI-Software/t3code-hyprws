@@ -1,4 +1,3 @@
-import { DESKTOP_UPDATE_RESTART_MARKER_FILE } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -286,11 +285,6 @@ export type BootServiceStep = {
 /** Must exceed systemd TimeoutStopSec and launchd ExitTimeOut (both 90s) to avoid shutdown races. */
 const STOP_STEP_TIMEOUT = Duration.seconds(120);
 
-interface BootServiceHandoff {
-  readonly prepare: ReadonlyArray<BootServiceStep>;
-  readonly restart: ReadonlyArray<BootServiceStep>;
-}
-
 export interface BootServiceManager {
   readonly kind: "systemd" | "launchd" | "schtasks";
   readonly unitPath: string;
@@ -299,7 +293,7 @@ export interface BootServiceManager {
   readonly activate: ReadonlyArray<BootServiceStep>;
   readonly restart: ReadonlyArray<BootServiceStep>;
   /** Queue a restart owned by the manager, since stopping would kill the caller. */
-  readonly handoff?: BootServiceHandoff;
+  readonly handoff?: ReadonlyArray<BootServiceStep>;
   readonly deactivate: ReadonlyArray<BootServiceStep>;
   readonly finalize: ReadonlyArray<BootServiceStep>;
 }
@@ -370,16 +364,14 @@ function systemdManager(input: {
         args: ["--user", "restart", BOOT_SERVICE_UNIT_FILE],
       },
     ],
-    handoff: {
-      prepare: prepareActivation,
-      restart: [
-        {
-          step: "restarting the service",
-          command: "systemctl",
-          args: ["--user", "restart", "--no-block", BOOT_SERVICE_UNIT_FILE],
-        },
-      ],
-    },
+    handoff: [
+      ...prepareActivation,
+      {
+        step: "restarting the service",
+        command: "systemctl",
+        args: ["--user", "restart", "--no-block", BOOT_SERVICE_UNIT_FILE],
+      },
+    ],
     deactivate: [
       {
         step: "stopping the service",
@@ -522,18 +514,16 @@ function schtasksManager(input: {
     ],
     // Ending the task kills only its console host; the launcher sees the console close and
     // stops gracefully while the replacement waits for its lock.
-    handoff: {
-      prepare: [register],
-      restart: [
-        {
-          step: "ending the scheduled task",
-          command: "schtasks",
-          args: ["/End", ...task],
-          optional: true,
-        },
-        { ...run, step: "restarting the service" },
-      ],
-    },
+    handoff: [
+      register,
+      {
+        step: "ending the scheduled task",
+        command: "schtasks",
+        args: ["/End", ...task],
+        optional: true,
+      },
+      { ...run, step: "restarting the service" },
+    ],
     deactivate: [...stop, { step: "removing the scheduled task", run: input.steps.remove }],
     finalize: [],
   };
@@ -1221,29 +1211,6 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     return problems;
   });
 
-  // Reuse the desktop marker so already released servers recognize the restart.
-  const restartMarker = path.join(input.baseDir, "runtime", DESKTOP_UPDATE_RESTART_MARKER_FILE);
-  const markRestart = fs.writeFileString(restartMarker, "", { mode: 0o600 }).pipe(
-    Effect.as(true),
-    Effect.catch((error) =>
-      Effect.logWarning("Could not mark the service restart to preserve its relay tunnel", {
-        errorTag: error._tag,
-      }).pipe(Effect.as(false)),
-    ),
-  );
-  const stopForRestart = (steps: ReadonlyArray<BootServiceStep>, queued = false) =>
-    Effect.acquireUseRelease(
-      markRestart,
-      () => runSteps(steps),
-      (marked, exit) =>
-        // When a restart is queued, the outgoing server still needs to read the marker.
-        marked && (!queued || Exit.isFailure(exit))
-          ? fs.remove(restartMarker, { force: true }).pipe(Effect.ignore)
-          : Effect.void,
-    );
-  const handOffRestart = (handoff: BootServiceHandoff) =>
-    runSteps(handoff.prepare).pipe(Effect.andThen(stopForRestart(handoff.restart, true)));
-
   const install = Effect.fn("cloud.boot_service.install")(function* (options?: {
     readonly allowDowngrade?: boolean;
     readonly start?: boolean;
@@ -1367,12 +1334,9 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     }
     // Task Scheduler restarts the task itself, so the files are written as for a deferred
     // restart while this launcher keeps running, then the restart is handed to the manager.
-    const handoff =
-      installed && start && runningInsideService && manager.kind === "schtasks"
-        ? manager.handoff
-        : undefined;
-    if (installed && start && handoff === undefined) {
-      yield* stopForRestart(manager.stop);
+    const handOff = installed && start && runningInsideService && manager.kind === "schtasks";
+    if (installed && start && !handOff) {
+      yield* runSteps(manager.stop);
     }
 
     // State first, then unit. The launcher acquires only one at a time, and a
@@ -1432,10 +1396,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
               2,
             )}\n`,
           );
-          if (
-            (!start || handoff !== undefined) &&
-            (currentlyInstalled || Option.isSome(previousStateText))
-          ) {
+          if ((!start || handOff) && (currentlyInstalled || Option.isSome(previousStateText))) {
             const written = yield* fs.readFileString(statePath);
             if (serviceStateActiveVersion(written) !== input.cliVersion) {
               return yield* new BootServiceUpdatePendingError();
@@ -1453,8 +1414,8 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     ).pipe(
       Effect.tap(
         Effect.gen(function* () {
-          if (handoff !== undefined) {
-            yield* handOffRestart(handoff);
+          if (handOff) {
+            yield* runSteps(manager.handoff ?? []);
           } else if (start) {
             yield* runSteps(manager.activate);
             yield* withSelectionLock(
@@ -1474,12 +1435,12 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
         cause._tag === "PlatformError" ? new BootServiceInstallError({ cause }) : cause,
       ),
       Effect.tapError(() =>
-        installed && start && handoff === undefined
+        installed && start && !handOff
           ? runSteps(manager.restart).pipe(Effect.ignore)
           : Effect.void,
       ),
     );
-    return handoff !== undefined ? { ...installedPlan, handedOff: true } : installedPlan;
+    return handOff ? { ...installedPlan, handedOff: true } : installedPlan;
   });
 
   const restart: BootService["Service"]["restart"] = Effect.gen(function* () {
@@ -1496,10 +1457,10 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     // Writes no state, and the launcher lets an update transition in flight
     // finish before the queued stop tears it down.
     if (runningInsideService && manager.handoff !== undefined) {
-      yield* handOffRestart(manager.handoff);
+      yield* runSteps(manager.handoff);
       return "queued" as const;
     }
-    yield* stopForRestart(manager.stop);
+    yield* runSteps(manager.stop);
     yield* runSteps(manager.activate).pipe(
       Effect.tapError(() => runSteps(manager.restart).pipe(Effect.ignore)),
     );

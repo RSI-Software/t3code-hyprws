@@ -262,8 +262,6 @@ export function threadManagementFailure(error: unknown): OrchestratorMcpFailure 
         "thread_not_sendable",
         `${error.message} Send with mode: "auto" or "queue" to start a new turn there.`,
       );
-    case "ThreadManagementRunOutputRejectedError":
-      return failure("invalid_request", error.message);
     case "ThreadManagementThreadNotInterruptibleError":
       return failure("thread_not_interruptible", error.message);
     case "ThreadManagementProjectionLoadError":
@@ -3665,7 +3663,6 @@ const make = Effect.gen(function* () {
           attachments: [],
           mode,
           ...(input.freshContext ? { freshContext: true } : {}),
-          ...(input.outputSchema === undefined ? {} : { outputSchema: input.outputSchema }),
           createdBy: "agent",
           creationSource: "mcp",
         })
@@ -3701,7 +3698,6 @@ const make = Effect.gen(function* () {
             Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
           ),
           ...(input.untilDelegatedWorkSettled === true ? { untilDelegatedWorkSettled: true } : {}),
-          ...(input.untilOutput === true ? { untilOutput: true } : {}),
         })
         .pipe(Effect.mapError(threadManagementFailure));
       const status = result.run === null ? "idle" : runOutcome(result.run);
@@ -3739,7 +3735,6 @@ const make = Effect.gen(function* () {
           : {
               resultRun: { runId: result.resultRun.id, status: runOutcome(result.resultRun) },
             }),
-        ...(result.run?.output === undefined ? {} : { output: result.run.output.value }),
       } satisfies OrchestratorMcpThreadWaitResult;
     }),
     interruptThread: Effect.fn("OrchestratorMcpService.interruptThread")(function* (scope, input) {

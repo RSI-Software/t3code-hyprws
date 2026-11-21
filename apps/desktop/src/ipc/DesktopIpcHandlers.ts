@@ -2,11 +2,6 @@ import { startFileDrag } from "./methods/fileDrag.ts";
 import * as Effect from "effect/Effect";
 
 import { receiveProviderAuthCallback, cancelProviderAuthCallback } from "./methods/providerAuth.ts";
-import {
-  appleSpeechAvailable,
-  appleSpeechPrepare,
-  appleSpeechTranscribe,
-} from "./methods/appleSpeech.ts";
 import * as DesktopIpc from "./DesktopIpc.ts";
 import * as VoiceDuckingFork from "./methods/voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-ipc-import
 import { installNotificationBadge } from "./methods/notificationBadge.ts";
@@ -172,9 +167,6 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(cancelProviderAuthCallback);
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(checkSystemPermission);
-  yield* ipc.handle(appleSpeechAvailable);
-  yield* ipc.handle(appleSpeechPrepare);
-  yield* ipc.handle(appleSpeechTranscribe);
   yield* ipc.handle(pasteAsText);
   yield* ipc.handle(revealWindow);
   yield* ipc.handle(syncHtmlFullscreen);

@@ -199,8 +199,6 @@ export interface ComposerPromptEditorProps {
     expandedCursor: number,
     cursorAdjacentToMention: boolean,
     contextIds: string[],
-    /** False when only the caret or selection moved. */
-    textChanged: boolean,
   ) => void;
   onVisibleSelectionChange?: () => void;
   onCommandKeyDown?: (key: string, event: KeyboardEvent, isTaskItem?: boolean) => boolean;
@@ -1094,7 +1092,6 @@ function ComposerPromptEditorTiptapInner(
       nextExpandedCursor,
       suppressTrigger,
       contextIds,
-      previousSnapshot.value !== nextValue,
     );
   };
 
@@ -1771,7 +1768,6 @@ function ComposerPromptEditorTiptapInner(
       snapshotRef.current.expandedCursor,
       literalText,
       snapshotRef.current.contextIds,
-      false,
     );
   };
 

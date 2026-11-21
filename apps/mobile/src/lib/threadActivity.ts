@@ -21,7 +21,6 @@ import {
   commandProgramName,
 } from "@t3tools/client-runtime/work-log/command-label";
 import {
-  commandlessCommandLabel,
   contextCompactionLabel,
   liveThoughtLine,
   toolItemForDisplay,
@@ -301,12 +300,6 @@ export function workEntryRowLabel(
   const presentation = resolveWorkEntryToolPresentation(entry, undefined, resolve);
   if (presentation) return presentation.displayName;
   if (entry.command?.trim()) return compactWorkEntryText(commandDisplayText(entry.command));
-  const commandless = commandlessCommandLabel(
-    entry,
-    liveActivityToolStatus(entry.toolLifecycleStatus, false),
-    resolve,
-  );
-  if (commandless) return commandless;
   const action = toolGroupAction(entry);
   const isToolRead = action === "read" && entry.itemType === "dynamic_tool";
   if (action === "code-search" || action === "search") {
@@ -2431,10 +2424,7 @@ function liveToolActivitySummary(
             ? resolve(msg("Stopped {program}", { program }))
             : resolve(msg("Ran {program}", { program }));
   }
-  return (
-    commandlessCommandLabel(activity.workEntry, status, resolve) ??
-    compactWorkEntryText(activity.detail ?? activity.summary)
-  );
+  return compactWorkEntryText(activity.detail ?? activity.summary);
 }
 
 interface ThreadFeedBuild {

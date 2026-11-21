@@ -186,6 +186,7 @@ export const PullRequestToolError = Schema.Union([
   PullRequestListFailedError,
   PullRequestWatchService.PullRequestWatchFailedError,
   PullRequestUnavailableError,
+  PullRequestWatchService.PullRequestNotOpenError,
   PullRequestWatchService.PullRequestWatchFromSubagentError,
   PullRequestProjectNotFoundError,
   PullRequestGuideFailedError,
@@ -257,17 +258,8 @@ export const WatchPullRequestResult = Schema.Struct({
   ...PullRequestIdentity,
   watching: Schema.Boolean,
   wasWatching: Schema.Boolean,
-  state: Schema.optional(
-    Schema.Literals(["merged", "closed"]).annotate({
-      description: "The PR already ended, so nothing was watched.",
-    }),
-  ),
-  next: Schema.optional(Schema.String),
 });
 export type WatchPullRequestResult = typeof WatchPullRequestResult.Type;
-
-export const alreadyEndedWatchNext = (state: "merged" | "closed") =>
-  `This PR is already ${state}, so there is nothing to watch. Report that and end your turn.`;
 
 export const ThreadPullRequestEntry = Schema.Struct({
   ...PullRequestIdentity,
@@ -498,10 +490,9 @@ export const ThreadPullRequestInput = Schema.Struct({
 export type ThreadPullRequestInput = typeof ThreadPullRequestInput.Type;
 
 export const PullRequestReadSection = Schema.Literals([
-  "body",
+  "summary",
   "checks",
-  "threads",
-  "comments",
+  "conversation",
   "diff",
 ]);
 export type PullRequestReadSection = typeof PullRequestReadSection.Type;
@@ -514,56 +505,50 @@ const ReadComment = Schema.Struct({
 
 export const ReadPullRequestResult = Schema.Struct({
   ...PullRequestIdentity,
-  title: Schema.String,
-  state: PullRequestState,
-  isDraft: Schema.Boolean,
-  author: Schema.NullOr(Schema.String),
-  headBranch: Schema.String,
-  baseBranch: Schema.String,
-  headSha: Schema.NullOr(Schema.String),
-  mergeability: PullRequestMergeability,
-  behindBy: Schema.NullOr(Schema.Int),
-  autoMergeEnabled: Schema.NullOr(Schema.Boolean),
-  checks: Schema.Struct({
-    passed: Schema.Int,
-    pending: Schema.Int,
-    failed: Schema.Array(Schema.String),
-    incomplete: Schema.optional(Schema.Literal(true)).annotate({
-      description: "The host could not list some checks; checkRuns says which.",
+  summary: Schema.optional(
+    Schema.Struct({
+      title: Schema.String,
+      body: Schema.String,
+      state: PullRequestState,
+      isDraft: Schema.Boolean,
+      author: Schema.NullOr(Schema.String),
+      headBranch: Schema.String,
+      baseBranch: Schema.String,
+      headSha: Schema.NullOr(Schema.String),
+      mergeability: PullRequestMergeability,
+      behindBy: Schema.NullOr(Schema.Int),
+      autoMergeEnabled: Schema.NullOr(Schema.Boolean),
+      additions: Schema.Int,
+      deletions: Schema.Int,
+      changedFiles: Schema.Int,
+      labels: Schema.Array(Schema.String),
+      reviewers: Schema.Array(Schema.String),
     }),
-  }),
-  unresolvedThreads: Schema.Int,
-  unresolvedThreadsTruncated: Schema.optional(Schema.Literal(true)).annotate({
-    description: "unresolvedThreads is a lower bound.",
-  }),
-  body: Schema.optional(Schema.String),
-  checkRuns: Schema.optional(Schema.Array(PullRequestCheck)),
+  ),
+  checks: Schema.optional(Schema.Array(PullRequestCheck)),
   conversation: Schema.optional(
     Schema.Struct({
-      reviewThreads: Schema.optional(
-        Schema.Array(
-          Schema.Struct({
-            id: Schema.String,
-            path: Schema.String,
-            line: Schema.NullOr(Schema.Int),
-            isResolved: Schema.Boolean,
-            isOutdated: Schema.Boolean,
-            comments: Schema.Array(ReadComment),
-            moreComments: Schema.Boolean,
-          }),
-        ),
+      comments: Schema.Array(
+        Schema.Struct({
+          ...ReadComment.fields,
+          id: Schema.String,
+          kind: PullRequestCommentKind,
+          path: Schema.NullOr(Schema.String),
+          reviewState: Schema.NullOr(Schema.String),
+        }),
       ),
-      comments: Schema.optional(
-        Schema.Array(
-          Schema.Struct({
-            ...ReadComment.fields,
-            id: Schema.String,
-            kind: PullRequestCommentKind,
-            path: Schema.NullOr(Schema.String),
-            reviewState: Schema.NullOr(Schema.String),
-          }),
-        ),
+      reviewThreads: Schema.Array(
+        Schema.Struct({
+          id: Schema.String,
+          path: Schema.String,
+          line: Schema.NullOr(Schema.Int),
+          isResolved: Schema.Boolean,
+          isOutdated: Schema.Boolean,
+          comments: Schema.Array(ReadComment),
+          moreComments: Schema.Boolean,
+        }),
       ),
+      hiddenResolvedThreads: Schema.Int,
       truncated: Schema.Boolean,
       nextCursor: Schema.NullOr(Schema.String),
     }),
@@ -624,12 +609,12 @@ export const MergePullRequestResult = Schema.Struct({
 export type MergePullRequestResult = typeof MergePullRequestResult.Type;
 
 const ReadPullRequestTool = Tool.make("pull_request_read", {
-  description: "Read a PR's state and check counts. `include` adds detail.",
+  description: "Read a PR's state, checks, review comments, or diff. Use instead of gh or cafe.",
   parameters: Schema.Struct({
     ...ThreadPullRequestInput.fields,
-    include: Schema.optional(
+    sections: Schema.optional(
       Schema.Array(PullRequestReadSection).annotate({
-        description: "threads: unresolved review threads.",
+        description: "Default: summary, checks. conversation has review threads.",
       }),
     ),
     includeResolved: Schema.optional(Schema.Boolean),
@@ -668,7 +653,7 @@ const ListPullRequestsTool = Tool.make("pull_request_list", {
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutForge);
 
 const CreatePullRequestTool = Tool.make("pull_request_create", {
-  description: "Push this thread's branch, then open its PR and link it, or return its open PR.",
+  description: "Open a PR from this thread's pushed branch and link it, or return its open PR.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     title: TrimmedNonEmptyString,
@@ -772,8 +757,7 @@ const ReviewPullRequestTool = Tool.make("pull_request_review", {
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutForge);
 
 const MergePullRequestTool = Tool.make("pull_request_merge", {
-  description:
-    "Merge a PR. Refuses if the head moved from expectedHeadSha (headSha in pull_request_read).",
+  description: "Merge a PR. Refuses if the head moved from expectedHeadSha (summary.headSha).",
   parameters: Schema.Struct({
     ...ThreadPullRequestInput.fields,
     expectedHeadSha: TrimmedNonEmptyString,
@@ -827,7 +811,8 @@ export const RerunChecksResult = Schema.Struct({
 export type RerunChecksResult = typeof RerunChecksResult.Type;
 
 const CheckLogsTool = Tool.make("ci_logs", {
-  description: "Read the tail of a PR's failing check logs, or one named check's.",
+  description:
+    "Read the tail of a PR's failing check logs, or one named check's. Use instead of gh run view.",
   parameters: Schema.Struct({
     ...ThreadPullRequestInput.fields,
     check: Schema.optional(TrimmedNonEmptyString),
