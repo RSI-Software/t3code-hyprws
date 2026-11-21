@@ -5,7 +5,7 @@ name: hyprws Agent Context Budget
 # a stack layer is judged against the layer below it. Fails when a PR raises a
 # value in agentContextBudget.json; the agent-context-increase label accepts it.
 # The pin names the upstream commit this copy last matched; fork:scan flags a sync past it.
-# fork-mirror: .github/workflows/agent-context-budget.yml@7e1a05808aaf5df39fe9d20cc5c3603f3978696a
+# fork-mirror: .github/workflows/agent-context-budget.yml@6357d17a4963e546aa71a6094ae2b3d3bb04edb1
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -30,15 +30,15 @@ jobs:
         with:
           sparse-checkout: apps/server/src/provider/agentContextBudget.json
           sparse-checkout-cone-mode: false
+          fetch-depth: 2
 
       - name: Compare with base
         run: |
-          git fetch --quiet --depth=1 origin "$BASE_REF"
-          if ! git cat-file -e "FETCH_HEAD:$BUDGET" 2>/dev/null; then
+          if ! git cat-file -e "HEAD^1:$BUDGET" 2>/dev/null; then
             echo "$BASE_REF has no agent context budget yet."
             exit 0
           fi
-          git show "FETCH_HEAD:$BUDGET" > "$RUNNER_TEMP/base.json"
+          git show "HEAD^1:$BUDGET" > "$RUNNER_TEMP/base.json"
           grown=$(jq -r --slurpfile base "$RUNNER_TEMP/base.json" '
             to_entries[]
             | select($base[0][.key] != null and .value > $base[0][.key])
