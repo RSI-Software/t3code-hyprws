@@ -128,7 +128,8 @@ Every group has a parent, at first the thread that started it: it sits unindente
 Drop a thread flush left directly under a group's header, or choose **Set as group parent** in a member's menu, to make it the parent.
 Move the parent right, or out of the group, and the next member leads.
 The group a drop would join is outlined, and a shadow shows where the thread lands.
-Pinned threads stay out of groups; a group can hold threads from any project on the same server.
+Nest a thread under a pinned thread or group and it stays pinned with that group, without a pin of its own; a pinned thread nested in the active list is unpinned.
+A group can hold threads from any project on the same server.
 The parent wears the group's title as a tab; click the tab to collapse the group to the parent alone, and again to expand.
 Collapsed, the tab shows up to six status dots, most urgent first, then `+N` for the rest; hover or focus the tab to list every hidden thread's status.
 Groups can be collapsed, renamed, regenerated, or dissolved from their header.
