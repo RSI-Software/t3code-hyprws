@@ -1,5 +1,5 @@
 // Fork-only (colleague-collab): each other person's unsent draft, read-only, above a shared thread's
-// composer. Each side sends its draft while it is open; nobody edits another's.
+// composer. Each side sends its draft while editing it; nobody edits another's.
 import { RegistryContext } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -46,6 +46,8 @@ const setTypingCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
 const THROTTLE_MS = 250;
 // The server forgets a typist after five seconds without one, so a paused draft stays shown.
 const KEEPALIVE_MS = 2_000;
+// The host's devices share one typist slot, so only a draft edited here lately claims it.
+const ACTIVE_MS = 30_000;
 
 interface TypingThread {
   readonly environmentId: EnvironmentId;
@@ -106,6 +108,7 @@ function ThreadTyping({
     // Whether the server holds this draft, so emptying it must say so.
     let open = false;
     let sentAt = Number.NEGATIVE_INFINITY;
+    let editedAt = Number.NEGATIVE_INFINITY;
     let sending = false;
     let pending = false;
     let closed = false;
@@ -136,16 +139,19 @@ function ThreadTyping({
         if (pending) {
           pending = false;
           flushAfter(throttled());
-        } else if (open) {
+        } else if (open && Date.now() - editedAt < ACTIVE_MS) {
           flushAfter(KEEPALIVE_MS);
+        } else {
+          // Gone idle: the server drops it, and this device must not stop another's.
+          open = false;
         }
       });
     };
-    flushAfter(0);
     const unsubscribe = useComposerDraftStore.subscribe(() => {
       const next = readDraft();
       if (next === source) return;
       source = next;
+      editedAt = Date.now();
       flushAfter(throttled());
     });
     return () => {

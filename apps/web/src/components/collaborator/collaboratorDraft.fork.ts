@@ -9,7 +9,10 @@ import {
   assistantCitationLabel,
   collectAssistantCitations,
 } from "@t3tools/shared/assistantCitations";
-import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
+import {
+  replaceComposerContextReferences,
+  sanitizeComposerContextLabel,
+} from "@t3tools/shared/composerContextReferences";
 
 import type { ComposerThreadDraftState } from "~/composerDraftStore";
 import {
@@ -23,8 +26,6 @@ import {
   threadContextReference,
 } from "~/lib/composerContextRecords";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "~/lib/terminalContext";
-
-const CHIP_LABEL_MAX_CHARS = 200;
 
 type DraftSource = Pick<
   ComposerThreadDraftState,
@@ -70,7 +71,7 @@ export function collaboratorDraftFork(draft: DraftSource | null): CollaboratorDr
     })),
   ]
     .slice(0, COLLABORATOR_DRAFT_CHIPS_MAX)
-    .map(({ kind, label }) => ({ kind, label: label.slice(0, CHIP_LABEL_MAX_CHARS) }));
+    .map(({ kind, label }) => ({ kind, label: sanitizeComposerContextLabel(label, kind) }));
   if (text.trim() === "" && chips.length === 0) return null;
   if (text.length <= COLLABORATOR_DRAFT_TEXT_MAX_CHARS) return { text, truncated: false, chips };
   // The end is what the writer is working on; never start on half a surrogate pair.
