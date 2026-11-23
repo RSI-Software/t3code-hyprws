@@ -185,6 +185,9 @@ describe("planGroupedSidebarThreadDropFork", () => {
     expect(verb("pinned", false)).toEqual({ dropVerb: "pin" });
     expect(verb("active", false)).toEqual({});
     expect(verb("pinned", true, true)).toEqual({});
+    const leave = { from: "pinned", pinned: false, keepsGroupSection: false } as const;
+    expect(groupNestDropVerbFork({ ...leave, to: "active" })).toEqual({ dropVerb: null });
+    expect(groupNestDropVerbFork({ ...leave, to: "active", pinned: true })).toEqual({});
   });
 
   it("pins a child independently when it leaves the group for a plain pinned slot", () => {

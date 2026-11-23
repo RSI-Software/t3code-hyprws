@@ -137,12 +137,10 @@ function slotFor(
   const above = neighbour(overIndex, -1);
   const below = neighbour(overIndex, 1);
   const parent = above?.parent ?? null;
-  // A nest in Pinned leaves pin state alone: the group follows its pinned parent.
-  // A pinned row nesting in Active would also need an unpin, so it never does.
+  // The lifecycle drop owns pin state: a nest in Pinned inherits the parent's pin,
+  // and a pinned row nesting in Active unpins like any drop there.
   const canNest =
-    parent !== null &&
-    (section === "pinned" ||
-      ((section === "active" || section === "working") && active.thread.section !== "pinned"));
+    parent !== null && (section === "pinned" || section === "active" || section === "working");
   // The span continues below the slot, or the lifted row is the collapsed
   // group's parent, its only row in view.
   const inSpan = (group: GroupParent) => below?.group === group || active.group === group;

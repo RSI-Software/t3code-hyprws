@@ -150,15 +150,19 @@ export function normalizeGroupedSidebarThreadDropFork(
   };
 }
 
-/** The lifted card names what a drop into Pinned really does: a row that keeps its group's
-    section inherits the parent's pin, while an inherited row leaving its group takes one. */
+/** The lifted card names what a grouped drop really does: a row that keeps its group's section
+    inherits the parent's pin, an inherited row leaving into Pinned takes one, and leaving
+    into the inbox unpins nothing. */
 export function groupNestDropVerbFork(input: {
   readonly from: SidebarSection | null;
   readonly to: SidebarSection | null;
   readonly pinned: boolean;
   readonly keepsGroupSection: boolean;
 }): { readonly dropVerb?: SidebarDropVerb | null } {
-  if (input.from === null || input.to !== "pinned" || input.pinned) return {};
+  if (input.from === null || input.pinned) return {};
+  if (input.from === "pinned" && (input.to === "active" || input.to === "working"))
+    return { dropVerb: null };
+  if (input.to !== "pinned") return {};
   if (!input.keepsGroupSection) return input.from === "pinned" ? { dropVerb: "pin" } : {};
   return {
     dropVerb: input.from === "snoozed" ? "wake" : input.from === "settled" ? "unsettle" : null,
