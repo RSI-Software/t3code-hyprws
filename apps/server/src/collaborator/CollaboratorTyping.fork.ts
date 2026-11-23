@@ -52,27 +52,40 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
     );
   });
 
-  const remove = Effect.fn("CollaboratorTypingFork.remove")(function* (
+  const remove = (threadId: string, match: (typist: CollaboratorTypistFork) => boolean) =>
+    SubscriptionRef.get(ref).pipe(
+      Effect.flatMap((all) =>
+        Effect.forEach(
+          all.filter((entry) => entry.threadId === threadId && match(entry.typist)),
+          (entry) =>
+            FiberMap.remove(expiries, key(threadId, entry.typist)).pipe(
+              Effect.andThen(forget(threadId, entry.typist)),
+            ),
+          { discard: true },
+        ),
+      ),
+    );
+
+  /** Drops one device's draft; a person's other devices keep theirs. */
+  const stop = Effect.fn("CollaboratorTypingFork.stop")(function* (
     threadId: string,
-    match: (typist: CollaboratorTypistFork) => boolean,
+    { subject, device }: Pick<CollaboratorTypistFork, "subject" | "device">,
   ) {
-    for (const entry of yield* SubscriptionRef.get(ref)) {
-      if (entry.threadId !== threadId || !match(entry.typist)) continue;
-      yield* FiberMap.remove(expiries, key(threadId, entry.typist));
-      yield* forget(threadId, entry.typist);
-    }
+    yield* remove(threadId, (typist) => typist.subject === subject && typist.device === device);
+  });
+
+  /** Drops every draft of the subject's, as unsharing does. */
+  const drop = Effect.fn("CollaboratorTypingFork.drop")(function* (
+    threadId: string,
+    subject: string,
+  ) {
+    yield* remove(threadId, (typist) => typist.subject === subject);
   });
 
   return {
     start,
-    /** Drops one device's draft; a person's other devices keep theirs. */
-    stop: (
-      threadId: string,
-      { subject, device }: Pick<CollaboratorTypistFork, "subject" | "device">,
-    ) => remove(threadId, (typist) => typist.subject === subject && typist.device === device),
-    /** Drops every draft of the subject's, as unsharing does. */
-    drop: (threadId: string, subject: string) =>
-      remove(threadId, (typist) => typist.subject === subject),
+    stop,
+    drop,
     /** Everyone but `viewer` typing in the thread while `shared`, re-emitted only on a change. */
     state: (threadId: string, viewer: string, shared: Stream.Stream<boolean>) =>
       Stream.zipLatestWith(
