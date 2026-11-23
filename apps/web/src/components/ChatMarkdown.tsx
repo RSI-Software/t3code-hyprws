@@ -116,8 +116,7 @@ import {
 } from "./chat/externalLinkContextMenu";
 import { SharedTooltipProvider, SharedTooltipTrigger } from "./ui/shared-tooltip";
 import { useGitHubDestinationLinkFork } from "./chat/GitHubDestinationLink.fork"; // fork-hook: github-issues/chat-markdown-github-destination-import
-import { GITHUB_REFERENCE_REMARK_PLUGINS_FORK } from "./chat/githubReferences.fork"; // fork-hook: github-issues/chat-markdown-github-reference-import
-import { withStyledHtml } from "@t3tools/shared/markdownStyledHtml.fork"; // fork-hook: markdown-editing/chat-markdown-styled-html-import
+import { GITHUB_REFERENCE_EXTENSIONS_FORK } from "./chat/githubReferences.fork"; // fork-hook: github-issues/chat-markdown-github-reference-import
 import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { recordVisitForThread } from "../browserHistoryStore";
@@ -440,10 +439,6 @@ function safeUrl(value: string): string {
     ? value
     : "";
 }
-
-const CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS = withStyledHtml(
-  CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS,
-); // fork-hook: markdown-editing/chat-markdown-styled-html-plugins
 
 function markdownUrlTransform(href: string) {
   if (parseAssistantCitationHref(href)) return href;
@@ -2113,14 +2108,13 @@ function ChatMarkdown({
   const bindMarkdownRef = (node: HTMLElement | null) => {
     markdownRef.current = node;
   };
+  extensions = extensions === NO_EXTENSIONS ? GITHUB_REFERENCE_EXTENSIONS_FORK : extensions; // fork-hook: github-issues/chat-markdown-github-reference-plugins
   const markdown = wordsOptions(extensions, {
     math: componentState.mathEnabled,
     breaks: lineBreaks,
     escapeHtml: !parseRawHtml,
     insights: renderInsights && text.includes("★ Insight"),
   });
-  extraRemarkPlugins =
-    extraRemarkPlugins.length === 0 ? GITHUB_REFERENCE_REMARK_PLUGINS_FORK : extraRemarkPlugins; // fork-hook: github-issues/chat-markdown-github-reference-plugins
   const blocks = streamingBlocks ?? [text];
 
   return (
@@ -2143,9 +2137,6 @@ function ChatMarkdown({
               key={index}
               text={source}
               markdown={markdown}
-              {...(props.styledHtml && parseRawHtml
-                ? { rehypePlugins: CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS }
-                : {})} // fork-hook: markdown-editing/chat-markdown-styled-html-select
               // Every block before the last is finished, so its parse can be reused.
               cache={!props.isStreaming || index < blocks.length - 1}
             />
