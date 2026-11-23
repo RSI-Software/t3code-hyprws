@@ -4,11 +4,15 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   anchorSidebarGroupsFork,
+  groupNestDropVerbFork,
   groupSnoozeCarryKeysFork,
   inheritedSidebarSnoozeOwnersFork,
   regroupSidebarSectionsFork,
 } from "./Sidebar.groupSections.fork";
-import { planSidebarThreadDrop as planGroupedSidebarThreadDropFork } from "./Sidebar.logic";
+import {
+  planSidebarThreadDrop as planGroupedSidebarThreadDropFork,
+  type SidebarSection,
+} from "./Sidebar.logic";
 
 const environmentId = EnvironmentId.make("env");
 const thread = (id: string) => ({ environmentId, id: ThreadId.make(id) });
@@ -162,6 +166,28 @@ describe("planGroupedSidebarThreadDropFork", () => {
         keepInheritedPin: true,
       }),
     ).toEqual({ kind: "none" });
+    // An active thread nesting under a pinned parent inherits that pin instead of taking one.
+    const nest = { ...input, activeKey: "c", activePinned: false, keepInheritedPin: true };
+    expect(planGroupedSidebarThreadDropFork({ ...nest, activeSection: "active" })).toEqual({
+      kind: "none",
+    });
+    expect(planGroupedSidebarThreadDropFork({ ...nest, activeSection: "snoozed" }).kind).not.toBe(
+      "pin",
+    );
+  });
+
+  it("names what a drop into Pinned really does on the lifted card", () => {
+    const verb = (from: SidebarSection, keepsGroupSection: boolean, pinned = false) =>
+      groupNestDropVerbFork({ from, to: "pinned", pinned, keepsGroupSection });
+    expect(verb("active", true)).toEqual({ dropVerb: null });
+    expect(verb("snoozed", true)).toEqual({ dropVerb: "wake" });
+    expect(verb("settled", true)).toEqual({ dropVerb: "unsettle" });
+    expect(verb("pinned", false)).toEqual({ dropVerb: "pin" });
+    expect(verb("active", false)).toEqual({});
+    expect(verb("pinned", true, true)).toEqual({});
+    const leave = { from: "pinned", pinned: false, keepsGroupSection: false } as const;
+    expect(groupNestDropVerbFork({ ...leave, to: "active" })).toEqual({ dropVerb: null });
+    expect(groupNestDropVerbFork({ ...leave, to: "active", pinned: true })).toEqual({});
   });
 
   it("pins a child independently when it leaves the group for a plain pinned slot", () => {
