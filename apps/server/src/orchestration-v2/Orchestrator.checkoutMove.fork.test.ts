@@ -21,6 +21,7 @@ import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -59,6 +60,10 @@ const checkpointLayer = CheckpointService.layer.pipe(
         Layer.provide(VcsDriverRegistry.layer),
         Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-checkout-move-test-" })),
       ),
+      Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+        forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+        submodules: () => Effect.succeed([]),
+      }),
     ),
   ),
   Layer.provideMerge(VcsProcess.layer),
