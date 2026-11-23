@@ -2,6 +2,7 @@
 
 Share a thread with a collaborator's own T3 Code app.
 They follow it live; their messages **run on your machine**, with your agents, marked with their name.
+Above the composer, each of you sees **who is typing**, never the draft itself.
 
 ## Share a thread
 

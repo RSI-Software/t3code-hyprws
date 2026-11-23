@@ -3838,6 +3838,9 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   >
                     <ChildThreadApprovals threadRef={activeThreadRef} />
+                    {/* fork-hook: colleague-collab/chat-typing */}
+                    {isServerThread ? collaboratorFork.typing : null}
+                    {/* fork-hook-end */}
                     <div className="relative">
                       <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                         <ComposerSurface.Host
