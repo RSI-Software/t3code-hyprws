@@ -109,6 +109,7 @@ A domain is **a reason the fork exists**, not a feature area; each section state
 - [delegated-rounds](#delegated-rounds)
 - [voice-input](#voice-input)
 - [colleague-collab](#colleague-collab)
+- [citation-annotations](#citation-annotations)
 
 ## multi-window
 
@@ -889,6 +890,36 @@ A tagged upstream release shares a single thread with another person's client an
 | `apps/web/src/routes/__root.tsx`                                                                                                                                                                                                                                          | Dialog host and message notices                     |
 | `apps/server/src/wsRpcHandlers.fork.ts`, `apps/server/src/wsRpcHandlers.fork-test-harness.ts`, `packages/contracts/src/rpc.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts`                                                                             | Fork files shared with other domains                |
 | `apps/server/src/collaborator/**`, `apps/server/src/auth/forwardedAddress.fork.ts`, `apps/web/src/components/collaborator/**`, `packages/contracts/src/collaborator.fork.ts`, `packages/client-runtime/src/userMessage.fork.ts`, `docs/fork/user/collaborator-sharing.md` | Fork-only; a conflict means upstream took the path  |
+
+## citation-annotations
+
+### Need
+
+- **Cited passages stay marked** in the transcript
+- **Numbered markers** match the composer chips
+- **Comments show and edit** in place
+
+### Shape
+
+One overlay **reads citations from the draft and sent messages**; it never changes message rendering.
+Passages paint through the **CSS Custom Highlight API**, so marking adds **no DOM inside markdown**.
+Markers are **portaled into each cited source** and ride the line's top edge: the content lane clips any gutter.
+Edits and removals **rewrite the active composer draft**, a queued message's edit included, through upstream's citation serializer.
+Repaints run **once per frame** on source mutations and resizes; there is **no continuous animation**.
+
+### Retirement condition
+
+Upstream keeps cited passages marked in the transcript, with each comment readable and editable there.
+
+### Rebase scan
+
+| Path                                                                                                                                      | Why it matters                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `apps/web/src/components/chat/MessagesTimeline.tsx`                                                                                       | Overlay mount beside the selection toolbar         |
+| `apps/web/src/components/chat/useQueuedRunEdit.ts`                                                                                        | Re-exports the queued-edit store for draft target  |
+| `apps/web/src/lib/assistantTextSelection.ts`, `packages/shared/src/assistantCitations.ts`                                                 | Range resolution and citation format               |
+| `apps/web/src/components/chat/AssistantCitationCommentEditor.tsx`, `apps/web/src/components/chat/AssistantCitationChip.tsx`               | Reused editor; chip attribute the numbers count    |
+| `apps/web/src/components/chat/AssistantCitationAnnotations.fork.tsx`, `apps/web/src/components/chat/assistantCitationAnnotations.fork.ts` | Fork-only; a conflict means upstream took the path |
 
 ## Adding a domain
 
