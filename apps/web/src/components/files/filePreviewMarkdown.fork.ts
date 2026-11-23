@@ -1,6 +1,4 @@
-import { remarkColorSwatch } from "./colorSwatch.fork";
-import { remarkEmoji } from "./remarkEmoji.fork";
-import { remarkHighlight } from "./remarkHighlight.fork";
+import type { MarkdownExtensions } from "~/markdown/wordsHast";
 
 /** Syntax the file preview renders beyond chat Markdown. */
-export const FILE_PREVIEW_REMARK_PLUGINS = [remarkHighlight, remarkEmoji, remarkColorSwatch];
+export const FILE_PREVIEW_MARKDOWN_EXTENSIONS: MarkdownExtensions = { githubEmoji: true };

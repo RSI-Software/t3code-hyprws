@@ -123,7 +123,7 @@ export const markdownMath: MilkdownPlugin[] = [
   mathBlockInputRule,
 ].flat();
 
-let typesetModule: Promise<typeof import("~/components/chat/MathTypeset")> | null = null;
+let typesetModule: Promise<typeof import("./mathTypeset.fork")> | null = null;
 
 function mathView(schema: typeof mathInlineSchema | typeof mathBlockSchema, display: boolean) {
   return $view(schema.node, () => (initialNode, editorView, getPos) => {
@@ -142,7 +142,7 @@ function mathView(schema: typeof mathInlineSchema | typeof mathBlockSchema, disp
       const next = node.textContent.trim();
       if (next === tex) return;
       tex = next;
-      typesetModule ??= import("~/components/chat/MathTypeset");
+      typesetModule ??= import("./mathTypeset.fork");
       void typesetModule.then(({ typeset }) => {
         if (tex !== next) return;
         const html = next ? typeset(next, display) : "";
