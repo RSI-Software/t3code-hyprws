@@ -62,6 +62,7 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.pullRequestsSubscribeActivityRefreshesFork // fork-hook: upstream-fixes/pr-activity-refresh-rpc-client-type
   | typeof WS_METHODS.threadGroupsSubscribeFork // fork-hook: thread-ordering/thread-groups-rpc-client-type
   | typeof WS_METHODS.collaboratorSubscribeMessagesFork // fork-hook: colleague-collab/messages-rpc-client-type
+  | typeof WS_METHODS.collaboratorSubscribeTypingFork // fork-hook: colleague-collab/typing-rpc-client-type
   | typeof WS_METHODS.providerAuthSubscribe
   | typeof WS_METHODS.providerInstallSubscribe
   | typeof ORCHESTRATION_V2_WS_METHODS.subscribeShell
