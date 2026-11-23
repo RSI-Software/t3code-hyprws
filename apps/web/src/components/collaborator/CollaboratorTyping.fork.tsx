@@ -181,7 +181,7 @@ function DraftPreview({ typist }: { readonly typist: CollaboratorTypistFork }) {
   const who = typist.name ?? "The host";
   const { draft } = typist;
   return (
-    <figure className="flex min-w-0 flex-col gap-1 rounded-xl border border-dashed border-border px-3 py-2">
+    <figure className="flex min-w-0 flex-col gap-1 rounded-xl border border-dashed border-border bg-background px-3 py-2">
       <figcaption className="text-muted-foreground text-xs">
         {draft === undefined ? `${who} is typing…` : `${who} is writing`}
       </figcaption>
