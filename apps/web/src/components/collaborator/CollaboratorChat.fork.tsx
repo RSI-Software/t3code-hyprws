@@ -148,7 +148,8 @@ export function useCollaboratorChatFork(
   };
 
   return {
-    typing: thread == null ? null : <CollaboratorTypingFork thread={thread} />,
+    typing:
+      thread == null ? null : <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />,
     composer: (bannerItems: ReadonlyArray<ComposerBannerStackItem>) => {
       if (access === "frozen") {
         return {

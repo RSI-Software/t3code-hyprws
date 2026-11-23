@@ -140,7 +140,7 @@ import {
   CollaboratorThreadSharesInputFork,
   CollaboratorThreadMissingErrorFork,
   CollaboratorThreadSharesResultFork,
-  CollaboratorTypistFork,
+  CollaboratorTypingStateFork,
   CollaboratorUnshareErrorFork,
   CollaboratorUnshareThreadInputFork,
 } from "./collaborator.fork.ts";
@@ -199,10 +199,10 @@ export const collaboratorRpcFork = {
       payload: CollaboratorSetTypingInputFork,
       error: EnvironmentAuthorizationError,
     }),
-    // Who else is typing in the thread; every host session counts as the one typist `host`.
+    // Whether the thread is shared, and who else types in it; every host session is typist `host`.
     Rpc.make("collaborator.subscribeTypingFork", {
       payload: Schema.Struct({ threadId: ThreadId }),
-      success: Schema.Array(CollaboratorTypistFork),
+      success: CollaboratorTypingStateFork,
       error: EnvironmentAuthorizationError,
       stream: true,
     }),

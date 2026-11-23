@@ -1,6 +1,6 @@
 // Fork-only (colleague-collab): who is typing in a shared thread's composer. In memory only; a
 // typist the server stops hearing from drops after `TYPING_TTL`.
-import type { CollaboratorTypistFork } from "@t3tools/contracts";
+import type { CollaboratorTypingStateFork, CollaboratorTypistFork } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FiberMap from "effect/FiberMap";
@@ -15,10 +15,10 @@ interface Typing {
   readonly typist: CollaboratorTypistFork;
 }
 
-const sameSubjects = (
-  a: ReadonlyArray<CollaboratorTypistFork>,
-  b: ReadonlyArray<CollaboratorTypistFork>,
-) => a.length === b.length && a.every((typist, index) => typist.subject === b[index]?.subject);
+const sameState = (a: CollaboratorTypingStateFork, b: CollaboratorTypingStateFork) =>
+  a.shared === b.shared &&
+  a.typists.length === b.typists.length &&
+  a.typists.every((typist, index) => typist.subject === b.typists[index]?.subject);
 
 export const makeCollaboratorTyping = Effect.gen(function* () {
   const ref = yield* SubscriptionRef.make<ReadonlyArray<Typing>>([]);
@@ -60,19 +60,21 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
   return {
     start,
     stop,
-    /** Everyone typing in the thread but `viewer`, re-emitted only when that set changes. */
-    typists: (threadId: string, viewer: string, visible: () => boolean) =>
-      SubscriptionRef.changes(ref).pipe(
-        Stream.map((all) =>
-          visible()
+    /** Everyone but `viewer` typing in the thread while `shared`, re-emitted only on a change. */
+    state: (threadId: string, viewer: string, shared: Stream.Stream<boolean>) =>
+      Stream.zipLatestWith(
+        shared,
+        SubscriptionRef.changes(ref),
+        (shared, all): CollaboratorTypingStateFork => ({
+          shared,
+          typists: shared
             ? all.flatMap((entry) =>
                 entry.threadId === threadId && entry.typist.subject !== viewer
                   ? [entry.typist]
                   : [],
               )
             : [],
-        ),
-        Stream.changesWith(sameSubjects),
-      ),
+        }),
+      ).pipe(Stream.changesWith(sameState)),
   };
 });

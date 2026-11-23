@@ -106,6 +106,13 @@ export const CollaboratorTypistFork = Schema.Struct({
 });
 export type CollaboratorTypistFork = typeof CollaboratorTypistFork.Type;
 
+/** `shared`: someone else can see this thread, so its composer heartbeats. */
+export const CollaboratorTypingStateFork = Schema.Struct({
+  shared: Schema.Boolean,
+  typists: Schema.Array(CollaboratorTypistFork),
+});
+export type CollaboratorTypingStateFork = typeof CollaboratorTypingStateFork.Type;
+
 /** A heartbeat while the draft changes; the server forgets a typist it stops hearing from. */
 export const CollaboratorSetTypingInputFork = Schema.Struct({
   threadId: ThreadId,

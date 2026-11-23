@@ -19,6 +19,7 @@ import {
   type CollaboratorShareThreadResultFork,
   CollaboratorThreadMissingErrorFork,
   type CollaboratorThreadSharesResultFork,
+  type CollaboratorTypingStateFork,
   type CollaboratorTypistFork,
   CollaboratorUnshareErrorFork,
   type CollaboratorUnshareThreadInputFork,
@@ -232,7 +233,7 @@ interface CollaboratorTypingHandlersFork {
   ) => Effect.Effect<void, EnvironmentAuthorizationError>;
   readonly [TYPING]: (input: {
     readonly threadId: string;
-  }) => Stream.Stream<ReadonlyArray<CollaboratorTypistFork>, EnvironmentAuthorizationError>;
+  }) => Stream.Stream<CollaboratorTypingStateFork, EnvironmentAuthorizationError>;
 }
 
 // `options: never` accepts each upstream handler whatever its RPC options type.
@@ -715,12 +716,22 @@ const make = Effect.gen(function* () {
         : Effect.fail(notShared(AuthOrchestrationOperateScope)),
   });
 
+  const sharedChanges = (shared: (shares: ReadonlyMap<string, CollaboratorShare>) => boolean) =>
+    SubscriptionRef.changes(ref).pipe(Stream.map(shared), Stream.changes);
+
   const typingHandlers = (subject: string | null): CollaboratorTypingHandlersFork => {
     if (subject === null || !isCollaboratorSubject(subject)) {
       return {
         [SET_TYPING]: ({ threadId, typing: on }) =>
           on ? typing.start(threadId, HOST_TYPIST) : typing.stop(threadId, HOST_TYPIST.subject),
-        [TYPING]: ({ threadId }) => typing.typists(threadId, HOST_TYPIST.subject, () => true),
+        [TYPING]: ({ threadId }) =>
+          typing.state(
+            threadId,
+            HOST_TYPIST.subject,
+            sharedChanges((shares) =>
+              [...shares.values()].some((share) => share.threadIds.has(threadId)),
+            ),
+          ),
       };
     }
     return {
@@ -732,7 +743,11 @@ const make = Effect.gen(function* () {
           : Effect.fail(notShared(AuthOrchestrationOperateScope));
       },
       [TYPING]: ({ threadId }) =>
-        typing.typists(threadId, subject, () => isShared(subject, threadId)),
+        typing.state(
+          threadId,
+          subject,
+          sharedChanges((shares) => shares.get(subject)?.threadIds.has(threadId) === true),
+        ),
     };
   };
 

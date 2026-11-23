@@ -10,13 +10,17 @@ import {
 import { type EnvironmentId, type ThreadId, WS_METHODS } from "@t3tools/contracts";
 import { useContext, useEffect } from "react";
 
-import { readComposerDraftPrompt, useComposerDraftStore } from "~/composerDraftStore";
+import {
+  type ComposerThreadTarget,
+  type DraftId,
+  readComposerDraftPrompt,
+  useComposerDraftStore,
+} from "~/composerDraftStore";
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
-import { threadSharesQuery } from "./collaboratorAccess.fork";
 
-const typistsSubscription = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
+const typingSubscription = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:typing",
   tag: WS_METHODS.collaboratorSubscribeTypingFork,
 });
@@ -40,40 +44,47 @@ interface TypingThread {
   readonly collaboratorFork?: "send" | "approve" | "frozen";
 }
 
-/** Live only on a thread with someone to tell: shared by this host, or a collaborator's copy. */
-export function CollaboratorTypingFork({ thread }: { readonly thread: TypingThread }) {
+/** One idle subscription per open thread; heartbeats only while the server says it is shared. */
+export function CollaboratorTypingFork({
+  thread,
+  draftTarget,
+}: {
+  readonly thread: TypingThread;
+  readonly draftTarget: ComposerThreadTarget;
+}) {
   const served =
     useServerConfigs().get(thread.environmentId)?.environment.capabilities.collaboratorsFork ===
     true;
-  const asHost = served && thread.collaboratorFork === undefined;
-  const { data: shares } = useEnvironmentQuery(
-    asHost
-      ? threadSharesQuery({ environmentId: thread.environmentId, input: { threadId: thread.id } })
-      : null,
-  );
-  const live =
-    thread.collaboratorFork === "send" ||
-    thread.collaboratorFork === "approve" ||
-    (shares?.sharedWith.length ?? 0) > 0;
-  return live ? (
-    <SharedThreadTyping environmentId={thread.environmentId} threadId={thread.id} />
+  return served && thread.collaboratorFork !== "frozen" ? (
+    <ThreadTyping
+      environmentId={thread.environmentId}
+      threadId={thread.id}
+      // A queued-message edit types into a draft of its own.
+      editDraftId={typeof draftTarget === "string" ? draftTarget : null}
+    />
   ) : null;
 }
 
-function SharedThreadTyping({
+function ThreadTyping({
   environmentId,
   threadId,
+  editDraftId,
 }: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly editDraftId: DraftId | null;
 }) {
   const registry = useContext(RegistryContext);
-  const typists =
-    useEnvironmentQuery(typistsSubscription({ environmentId, input: { threadId } })).data ?? [];
+  const state = useEnvironmentQuery(
+    typingSubscription({ environmentId, input: { threadId } }),
+  ).data;
+  const shared = state?.shared === true;
+  const typists = state?.typists ?? [];
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- heartbeats from the draft store outside React, so keystrokes never re-render; unmount stops
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- heartbeats from the draft store outside React, so keystrokes never re-render; unsharing or unmount stops
   useEffect(() => {
-    const target = scopeThreadRef(environmentId, threadId);
+    if (!shared) return;
+    const target = editDraftId ?? scopeThreadRef(environmentId, threadId);
     const send = (typing: boolean) =>
       void runAtomCommand(
         registry,
@@ -99,7 +110,7 @@ function SharedThreadTyping({
       unsubscribe();
       if (beatAt !== null) send(false);
     };
-  }, [registry, environmentId, threadId]);
+  }, [registry, environmentId, threadId, editDraftId, shared]);
 
   const [first] = typists;
   return (
