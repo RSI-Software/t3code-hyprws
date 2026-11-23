@@ -409,6 +409,7 @@ Retired with the fork.
 - A **headless native client** needs a token
 - Upstream hands tokens out **by copy-paste**
 - The token **never passes through a person**
+- A **hosted server's stdout is its log**
 
 ### Shape
 
@@ -428,6 +429,9 @@ Scopes are the **requested ones, else standard**; owner `--scope` only narrows.
 `--ttl` sets the session lifetime; **renewal is a new grant**.
 Revoke the **issued session** with `t3 auth session revoke`.
 Open requests are **capped and expire**.
+
+`T3CODE_NO_STARTUP_PAIRING=1` **mints no startup pairing link**, so none reaches the log; the owner runs `t3 pair`.
+An env var, not a flag: an **older server ignores it**.
 
 ### External MCP clients
 
@@ -467,6 +471,7 @@ When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#1522
 | `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`                                                      | Fork-owned grant and CLI                                                    |
 | `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts`                                           | Route, command, table hooks                                                 |
 | `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                                                            | Reused issue and proof APIs                                                 |
+| `apps/server/src/auth/startupPairing.fork.ts`, `apps/server/src/auth/startupPairing.fork.test.ts`, `apps/server/src/serverRuntimeStartup.ts`      | Startup pairing switch, its hook and test                                   |
 | `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/`                        | Fork-owned MCP policy, server, tools                                        |
 | `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                                           | Reused thread helpers and response normalizer                               |
 | `packages/shared/src/orchestrationV2PendingBackgroundWork.ts`, `packages/contracts/src/orchestrationV2.ts`                                        | Background roster and native subagent test read by `work`                   |

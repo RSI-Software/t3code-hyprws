@@ -50,6 +50,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { getServerOwners } from "./telemetry/Identify.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import { skipStartupPairingFork } from "./auth/startupPairing.fork.ts"; // fork-hook: device-auth/no-startup-pairing-import
 import {
   formatHeadlessServeOutput,
   issueHeadlessServeAccessInfo,
@@ -627,6 +628,7 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
           }),
           Effect.ignoreCause({ log: true }),
         );
+        if (yield* skipStartupPairingFork) return; // fork-hook: device-auth/no-startup-pairing
         if (serverConfig.startupPresentation === "headless") {
           yield* Effect.logDebug("startup phase: headless access info");
           const accessInfo = yield* issueHeadlessServeAccessInfo();
