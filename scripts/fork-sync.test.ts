@@ -1872,9 +1872,10 @@ it("relabels an unchanged body once, after its job settles or the job budget has
     const recording = exec({
       gh: (args) => {
         if (args[1] !== "list") {
+          const bodyFile = args.indexOf("--body-file");
           writes.push({
             args,
-            body: NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+            body: bodyFile === -1 ? "" : NodeFS.readFileSync(args[bodyFile + 1]!, "utf8"),
           });
           return ok();
         }
@@ -1908,6 +1909,19 @@ it("relabels an unchanged body once, after its job settles or the job budget has
   assert.deepStrictEqual(rest, []);
   assert.strictEqual(retry!.args[retry!.args.indexOf("--add-label") + 1], "rsi:fork-sync");
   assert.include(retry!.body, "<!-- agent-labelled:2026-09-21T10:00:00.000Z retried -->");
+  // a label still on past the job budget never reached a job: drop it, then re-add it
+  const [drop, readd, ...after] = publish("<!-- agent-labelled:2026-09-21T07:00:00.000Z -->", [
+    "ci",
+    "rsi:fork-sync",
+  ]);
+  assert.deepStrictEqual(after, []);
+  assert.strictEqual(drop!.args[drop!.args.indexOf("--remove-label") + 1], "rsi:fork-sync");
+  assert.strictEqual(readd!.args[readd!.args.indexOf("--add-label") + 1], "rsi:fork-sync");
+  // a new blocking commit re-adds a label the last delivery never consumed
+  const older = attentionIssueBody(blockedReport("6".repeat(40)));
+  const [rekeyDrop, rekey] = publish(recent, ["ci", "rsi:fork-sync"], older);
+  assert.include(rekeyDrop!.args, "--remove-label");
+  assert.include(rekey!.args, "--add-label");
   // the retry missed too: a human decides
   assert.deepStrictEqual(
     publish("<!-- agent-labelled:2026-09-21T07:00:00.000Z retried -->", ["ci"]),
