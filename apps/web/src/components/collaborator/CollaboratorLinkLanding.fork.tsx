@@ -5,6 +5,7 @@ import { buildPairingAppLink } from "@t3tools/shared/remote";
 import { type ReactNode, useState } from "react";
 
 import { isElectron } from "~/env";
+import { fetchSessionState } from "../../environments/primary/auth";
 import { PairingRouteSurface } from "../auth/PairingRouteSurface";
 import { Button } from "../ui/button";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
@@ -34,6 +35,16 @@ export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): R
       />
     );
   }
+  // A link's token works once, so a browser that already paired opens the thread without it.
+  const continueInBrowser = () =>
+    void fetchSessionState()
+      .then(({ authenticated }) => authenticated)
+      .catch(() => false)
+      .then((authenticated) =>
+        authenticated
+          ? sharedThreadPathFork(threadId).then((path) => window.location.replace(path))
+          : setContinued(true),
+      );
   const onPhone = /android|iphone|ipad/i.test(navigator.userAgent);
   return (
     <StandalonePage>
@@ -45,7 +56,7 @@ export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): R
         <Button render={<a href={buildPairingAppLink(href)} />}>
           {onPhone ? "Open in app" : "Open in desktop app"}
         </Button>
-        <Button variant="outline" onClick={() => setContinued(true)}>
+        <Button variant="outline" onClick={continueInBrowser}>
           Continue in this browser
         </Button>
       </div>

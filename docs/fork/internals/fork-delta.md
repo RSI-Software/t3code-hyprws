@@ -842,6 +842,8 @@ Ducking stays fork scope until upstream lowers speaker volume while recording.
 
 Code says **collaborator**; the subject prefix, tables, and this domain id **keep `colleague`**.
 A pairing link for subject **`colleague:<slug>`** carries only the orchestration read and operate scopes.
+Its session **never expires on time**: a browser session gets a century, a desktop session renews; unsharing or revoking ends access.
+The link token is **single-use**, so a browser already paired opens the thread without spending it.
 `fork_colleague_shares` holds **one row per subject and thread**, with its `access`.
 `CollaboratorSharesFork.wrapHandlers` **narrows dispatch**, shell, and thread subscriptions in `ws.ts`.
 Shell items carry **`collaboratorFork`**: `send`, `approve`, or `frozen`.
@@ -868,6 +870,7 @@ A tagged upstream release shares a single thread with another person's client an
 | `apps/server/src/auth/RpcAuthorization.ts`, `apps/server/src/observability/RpcInstrumentation.ts`, `packages/contracts/src/clientRpcPermissions.ts`                                                                                                                       | Scopes and spans for the share RPCs                 |
 | `apps/server/src/orchestration-v2/http.ts`                                                                                                                                                                                                                                | HTTP shell and thread guards                        |
 | `apps/server/src/auth/utils.ts`                                                                                                                                                                                                                                           | Forwarded client address                            |
+| `apps/server/src/auth/EnvironmentAuth.ts`, `apps/server/src/auth/SessionStore.ts`                                                                                                                                                                                         | Collaborator session lifetime                       |
 | `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/composerContext.ts`, `packages/client-runtime/src/state/models.ts`, `packages/client-runtime/src/userMessage.ts`                                                                                     | Shell access and message author                     |
 | `packages/contracts/src/environment.ts`, `apps/server/src/environment/ServerEnvironment.ts`, `packages/client-runtime/src/rpc/client.ts`                                                                                                                                  | Capability and message stream                       |
 | `apps/web/src/components/ChatView.tsx`                                                                                                                                                                                                                                    | Composer overrides and waiting messages             |

@@ -11,7 +11,8 @@ Above the composer, each of you sees **the other's unsent draft** live, read-onl
 3. Type their name and choose **Share**
 4. Send them the link
 
-The link **expires after 24 hours** and opens in their desktop app or browser.
+The link opens in their desktop app or browser; unopened, it **expires after 24 hours**.
+Once they open it, their access **does not expire**; it lasts until you stop sharing or remove their device.
 To share another thread with someone you shared with before, pick their name under **Shared before**; no new link is needed.
 
 ## Approve their messages
