@@ -596,7 +596,7 @@ const make = Effect.gen(function* () {
         yield* reload.pipe(Effect.mapError(fail("read-shares")));
       }),
     );
-    yield* typing.stop(threadId, subject);
+    yield* typing.drop(threadId, subject);
   });
 
   const setAccess = Effect.fn("CollaboratorSharesFork.setAccess")(function* (
@@ -722,8 +722,10 @@ const make = Effect.gen(function* () {
   const typingHandlers = (subject: string | null): CollaboratorTypingHandlersFork => {
     if (subject === null || !isCollaboratorSubject(subject)) {
       return {
-        [SET_TYPING]: ({ threadId, typing: on }) =>
-          on ? typing.start(threadId, HOST_TYPIST) : typing.stop(threadId, HOST_TYPIST.subject),
+        [SET_TYPING]: ({ threadId, typing: on, ...writing }) => {
+          const typist = { ...HOST_TYPIST, ...writing };
+          return on ? typing.start(threadId, typist) : typing.stop(threadId, typist);
+        },
         [TYPING]: ({ threadId }) =>
           typing.state(
             threadId,
@@ -735,11 +737,11 @@ const make = Effect.gen(function* () {
       };
     }
     return {
-      [SET_TYPING]: ({ threadId, typing: on }) => {
-        if (!on) return typing.stop(threadId, subject);
+      [SET_TYPING]: ({ threadId, typing: on, ...writing }) => {
+        if (!on) return typing.stop(threadId, { subject, ...writing });
         const share = current.get(subject);
         return share?.threadIds.has(threadId)
-          ? typing.start(threadId, { subject, name: share.name })
+          ? typing.start(threadId, { subject, name: share.name, ...writing })
           : Effect.fail(notShared(AuthOrchestrationOperateScope));
       },
       [TYPING]: ({ threadId }) =>
