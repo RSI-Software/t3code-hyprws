@@ -26,3 +26,81 @@
 .dropdown-glass[data-level] > div {
   max-height: calc(100dvh - 0.5rem) !important;
 }
+
+/* citation-annotations: cited passages stay marked in the transcript, numbered like their
+   composer chips. Markers are absolutely placed inside the message they cite. */
+::highlight(t3-annotation-sent) {
+  background-color: color-mix(in oklab, var(--primary) 7%, transparent);
+}
+::highlight(t3-annotation-draft) {
+  background-color: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+::highlight(t3-annotation-active) {
+  background-color: color-mix(in oklab, var(--primary) 26%, transparent);
+}
+
+[data-assistant-citation-source]:has(> [data-annotation-layer]) {
+  position: relative;
+}
+
+@theme {
+  --animate-annotation-pop: t3-annotation-pop 420ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
+}
+
+@keyframes t3-annotation-pop {
+  0% {
+    scale: 0.3;
+    opacity: 0;
+    box-shadow:
+      0 0 0 2px var(--background),
+      0 0 0 2px color-mix(in oklab, var(--primary) 50%, transparent);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    scale: 1;
+    box-shadow:
+      0 0 0 2px var(--background),
+      0 0 0 10px transparent;
+  }
+}
+
+/* Composer citation chips join their quote icon and number into the same `❝n` badge as the markers. */
+.composer-tiptap {
+  counter-reset: t3-annotation;
+}
+.composer-tiptap [data-assistant-citation-chip] {
+  counter-increment: t3-annotation;
+
+  & > a > svg:first-child {
+    order: -2;
+    box-sizing: content-box;
+    width: 0.625rem;
+    height: 0.625rem;
+    padding-block: 0.1875rem;
+    padding-inline: 0.3rem 0.05rem;
+    /* Cancels the link's `gap` in its own em, plus 1px of overlap so no seam shows. */
+    margin-inline-end: calc(-0.2em - 1px);
+    border-radius: 999px 0 0 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    fill: currentColor;
+  }
+  & > a::before {
+    order: -1;
+    content: counter(t3-annotation);
+    display: inline-flex;
+    align-items: center;
+    height: 1rem;
+    margin-inline-end: 0.15rem;
+    padding-inline: calc(0.1rem + 1px) 0.35rem;
+    border-radius: 0 999px 999px 0;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+}
