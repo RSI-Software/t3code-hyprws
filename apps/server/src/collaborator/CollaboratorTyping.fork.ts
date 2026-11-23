@@ -49,12 +49,17 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
     );
   });
 
+  const stop = Effect.fn("CollaboratorTypingFork.stop")(function* (
+    threadId: string,
+    subject: string,
+  ) {
+    yield* FiberMap.remove(expiries, key(threadId, subject));
+    yield* forget(threadId, subject);
+  });
+
   return {
     start,
-    stop: (threadId: string, subject: string) =>
-      FiberMap.remove(expiries, key(threadId, subject)).pipe(
-        Effect.andThen(forget(threadId, subject)),
-      ),
+    stop,
     /** Everyone typing in the thread but `viewer`, re-emitted only when that set changes. */
     typists: (threadId: string, viewer: string, visible: () => boolean) =>
       SubscriptionRef.changes(ref).pipe(
