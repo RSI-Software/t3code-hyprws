@@ -69,7 +69,14 @@ import {
   type OlderSettledScope,
 } from "@t3tools/client-runtime/state/threads";
 
-import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, SettingsIcon } from "lucide-react"; // fork-hook: workspaces/chooser-icons
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  FolderIcon,
+  FolderPlusIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
