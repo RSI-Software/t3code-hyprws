@@ -4,7 +4,10 @@
 // value and change handler, the trigger's label and icon, and the row extras.
 import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
 import { CheckIcon, FocusIcon, FolderIcon, FoldersIcon, MinusIcon } from "lucide-react";
+import { useGT } from "gt-react";
 import { useLayoutEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
+
+import { openCommandPalette } from "~/commandPaletteBus";
 
 import { cn } from "~/lib/utils";
 import {
@@ -17,6 +20,7 @@ import {
   type ProjectChooserGroup,
   type ProjectChooserItem,
 } from "../../projectChooser.fork";
+import { ADD_PROJECT_SCOPE_ITEM_VALUE } from "../Sidebar.logic";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
 import { useSidebar } from "../ui/sidebar";
@@ -36,7 +40,19 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
   const unavailableValues = new Set(
     state.items.filter((item) => item.unavailable).map((item) => item.value),
   );
-  const onValueChange = (items: ReadonlyArray<ProjectChooserItem>) =>
+  const gt = useGT();
+  // Upstream's combobox leads with "Add project"; its row renders from the shared value.
+  const addProjectItem: ProjectChooserItem = {
+    value: ADD_PROJECT_SCOPE_ITEM_VALUE,
+    label: gt("Add project"),
+    unavailable: false,
+  };
+  const onValueChange = (items: ReadonlyArray<ProjectChooserItem>) => {
+    if (items.some((item) => item.value === ADD_PROJECT_SCOPE_ITEM_VALUE)) {
+      setMenuOpen(false);
+      openCommandPalette({ open: "add-project" });
+      return;
+    }
     setFilter(
       projectFilterFromChooser(
         filter,
@@ -44,6 +60,7 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
         projectGroups,
       ),
     );
+  };
   const showOnly = (event: ReactMouseEvent<HTMLButtonElement>, group: Group) => {
     event.preventDefault();
     event.stopPropagation();
@@ -73,7 +90,14 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
     groups: projectGroups,
   };
   useProjectChooserHost(registered, enabled);
-  return { ...state, selectedValues, unavailableValues, onValueChange, showOnly };
+  return {
+    ...state,
+    items: [addProjectItem, ...state.items],
+    selectedValues,
+    unavailableValues,
+    onValueChange,
+    showOnly,
+  };
 }
 
 /** The trigger's icon while no single project is selected: all, or several. */
