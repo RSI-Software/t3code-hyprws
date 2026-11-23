@@ -48,6 +48,10 @@ import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { REUSABLE_DEV_SESSION_EXPIRES_AT, resolveReusableDevAuth } from "./ReusableDevAuth.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
+import {
+  collaboratorSessionLifetimeFork,
+  isCollaboratorSubject,
+} from "../collaborator/collaboratorSubject.fork.ts"; // fork-hook: colleague-collab/session-lifetime-import
 import { DESKTOP_RENDERER_ORIGINS } from "../httpCors.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
@@ -1022,6 +1026,7 @@ export const make = Effect.gen(function* () {
           method: "browser-session-cookie",
           subject: grant.subject,
           scopes: grant.scopes,
+          ...collaboratorSessionLifetimeFork(grant.subject), // fork-hook: colleague-collab/session-lifetime
           ...(previousSession?.method === "browser-session-cookie"
             ? { replaceSessionId: previousSession.sessionId }
             : {}),
@@ -1171,7 +1176,7 @@ export const make = Effect.gen(function* () {
               const renewable =
                 input?.proofKeyThumbprint !== undefined &&
                 grant.method === "one-time-token" &&
-                grant.subject === PAIRING_LINK_SUBJECT;
+                (grant.subject === PAIRING_LINK_SUBJECT || isCollaboratorSubject(grant.subject)); // fork-hook: colleague-collab/session-lifetime
               const issue = sessions
                 .issue({
                   method: input?.proofKeyThumbprint ? "dpop-access-token" : "bearer-access-token",
@@ -1184,6 +1189,7 @@ export const make = Effect.gen(function* () {
                       }
                     : {}),
                   ...(renewable ? { renewalWindow: RENEWABLE_SESSION_WINDOW } : {}),
+                  ...collaboratorSessionLifetimeFork(grant.subject, "renewalWindow"), // fork-hook: colleague-collab/session-lifetime
                   replaceActiveForSubjectAndMethod: grant.method === "desktop-bootstrap",
                   client: {
                     ...requestMetadata,
