@@ -80,6 +80,7 @@ import {
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import { isCompactionCommandMessage } from "@t3tools/contracts"; // fork-hook: upstream-fixes/conversation-fork-compaction-import
 import {
   conversationForkContextFork,
   conversationForkNoticeOwedFork,
