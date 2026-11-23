@@ -12,12 +12,15 @@ import {
   type CollaboratorMessageFork,
   type CollaboratorResolveMessageInputFork,
   type CollaboratorSetAccessInputFork,
+  type CollaboratorSetTypingInputFork,
   CollaboratorShareErrorFork,
   type CollaboratorSubmitMessageInputFork,
   type CollaboratorShareThreadInputFork,
   type CollaboratorShareThreadResultFork,
   CollaboratorThreadMissingErrorFork,
   type CollaboratorThreadSharesResultFork,
+  type CollaboratorTypingStateFork,
+  type CollaboratorTypistFork,
   CollaboratorUnshareErrorFork,
   type CollaboratorUnshareThreadInputFork,
   EnvironmentAuthenticatedPrincipal,
@@ -58,6 +61,7 @@ import {
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
 import { collaboratorAttribution, makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
+import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
 
 // Persisted in paired sessions, so it keeps the feature's original name.
@@ -65,6 +69,8 @@ const COLLABORATOR_SUBJECT_PREFIX = "colleague:";
 const SHARE_LINK_TTL = Duration.hours(24);
 
 const isCollaboratorSubject = (subject: string) => subject.startsWith(COLLABORATOR_SUBJECT_PREFIX);
+// Every host session types as one typist, so a host never sees their own other device.
+const HOST_TYPIST: CollaboratorTypistFork = { subject: "host" };
 
 // Case and punctuation fold on purpose, so "Sam" and "sam " reach the same paired collaborator.
 const collaboratorSubject = (name: string) =>
@@ -200,6 +206,8 @@ const {
   collaboratorSubscribeMessagesFork: MESSAGES,
   collaboratorSubmitMessageFork: SUBMIT,
   collaboratorResolveMessageFork: RESOLVE,
+  collaboratorSetTypingFork: SET_TYPING,
+  collaboratorSubscribeTypingFork: TYPING,
 } = WS_METHODS;
 
 type MessageError = CollaboratorMessageErrorFork | EnvironmentAuthorizationError;
@@ -216,6 +224,16 @@ interface CollaboratorMessageHandlersFork {
   readonly [RESOLVE]: (
     input: CollaboratorResolveMessageInputFork,
   ) => Effect.Effect<void, MessageError>;
+}
+
+/** The typing RPCs, answered per session: `null` is the host. */
+interface CollaboratorTypingHandlersFork {
+  readonly [SET_TYPING]: (
+    input: CollaboratorSetTypingInputFork,
+  ) => Effect.Effect<void, EnvironmentAuthorizationError>;
+  readonly [TYPING]: (input: {
+    readonly threadId: string;
+  }) => Stream.Stream<CollaboratorTypingStateFork, EnvironmentAuthorizationError>;
 }
 
 // `options: never` accepts each upstream handler whatever its RPC options type.
@@ -342,6 +360,8 @@ const COLLABORATOR_OPEN_RPCS: ReadonlySet<string> = new Set([
 const COLLABORATOR_THREAD_RPCS: ReadonlySet<string> = new Set([
   SUBMIT,
   RESOLVE,
+  SET_TYPING,
+  TYPING,
   ORCHESTRATION_V2_WS_METHODS.getTurnDiff,
   ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff,
   ORCHESTRATION_V2_WS_METHODS.getTurnItem,
@@ -396,6 +416,8 @@ export class CollaboratorSharesFork extends Context.Service<
     ) => Effect.Effect<void, CollaboratorAccessErrorFork>;
     /** The waiting-message handlers for `subject`, or the host's for `null`. */
     readonly messageHandlers: (subject: string | null) => CollaboratorMessageHandlersFork;
+    /** The typing handlers for `subject`, or the host's for `null`. */
+    readonly typingHandlers: (subject: string | null) => CollaboratorTypingHandlersFork;
     /**
      * Wraps the session's RPC authorization: a collaborator session is also refused outside its
      * closed set; other sessions pass through.
@@ -424,7 +446,7 @@ export class CollaboratorSharesFork extends Context.Service<
       LE,
       LR
     > &
-      Partial<CollaboratorMessageHandlersFork>;
+      Partial<CollaboratorMessageHandlersFork & CollaboratorTypingHandlersFork>;
   }
 >()("t3/collaborator/CollaboratorShares.fork/CollaboratorSharesFork") {}
 
@@ -436,6 +458,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const httpClient = yield* HttpClient.HttpClient;
   const messages = yield* makeCollaboratorMessages;
+  const typing = yield* makeCollaboratorTyping;
   // The local tunnel's public hostname, then the origin the sharing client reached, then a guess.
   const pairingBaseUrl = Effect.fn("CollaboratorSharesFork.pairingBaseUrl")(function* (
     linkBaseUrl: string | undefined,
@@ -573,6 +596,7 @@ const make = Effect.gen(function* () {
         yield* reload.pipe(Effect.mapError(fail("read-shares")));
       }),
     );
+    yield* typing.drop(threadId, subject);
   });
 
   const setAccess = Effect.fn("CollaboratorSharesFork.setAccess")(function* (
@@ -692,6 +716,43 @@ const make = Effect.gen(function* () {
         : Effect.fail(notShared(AuthOrchestrationOperateScope)),
   });
 
+  const sharedChanges = (shared: (shares: ReadonlyMap<string, CollaboratorShare>) => boolean) =>
+    SubscriptionRef.changes(ref).pipe(Stream.map(shared), Stream.changes);
+
+  const typingHandlers = (subject: string | null): CollaboratorTypingHandlersFork => {
+    if (subject === null || !isCollaboratorSubject(subject)) {
+      return {
+        [SET_TYPING]: ({ threadId, typing: on, ...writing }) => {
+          const typist = { ...HOST_TYPIST, ...writing };
+          return on ? typing.start(threadId, typist) : typing.stop(threadId, typist);
+        },
+        [TYPING]: ({ threadId }) =>
+          typing.state(
+            threadId,
+            HOST_TYPIST.subject,
+            sharedChanges((shares) =>
+              [...shares.values()].some((share) => share.threadIds.has(threadId)),
+            ),
+          ),
+      };
+    }
+    return {
+      [SET_TYPING]: ({ threadId, typing: on, ...writing }) => {
+        if (!on) return typing.stop(threadId, { subject, ...writing });
+        const share = current.get(subject);
+        return share?.threadIds.has(threadId)
+          ? typing.start(threadId, { subject, name: share.name, ...writing })
+          : Effect.fail(notShared(AuthOrchestrationOperateScope));
+      },
+      [TYPING]: ({ threadId }) =>
+        typing.state(
+          threadId,
+          subject,
+          sharedChanges((shares) => shares.get(subject)?.threadIds.has(threadId) === true),
+        ),
+    };
+  };
+
   const wrapHandlers: CollaboratorSharesFork["Service"]["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
     const { [DISPATCH]: dispatch, [SHELL]: subscribeShell, [THREAD]: subscribeThread } = handlers;
@@ -706,6 +767,7 @@ const make = Effect.gen(function* () {
     }
     return {
       ...messageHandlers(subject),
+      ...typingHandlers(subject),
       // Outside the collaborator's closed RPC set, so `guardRpc` refuses it first.
       [LAUNCH]: launch,
       [DISPATCH]: (command, options) => {
@@ -763,6 +825,7 @@ const make = Effect.gen(function* () {
     unshare,
     setAccess,
     messageHandlers,
+    typingHandlers,
     guardRpc,
     isShared,
     wrapHandlers,
