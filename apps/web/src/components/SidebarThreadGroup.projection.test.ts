@@ -154,6 +154,13 @@ describe("thread group depth projection", () => {
       threadIds: ["o1", "o2"],
       target: { kind: "new", group: newGroup() },
     });
+    const underPin = sidebarMarkerId("pinned-divider");
+    expect(drop("o1", underPin, 0).drop).toBeNull();
+    expect(drop("o1", underPin, 1).drop).toEqual({
+      threadIds: ["p1", "o1"],
+      target: { kind: "new", group: newGroup() },
+    });
+    expect(isSidebarThreadGroupSlotValidFork(tree, "o1", underPin)).toBe(true);
   });
 
   it("joins a group below its last member, and between members at any offset", () => {
@@ -162,6 +169,9 @@ describe("thread group depth projection", () => {
     expect(drop("o1", "o1", 1).drop?.target).toEqual(joined);
     expect(drop("o1", "m2", 0).drop?.target).toEqual(joined);
     expect(drop("o1", "m2", -1).drop?.target).toEqual(joined);
+    // A pinned group takes active and pinned threads alike.
+    expect(pinnedGroupDrop("o1", "m2").drop?.target).toEqual(joined);
+    expect(pinnedGroupDrop("p1", "m2").drop?.target).toEqual(joined);
   });
 
   it("lets a member reorder inside its group, and leave at depth 0", () => {
@@ -176,13 +186,15 @@ describe("thread group depth projection", () => {
     expect(left.dissolving).toBe(OPEN_KEY);
   });
 
-  it("never nests across the Active divider or lets a pinned thread in", () => {
+  it("never nests across the Active divider, but lets a pinned thread nest in Active", () => {
     // Above the group's header, the first active slot has no parent.
     expect(drop("o1", OPEN_HEADER, 1).projection).toMatchObject({ depth: 0, parent: null });
-    expect(drop("p1", "o2", 1).projection).toMatchObject({ depth: 0, refused: false });
-    expect(drop("p1", "m1", 0).projection.refused).toBe(true);
-    expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "m1")).toBe(false);
-    expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "o2")).toBeUndefined();
+    expect(drop("p1", "o2", 1).drop).toEqual({
+      threadIds: ["o2", "p1"],
+      target: { kind: "new", group: newGroup() },
+    });
+    expect(drop("p1", "m1", 0).drop?.target).toEqual({ kind: "existing", groupId: "open" });
+    expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "m1")).toBe(true);
   });
 
   it("lets any active thread join a group between its members", () => {
