@@ -849,6 +849,7 @@ Shell items carry **`collaboratorFork`**: `send`, `approve`, or `frozen`.
 `send` dispatches **conversation commands only**; managing the thread stays the host's.
 **Only the server sets** `context.collaboratorFork`; the agent text names the collaborator.
 Unsharing **re-snapshots the shell**, drops waiting messages, and pauses an open thread stream.
+Typing lives **in memory only**: a heartbeat lasts 5 seconds, unsharing drops it, and every host session is the one typist `host`.
 Collaborator subjects are **refused the unfiltered HTTP** shell snapshot.
 `guardRpc` **allows a closed RPC set**; thread reads and asset URLs only for live shares.
 Behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is **recorded as the address**.

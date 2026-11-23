@@ -34,6 +34,7 @@ import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { CollaboratorTypingFork } from "./CollaboratorTyping.fork";
 
 const collaboratorMessages = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:messages",
@@ -89,7 +90,7 @@ interface CollaboratorChatThread {
   readonly collaboratorFork?: "send" | "approve" | "frozen";
 }
 
-/** The thread view's collaborator overrides: its composer and the end of its timeline. */
+/** The thread view's collaborator overrides: its composer, who is typing, and the end of its timeline. */
 export function useCollaboratorChatFork(
   thread: CollaboratorChatThread | null | undefined,
   draftTarget: ComposerThreadTarget,
@@ -147,6 +148,8 @@ export function useCollaboratorChatFork(
   };
 
   return {
+    typing:
+      thread == null ? null : <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />,
     composer: (bannerItems: ReadonlyArray<ComposerBannerStackItem>) => {
       if (access === "frozen") {
         return {
