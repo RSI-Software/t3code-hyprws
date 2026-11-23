@@ -562,6 +562,33 @@ database("CollaboratorSharesFork", (it) => {
           assert.deepStrictEqual(yield* Queue.take(hostSeen), samWriting("Fix the bug"));
           yield* typing(sam, false);
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
+
+          // Each of the host's devices holds its own draft; one stopping leaves the other's.
+          const onDevice = (device: string, text?: string) =>
+            host["collaborator.setTypingFork"]({
+              threadId: shared,
+              device,
+              ...(text === undefined ? { typing: false } : { typing: true, draft: draft(text) }),
+            });
+          const hostWriting = (...devices: ReadonlyArray<[string, string]>) => ({
+            shared: true,
+            typists: devices.map(([device, text]) => ({
+              subject: "host",
+              draft: draft(text),
+              device,
+            })),
+          });
+          yield* onDevice("laptop", "Ship it");
+          assert.deepStrictEqual(yield* Queue.take(samSeen), hostWriting(["laptop", "Ship it"]));
+          yield* onDevice("desk", "Wait");
+          assert.deepStrictEqual(
+            yield* Queue.take(samSeen),
+            hostWriting(["laptop", "Ship it"], ["desk", "Wait"]),
+          );
+          yield* onDevice("desk");
+          assert.deepStrictEqual(yield* Queue.take(samSeen), hostWriting(["laptop", "Ship it"]));
+          yield* onDevice("laptop");
+          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
           const overCap = decodeSetTyping({
             threadId: shared,
             typing: true,

@@ -22,13 +22,14 @@ const sameState = (a: CollaboratorTypingStateFork, b: CollaboratorTypingStateFor
 export const makeCollaboratorTyping = Effect.gen(function* () {
   const ref = yield* SubscriptionRef.make<ReadonlyArray<Typing>>([]);
   const expiries = yield* FiberMap.make<string>();
-  const key = (threadId: string, subject: string) => JSON.stringify([threadId, subject]);
-  const isEntry = (threadId: string, subject: string) => (entry: Typing) =>
-    entry.threadId === threadId && entry.typist.subject === subject;
-  const forget = (threadId: string, subject: string) =>
+  const key = (threadId: string, { subject, device }: CollaboratorTypistFork) =>
+    JSON.stringify([threadId, subject, device ?? null]);
+  const same = (entry: Typing, threadId: string, typist: CollaboratorTypistFork) =>
+    key(entry.threadId, entry.typist) === key(threadId, typist);
+  const forget = (threadId: string, typist: CollaboratorTypistFork) =>
     SubscriptionRef.update(ref, (all) =>
-      all.some(isEntry(threadId, subject))
-        ? all.filter((entry) => !isEntry(threadId, subject)(entry))
+      all.some((entry) => same(entry, threadId, typist))
+        ? all.filter((entry) => !same(entry, threadId, typist))
         : all,
     );
 
@@ -38,30 +39,40 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
   ) {
     const entry = { threadId, typist };
     yield* SubscriptionRef.update(ref, (all) =>
-      all.some(isEntry(threadId, typist.subject))
-        ? all.map((other) => (isEntry(threadId, typist.subject)(other) ? entry : other))
+      all.some((other) => same(other, threadId, typist))
+        ? all.map((other) => (same(other, threadId, typist) ? entry : other))
         : [...all, entry],
     );
     // Each heartbeat restarts the countdown.
     yield* FiberMap.run(
       expiries,
-      key(threadId, typist.subject),
-      Effect.sleep(TYPING_TTL).pipe(Effect.andThen(forget(threadId, typist.subject))),
+      key(threadId, typist),
+      Effect.sleep(TYPING_TTL).pipe(Effect.andThen(forget(threadId, typist))),
       { startImmediately: true },
     );
   });
 
-  const stop = Effect.fn("CollaboratorTypingFork.stop")(function* (
+  const remove = Effect.fn("CollaboratorTypingFork.remove")(function* (
     threadId: string,
-    subject: string,
+    match: (typist: CollaboratorTypistFork) => boolean,
   ) {
-    yield* FiberMap.remove(expiries, key(threadId, subject));
-    yield* forget(threadId, subject);
+    for (const entry of yield* SubscriptionRef.get(ref)) {
+      if (entry.threadId !== threadId || !match(entry.typist)) continue;
+      yield* FiberMap.remove(expiries, key(threadId, entry.typist));
+      yield* forget(threadId, entry.typist);
+    }
   });
 
   return {
     start,
-    stop,
+    /** Drops one device's draft; a person's other devices keep theirs. */
+    stop: (
+      threadId: string,
+      { subject, device }: Pick<CollaboratorTypistFork, "subject" | "device">,
+    ) => remove(threadId, (typist) => typist.subject === subject && typist.device === device),
+    /** Drops every draft of the subject's, as unsharing does. */
+    drop: (threadId: string, subject: string) =>
+      remove(threadId, (typist) => typist.subject === subject),
     /** Everyone but `viewer` typing in the thread while `shared`, re-emitted only on a change. */
     state: (threadId: string, viewer: string, shared: Stream.Stream<boolean>) =>
       Stream.zipLatestWith(

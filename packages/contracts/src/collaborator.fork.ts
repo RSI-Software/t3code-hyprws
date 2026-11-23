@@ -124,6 +124,7 @@ export const CollaboratorTypistFork = Schema.Struct({
   name: Schema.optional(Schema.String),
   /** Absent from an older client, which shows only that they are typing. */
   draft: Schema.optional(CollaboratorDraftFork),
+  device: Schema.optional(Schema.String),
 });
 export type CollaboratorTypistFork = typeof CollaboratorTypistFork.Type;
 
@@ -139,6 +140,8 @@ export const CollaboratorSetTypingInputFork = Schema.Struct({
   threadId: ThreadId,
   typing: Schema.Boolean,
   draft: Schema.optional(CollaboratorDraftFork),
+  /** One per open composer, so a person's devices never replace or stop each other's draft. */
+  device: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
 });
 export type CollaboratorSetTypingInputFork = typeof CollaboratorSetTypingInputFork.Type;
 

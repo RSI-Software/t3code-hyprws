@@ -22,6 +22,7 @@ import {
   useComposerDraftStore,
 } from "~/composerDraftStore";
 import { connectionAtomRuntime } from "~/connection/runtime";
+import { randomUUID } from "~/lib/utils";
 import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { Badge } from "../ui/badge";
@@ -46,7 +47,7 @@ const setTypingCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
 const THROTTLE_MS = 250;
 // The server forgets a typist after five seconds without one, so a paused draft stays shown.
 const KEEPALIVE_MS = 2_000;
-// The host's devices share one typist slot, so only a draft edited here lately claims it.
+// A draft left alone this long stops showing, so an old one on an idle device never does.
 const ACTIVE_MS = 30_000;
 
 interface TypingThread {
@@ -97,11 +98,13 @@ function ThreadTyping({
     if (!shared) return;
     const target = editDraftId ?? scopeThreadRef(environmentId, threadId);
     const readDraft = () => useComposerDraftStore.getState().getComposerDraft(target);
+    // This composer's own slot, so a person's other devices never replace or stop its draft.
+    const device = randomUUID();
     const send = (input: { typing: true; draft: CollaboratorDraftFork } | { typing: false }) =>
       runAtomCommand(
         registry,
         setTypingCommand,
-        { environmentId, input: { threadId, ...input } },
+        { environmentId, input: { threadId, device, ...input } },
         { reportFailure: false, reportDefect: false },
       );
     let source = readDraft();
@@ -128,7 +131,7 @@ function ThreadTyping({
         pending = true;
         return;
       }
-      const draft = collaboratorDraftFork(source);
+      const draft = Date.now() - editedAt < ACTIVE_MS ? collaboratorDraftFork(source) : null;
       if (draft === null && !open) return;
       open = draft !== null;
       sending = true;
@@ -139,11 +142,8 @@ function ThreadTyping({
         if (pending) {
           pending = false;
           flushAfter(throttled());
-        } else if (open && Date.now() - editedAt < ACTIVE_MS) {
+        } else if (open) {
           flushAfter(KEEPALIVE_MS);
-        } else {
-          // Gone idle: the server drops it, and this device must not stop another's.
-          open = false;
         }
       });
     };
@@ -165,7 +165,7 @@ function ThreadTyping({
   return typists.length === 0 ? null : (
     <div className="mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-2 px-3 pb-2">
       {typists.map((typist) => (
-        <DraftPreview key={typist.subject} typist={typist} />
+        <DraftPreview key={`${typist.subject}:${typist.device ?? ""}`} typist={typist} />
       ))}
     </div>
   );

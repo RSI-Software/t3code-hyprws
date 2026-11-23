@@ -849,7 +849,7 @@ Shell items carry **`collaboratorFork`**: `send`, `approve`, or `frozen`.
 `send` dispatches **conversation commands only**; managing the thread stays the host's.
 **Only the server sets** `context.collaboratorFork`; the agent text names the collaborator.
 Unsharing **re-snapshots the shell**, drops waiting messages, and pauses an open thread stream.
-Drafts live **in memory only**: a heartbeat lasts 5 seconds, unsharing drops it, and every host session is the one typist `host`, so a client sends only a draft **edited in the last 30 seconds**.
+Drafts live **in memory only**: a heartbeat lasts 5 seconds, unsharing drops it, and **each open composer** holds its own entry, so a person's devices never replace or stop each other's; a draft **untouched for 30 seconds** stops showing.
 A shared draft carries **text and context labels only**, capped in the schema; never diffs, terminal text, or attachment bytes.
 Collaborator subjects are **refused the unfiltered HTTP** shell snapshot.
 `guardRpc` **allows a closed RPC set**; thread reads and asset URLs only for live shares.
