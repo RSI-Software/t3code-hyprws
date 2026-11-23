@@ -62,13 +62,11 @@ import {
 } from "../startupAccess.ts";
 import { collaboratorAttribution, makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
+import { COLLABORATOR_SUBJECT_PREFIX, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
 
-// Persisted in paired sessions, so it keeps the feature's original name.
-const COLLABORATOR_SUBJECT_PREFIX = "colleague:";
 const SHARE_LINK_TTL = Duration.hours(24);
 
-const isCollaboratorSubject = (subject: string) => subject.startsWith(COLLABORATOR_SUBJECT_PREFIX);
 // Every host session types as one typist, so a host never sees their own other device.
 const HOST_TYPIST: CollaboratorTypistFork = { subject: "host" };
 
