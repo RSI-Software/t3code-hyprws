@@ -80,6 +80,8 @@
     height: 0.625rem;
     padding-block: 0.1875rem;
     padding-inline: 0.3rem 0.05rem;
+    /* Cancels the link's `gap` in its own em, plus 1px of overlap so no seam shows. */
+    margin-inline-end: calc(-0.2em - 1px);
     border-radius: 999px 0 0 999px;
     background: var(--primary);
     color: var(--primary-foreground);
@@ -91,8 +93,8 @@
     display: inline-flex;
     align-items: center;
     height: 1rem;
-    margin-inline: -0.2em 0.15rem;
-    padding-inline: 0.1rem 0.35rem;
+    margin-inline-end: 0.15rem;
+    padding-inline: calc(0.1rem + 1px) 0.35rem;
     border-radius: 0 999px 999px 0;
     background: var(--primary);
     color: var(--primary-foreground);
