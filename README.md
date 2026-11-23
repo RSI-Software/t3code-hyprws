@@ -233,11 +233,16 @@ https://github.com/user-attachments/assets/39efca0a-eeed-45c0-8f4a-8076da05dfc5
 - **Change access live**, no new link
 - **Messages carry** their name
 - **You approve** each message by default
+- **See each other's draft** live, read-only
 - [Guide](docs/fork/user/collaborator-sharing.md)
 
 **Host left, collaborator on a separate VM right**
 
 https://github.com/user-attachments/assets/a1746504-9151-470c-90e2-80a01e617e70
+
+**Each side sees the other's draft as they type**
+
+https://github.com/user-attachments/assets/6d650a70-073f-4933-a0b5-ac50b5380da7
 
 ### Device approval and external agents
 
