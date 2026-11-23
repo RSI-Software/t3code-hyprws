@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { SETTINGS_NAV_GROUPS, searchSettings } from "./settingsSearch";
+import { searchSettings, settingsNavGroups } from "./settingsSearch";
 
 // Pages outside the `_chat.settings` layout lose SettingsScopeProvider and crash
 // (RSI-Software/t3code-hyprws#1908). Keys only; no route modules load.
@@ -12,7 +12,7 @@ const settingsRouteFiles = new Set(
 
 describe("settings nav routes (fork)", () => {
   it("renders every nav page inside the settings layout", () => {
-    const paths = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths);
+    const paths = settingsNavGroups(true).flatMap((group) => group.paths);
     expect(paths.filter((path) => !settingsRouteFiles.has(path))).toEqual([]);
   });
 });
