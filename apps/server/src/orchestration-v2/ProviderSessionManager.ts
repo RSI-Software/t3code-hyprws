@@ -3879,6 +3879,8 @@ export const layerWithOptions = (
                     providerThreadId: thread.id,
                     driver: thread.driver,
                     taskIds: new Set<string>(),
+                    lostTasks: [],
+                    lostItems: [],
                   },
                   detachedAt,
                 ),
