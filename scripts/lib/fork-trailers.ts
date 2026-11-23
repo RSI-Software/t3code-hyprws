@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 export const FORK_DOMAINS = [
   "backend-attach",
   "browser-bookmarks",
+  "citation-annotations",
   "colleague-collab",
   "custom-agents",
   "delegated-rounds",
