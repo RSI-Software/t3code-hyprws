@@ -4045,7 +4045,10 @@ export default function ChatView(props: ChatViewProps) {
                                   projectId={activeThread.projectId}
                                   worktreePath={activeThread.worktreePath}
                                   isServerThread={isServerThread}
-                                  showGitControls={showGitControls}
+                                  showGitControls={
+                                    showGitControls ||
+                                    worktreeRepositoryChoices.tracksGitRepositories
+                                  }
                                   showBranchControls={isGitRepo}
                                   {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                   onEnvModeChange={onEnvModeChangeStable}
