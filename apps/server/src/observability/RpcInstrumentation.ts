@@ -189,6 +189,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.collaboratorSubscribeMessagesFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.collaboratorSubmitMessageFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.collaboratorResolveMessageFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.collaboratorSetTypingFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.collaboratorSubscribeTypingFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.sourceControlLookupRepository]: "source-control",
   [WS_METHODS.sourceControlCloneRepository]: "source-control",
   [WS_METHODS.sourceControlPublishRepository]: "source-control",
