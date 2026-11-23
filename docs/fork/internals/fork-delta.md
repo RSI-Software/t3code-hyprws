@@ -568,7 +568,7 @@ Grouping uses **sortable-tree depth**; a group may have **one parent row**, whic
 Each environment's `fork_thread_groups` table is **served by `ThreadGroupsServiceFork`**; clients follow `threadGroups.subscribeFork`.
 **Collapsed state stays per client**; pre-server local groups import once per environment.
 Server thread-title generation **names groups**; a one-member group **dissolves**.
-Scope is **active, unpinned threads** of one environment, from any project.
+Scope is **active and pinned threads** of one environment, from any project; a member under a pinned parent **inherits its pin**.
 Agents use **`t3_thread_group_list` and `t3_thread_group_update`**; launches join the caller's group unless `group` says otherwise.
 Only servers **advertising `threadGroupsFork`** show groups; upstream clients never call the fork RPCs.
 
