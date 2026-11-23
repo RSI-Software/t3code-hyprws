@@ -176,13 +176,26 @@ describe("thread group depth projection", () => {
     expect(left.dissolving).toBe(OPEN_KEY);
   });
 
-  it("never nests across the Active divider or lets a pinned thread in", () => {
+  it("never nests across the Active divider or a pinned thread into Active", () => {
     // Above the group's header, the first active slot has no parent.
     expect(drop("o1", OPEN_HEADER, 1).projection).toMatchObject({ depth: 0, parent: null });
     expect(drop("p1", "o2", 1).projection).toMatchObject({ depth: 0, refused: false });
     expect(drop("p1", "m1", 0).projection.refused).toBe(true);
     expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "m1")).toBe(false);
     expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "o2")).toBeUndefined();
+  });
+
+  it("starts a group under a pinned thread, and joins a pinned group", () => {
+    const underPin = sidebarMarkerId("pinned-divider");
+    expect(drop("o1", underPin, 0).drop).toBeNull();
+    expect(drop("o1", underPin, 1)).toMatchObject({
+      projection: { depth: 1, parent: { kind: "thread", key: "p1" } },
+      drop: { threadIds: ["p1", "o1"], target: { kind: "new" } },
+    });
+    expect(isSidebarThreadGroupSlotValidFork(tree, "o1", underPin)).toBe(true);
+    const joined = { threadIds: ["o1"], target: { kind: "existing", groupId: "open" } };
+    expect(pinnedGroupDrop("o1", "m2").drop).toEqual(joined);
+    expect(pinnedGroupDrop("p1", "m2").drop).toEqual({ ...joined, threadIds: ["p1"] });
   });
 
   it("lets any active thread join a group between its members", () => {
