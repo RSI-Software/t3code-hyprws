@@ -62,7 +62,7 @@ describe("markdown rich editor pipeline", () => {
     const core = await mermaid.loadCore();
     if (core.status !== "loaded") throw new Error("Mermaid core failed to load");
     await mermaid.loadDiagramType(core.pele, "flowchart");
-    await import("~/components/chat/MathTypeset");
+    await import("./mathTypeset.fork");
     const root = document.createElement("div");
     const editor = await markdownPipeline(
       Editor.make().config((ctx) => {
