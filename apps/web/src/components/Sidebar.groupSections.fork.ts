@@ -6,7 +6,7 @@ import {
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import type { SidebarThreadGroup } from "../state/threadGroups";
-import type { planSidebarThreadDrop } from "./Sidebar.logic";
+import type { planSidebarThreadDrop, SidebarDropVerb, SidebarSection } from "./Sidebar.logic";
 
 /** Snoozed parents carry quiet members; inbox members otherwise follow their parent's shelf. */
 export function regroupSidebarSectionsFork<
@@ -123,27 +123,48 @@ export function anchorSidebarGroupsFork<T>(
   return threads.toSorted((left, right) => rank(left) - rank(right));
 }
 
-/** Inherited pins have no server pin order and must never receive pin reorders. */
+/** Inherited pins have no server pin order and must never receive pin reorders;
+    an unpinned thread nesting in Pinned inherits its parent's pin instead of taking one. */
 export function normalizeGroupedSidebarThreadDropFork(
   input: Parameters<typeof planSidebarThreadDrop>[0],
 ) {
-  const inherited = input.activeSection === "pinned" && input.activePinned === false;
-  if (inherited && input.target.section === "pinned" && input.keepInheritedPin)
+  const pinned = input.activePinned ?? input.activeSection === "pinned";
+  const inherited = input.activeSection === "pinned" && !pinned;
+  if (!pinned && input.target.section === "pinned" && input.keepInheritedPin)
     return {
       ...input,
-      activeSection: "active" as const,
+      activeSection: inherited ? ("active" as const) : input.activeSection,
       activeTimeOrdered: true,
       target: { ...input.target, section: "active" as const },
     };
-  const pinned = new Set(input.pinnedOrder);
+  const pinnedKeys = new Set(input.pinnedOrder);
   return {
     ...input,
     activeSection: inherited ? ("active" as const) : input.activeSection,
     target: {
       ...input.target,
       pinnedOrder: input.target.pinnedOrder.filter(
-        (key) => key === input.activeKey || pinned.has(key),
+        (key) => key === input.activeKey || pinnedKeys.has(key),
       ),
     },
+  };
+}
+
+/** The lifted card names what a grouped drop really does: a row that keeps its group's section
+    inherits the parent's pin, an inherited row leaving into Pinned takes one, and leaving
+    into the inbox unpins nothing. */
+export function groupNestDropVerbFork(input: {
+  readonly from: SidebarSection | null;
+  readonly to: SidebarSection | null;
+  readonly pinned: boolean;
+  readonly keepsGroupSection: boolean;
+}): { readonly dropVerb?: SidebarDropVerb | null } {
+  if (input.from === null || input.pinned) return {};
+  if (input.from === "pinned" && (input.to === "active" || input.to === "working"))
+    return { dropVerb: null };
+  if (input.to !== "pinned") return {};
+  if (!input.keepsGroupSection) return input.from === "pinned" ? { dropVerb: "pin" } : {};
+  return {
+    dropVerb: input.from === "snoozed" ? "wake" : input.from === "settled" ? "unsettle" : null,
   };
 }

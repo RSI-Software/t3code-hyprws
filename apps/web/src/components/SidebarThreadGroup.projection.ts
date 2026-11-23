@@ -38,7 +38,7 @@ interface SidebarThreadGroupTreeNode {
       but never renders, so it is nobody's neighbour. */
   readonly hidden: boolean;
   /** What a row nested right below this one joins: a member's group, a
-      header's group, or a plain active thread; null where nothing may nest. */
+      header's group, or a plain active or pinned thread; null where nothing may nest. */
   readonly parent: SidebarThreadGroupParent | null;
   readonly thread: { readonly section: SidebarSection } | null;
 }
@@ -93,7 +93,7 @@ export function sidebarThreadGroupTreeFork(input: {
       continue;
     }
     const parent =
-      item.section === "active" || item.section === "working"
+      item.section === "active" || item.section === "working" || item.section === "pinned"
         ? ({ kind: "thread", key: item.key } as const)
         : null;
     nodes.set(id, { depth: 0, group: null, hidden: false, parent, thread });
@@ -137,11 +137,10 @@ function slotFor(
   const above = neighbour(overIndex, -1);
   const below = neighbour(overIndex, 1);
   const parent = above?.parent ?? null;
+  // The lifecycle drop owns pin state: a nest in Pinned inherits the parent's pin,
+  // and a pinned row nesting in Active unpins like any drop there.
   const canNest =
-    parent !== null &&
-    (section === "active" || section === "working"
-      ? active.thread.section !== "pinned"
-      : section === "pinned" && active.group === parent);
+    parent !== null && (section === "pinned" || section === "active" || section === "working");
   // The span continues below the slot, or the lifted row is the collapsed
   // group's parent, its only row in view.
   const inSpan = (group: GroupParent) => below?.group === group || active.group === group;
@@ -200,7 +199,7 @@ export function isSidebarThreadGroupSlotValidFork(
   if (slot === null) return undefined;
   if (slot.minDepth > slot.maxDepth) return false;
   const member = tree.nodes.get(activeId)?.group != null;
-  return (slot.section === "active" || slot.section === "working") &&
+  return (slot.section === "active" || slot.section === "working" || slot.section === "pinned") &&
     (member || slot.maxDepth === 1)
     ? true
     : undefined;

@@ -137,6 +137,7 @@ import {
 } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
 import {
   anchorSidebarGroupsFork,
+  groupNestDropVerbFork,
   groupSnoozeCarryKeysFork,
   inheritedSidebarSnoozeOwnersFork,
   inheritedSidebarSnoozePropsFork,
@@ -2367,10 +2368,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeKeysById,
       activeReorderableKeys: activeReorderableThreadKeys,
       activeTimeOrdered: workingShelfEnabled,
-      keepInheritedPin:
-        threadGroupDragFork.projection?.parent?.kind === "group" &&
-        threadGroupDragFork.projection.parent.groupKey ===
-          activeGroupByThreadKey.get(activeKey)?.group.id, // fork-hook: thread-ordering/group-pinned-drop-plan
+      keepInheritedPin: threadGroupDragFork.keepsGroupSection, // fork-hook: thread-ordering/group-pinned-drop-plan
     });
     if (plan.kind === "none") return;
     if (plan.kind === "settle" && settlingThreadKeysRef.current.has(activeKey)) return;
@@ -3922,6 +3920,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             dragOverPinned={
                               dragState?.activeKey === threadKey && dragTargetSection === "pinned"
                             }
+                            {...groupNestDropVerbFork({
+                              from:
+                                dragState?.activeKey === threadKey ? dragState.activeSection : null,
+                              to: dragTargetSection,
+                              pinned: thread.pinnedAt != null,
+                              keepsGroupSection: threadGroupDragFork.keepsGroupSection,
+                            })} /* fork-hook: thread-ordering/group-pinned-drop-verb */
                             sweepAction={
                               actionSweep?.keys.has(threadKey) ? actionSweep.action : null
                             }
