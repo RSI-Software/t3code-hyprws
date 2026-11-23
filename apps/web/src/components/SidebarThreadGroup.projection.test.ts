@@ -154,6 +154,13 @@ describe("thread group depth projection", () => {
       threadIds: ["o1", "o2"],
       target: { kind: "new", group: newGroup() },
     });
+    const underPin = sidebarMarkerId("pinned-divider");
+    expect(drop("o1", underPin, 0).drop).toBeNull();
+    expect(drop("o1", underPin, 1).drop).toEqual({
+      threadIds: ["p1", "o1"],
+      target: { kind: "new", group: newGroup() },
+    });
+    expect(isSidebarThreadGroupSlotValidFork(tree, "o1", underPin)).toBe(true);
   });
 
   it("joins a group below its last member, and between members at any offset", () => {
@@ -162,6 +169,9 @@ describe("thread group depth projection", () => {
     expect(drop("o1", "o1", 1).drop?.target).toEqual(joined);
     expect(drop("o1", "m2", 0).drop?.target).toEqual(joined);
     expect(drop("o1", "m2", -1).drop?.target).toEqual(joined);
+    // A pinned group takes active and pinned threads alike.
+    expect(pinnedGroupDrop("o1", "m2").drop?.target).toEqual(joined);
+    expect(pinnedGroupDrop("p1", "m2").drop?.target).toEqual(joined);
   });
 
   it("lets a member reorder inside its group, and leave at depth 0", () => {
@@ -183,19 +193,6 @@ describe("thread group depth projection", () => {
     expect(drop("p1", "m1", 0).projection.refused).toBe(true);
     expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "m1")).toBe(false);
     expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "o2")).toBeUndefined();
-  });
-
-  it("starts a group under a pinned thread, and joins a pinned group", () => {
-    const underPin = sidebarMarkerId("pinned-divider");
-    expect(drop("o1", underPin, 0).drop).toBeNull();
-    expect(drop("o1", underPin, 1)).toMatchObject({
-      projection: { depth: 1, parent: { kind: "thread", key: "p1" } },
-      drop: { threadIds: ["p1", "o1"], target: { kind: "new" } },
-    });
-    expect(isSidebarThreadGroupSlotValidFork(tree, "o1", underPin)).toBe(true);
-    const joined = { threadIds: ["o1"], target: { kind: "existing", groupId: "open" } };
-    expect(pinnedGroupDrop("o1", "m2").drop).toEqual(joined);
-    expect(pinnedGroupDrop("p1", "m2").drop).toEqual({ ...joined, threadIds: ["p1"] });
   });
 
   it("lets any active thread join a group between its members", () => {
