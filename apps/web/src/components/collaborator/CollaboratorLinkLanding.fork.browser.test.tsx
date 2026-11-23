@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { render } from "../../../test/render";
 import { submitServerAuthCredential } from "../../environments/primary";
+import { fetchSessionState } from "../../environments/primary/auth";
 import { useCollaboratorLinkLandingFork } from "./CollaboratorLinkLanding.fork";
 import { sharedThreadPathFork } from "./collaboratorLink.fork";
 
@@ -9,25 +10,34 @@ vi.mock("../../environments/primary", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../environments/primary")>()),
   submitServerAuthCredential: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("../../environments/primary/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../environments/primary/auth")>()),
+  fetchSessionState: vi.fn(),
+}));
 // Never settles, so the test page is not navigated away.
 vi.mock("./collaboratorLink.fork", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./collaboratorLink.fork")>()),
   sharedThreadPathFork: vi.fn(() => new Promise<string>(() => {})),
 }));
 
+const auth = {
+  policy: "loopback-browser",
+  bootstrapMethods: ["one-time-token"],
+  sessionMethods: ["browser-session-cookie"],
+  sessionCookieName: "t3_session",
+} as const;
+
 function PairRoute() {
-  return useCollaboratorLinkLandingFork({
-    auth: {
-      policy: "loopback-browser",
-      bootstrapMethods: ["one-time-token"],
-      sessionMethods: ["browser-session-cookie"],
-      sessionCookieName: "t3_session",
-    },
-  });
+  return useCollaboratorLinkLandingFork({ auth });
 }
+
+const signedIn = (authenticated: boolean) =>
+  vi.mocked(fetchSessionState).mockResolvedValue({ authenticated, auth });
 
 describe("collaborator link landing", () => {
   it("pairs only on continue, then opens the shared thread", async () => {
+    vi.clearAllMocks();
+    signedIn(false);
     window.history.replaceState({}, "", "/pair?thread=t1#token=collaborator-token");
     const pairingUrl = window.location.href;
     await using screen = await render(<PairRoute />, { router: false });
@@ -43,5 +53,17 @@ describe("collaborator link landing", () => {
 
     await vi.waitFor(() => expect(sharedThreadPathFork).toHaveBeenCalledExactlyOnceWith("t1"));
     expect(submitServerAuthCredential).toHaveBeenCalledExactlyOnceWith("collaborator-token");
+  });
+
+  it("reopens the shared thread without spending the link again once signed in", async () => {
+    vi.clearAllMocks();
+    signedIn(true);
+    window.history.replaceState({}, "", "/pair?thread=t1#token=spent-token");
+    await using screen = await render(<PairRoute />, { router: false });
+
+    await screen.getByRole("button", { name: "Continue in this browser" }).click();
+
+    await vi.waitFor(() => expect(sharedThreadPathFork).toHaveBeenCalledExactlyOnceWith("t1"));
+    expect(submitServerAuthCredential).not.toHaveBeenCalled();
   });
 });
