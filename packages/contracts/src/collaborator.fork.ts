@@ -99,6 +99,52 @@ export const CollaboratorResolveMessageInputFork = Schema.Struct({
 });
 export type CollaboratorResolveMessageInputFork = typeof CollaboratorResolveMessageInputFork.Type;
 
+export const COLLABORATOR_DRAFT_TEXT_MAX_CHARS = 4_000;
+export const COLLABORATOR_DRAFT_CHIPS_MAX = 20;
+// Matches composer context labels; `composerContext.ts` imports this file, so it cannot be shared.
+const COLLABORATOR_DRAFT_CHIP_LABEL_MAX_CHARS = 200;
+
+/** A read-only copy of an unsent draft: its text, and a kind and label for each context in it. */
+export const CollaboratorDraftFork = Schema.Struct({
+  /** The draft's end when it runs past the cap, the part the writer is working on. */
+  text: Schema.String.check(Schema.isMaxLength(COLLABORATOR_DRAFT_TEXT_MAX_CHARS)),
+  truncated: Schema.Boolean,
+  chips: Schema.Array(
+    Schema.Struct({
+      kind: Schema.String.check(Schema.isMaxLength(40)),
+      label: Schema.String.check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIP_LABEL_MAX_CHARS)),
+    }),
+  ).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),
+});
+export type CollaboratorDraftFork = typeof CollaboratorDraftFork.Type;
+
+/** Someone writing in a shared thread's composer: a collaborator, or the host, who has no name. */
+export const CollaboratorTypistFork = Schema.Struct({
+  subject: Schema.String,
+  name: Schema.optional(Schema.String),
+  /** Absent from an older client, which shows only that they are typing. */
+  draft: Schema.optional(CollaboratorDraftFork),
+  device: Schema.optional(Schema.String),
+});
+export type CollaboratorTypistFork = typeof CollaboratorTypistFork.Type;
+
+/** `shared`: someone else can see this thread, so its composer heartbeats. */
+export const CollaboratorTypingStateFork = Schema.Struct({
+  shared: Schema.Boolean,
+  typists: Schema.Array(CollaboratorTypistFork),
+});
+export type CollaboratorTypingStateFork = typeof CollaboratorTypingStateFork.Type;
+
+/** A heartbeat while a draft is open; the server forgets a typist it stops hearing from. */
+export const CollaboratorSetTypingInputFork = Schema.Struct({
+  threadId: ThreadId,
+  typing: Schema.Boolean,
+  draft: Schema.optional(CollaboratorDraftFork),
+  /** One per open composer, so a person's devices never replace or stop each other's draft. */
+  device: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
+});
+export type CollaboratorSetTypingInputFork = typeof CollaboratorSetTypingInputFork.Type;
+
 /** Who wrote a user message the host's agent got from a collaborator. Only the server sets it. */
 export const CollaboratorAttributionFork = Schema.Struct({
   name: Schema.String,
