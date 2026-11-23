@@ -77,6 +77,7 @@ import {
   resolveDisclosureRevealScrollDelta,
 } from "./timelineScrollAnchoring";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
+import { AssistantCitationAnnotations } from "./AssistantCitationAnnotations.fork"; // fork-hook: citation-annotations/annotations
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { type AssistantCitationRequest } from "./AssistantCitationSource";
 import { useAssistantCitationTarget } from "./useAssistantCitationTarget";
@@ -1492,6 +1493,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 onCite={onCiteAssistantText}
               />
             ) : null}
+            {/* fork-hook: citation-annotations/annotations */}
+            <AssistantCitationAnnotations
+              viewport={timelineViewportElement}
+              threadRef={citationThreadRef}
+              entries={timelineEntries}
+            />
+            {/* fork-hook-end */}
             <LegendList<MessagesTimelineRow>
               ref={setTimelineList}
               data={rows}
