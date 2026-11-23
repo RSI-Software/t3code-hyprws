@@ -99,6 +99,20 @@ export const CollaboratorResolveMessageInputFork = Schema.Struct({
 });
 export type CollaboratorResolveMessageInputFork = typeof CollaboratorResolveMessageInputFork.Type;
 
+/** Someone typing in a shared thread's composer: a collaborator, or the host, who has no name. */
+export const CollaboratorTypistFork = Schema.Struct({
+  subject: Schema.String,
+  name: Schema.optional(Schema.String),
+});
+export type CollaboratorTypistFork = typeof CollaboratorTypistFork.Type;
+
+/** A heartbeat while the draft changes; the server forgets a typist it stops hearing from. */
+export const CollaboratorSetTypingInputFork = Schema.Struct({
+  threadId: ThreadId,
+  typing: Schema.Boolean,
+});
+export type CollaboratorSetTypingInputFork = typeof CollaboratorSetTypingInputFork.Type;
+
 /** Who wrote a user message the host's agent got from a collaborator. Only the server sets it. */
 export const CollaboratorAttributionFork = Schema.Struct({
   name: Schema.String,

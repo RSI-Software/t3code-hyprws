@@ -14,7 +14,7 @@ import {
   PullRequestUnavailableError,
 } from "./pullRequest.ts";
 
-import { NonNegativeInt } from "./baseSchemas.ts";
+import { NonNegativeInt, ThreadId } from "./baseSchemas.ts";
 
 /** Activity readers observe edits without subscribing to turn-only revisions. */
 export const pullRequestActivityRpcFork = {
@@ -132,6 +132,7 @@ import {
   CollaboratorMessageFork,
   CollaboratorResolveMessageInputFork,
   CollaboratorSetAccessInputFork,
+  CollaboratorSetTypingInputFork,
   CollaboratorSubmitMessageInputFork,
   CollaboratorShareErrorFork,
   CollaboratorShareThreadInputFork,
@@ -139,6 +140,7 @@ import {
   CollaboratorThreadSharesInputFork,
   CollaboratorThreadMissingErrorFork,
   CollaboratorThreadSharesResultFork,
+  CollaboratorTypistFork,
   CollaboratorUnshareErrorFork,
   CollaboratorUnshareThreadInputFork,
 } from "./collaborator.fork.ts";
@@ -152,6 +154,8 @@ export const collaboratorRpcFork = {
     collaboratorSubscribeMessagesFork: "collaborator.subscribeMessagesFork",
     collaboratorSubmitMessageFork: "collaborator.submitMessageFork",
     collaboratorResolveMessageFork: "collaborator.resolveMessageFork",
+    collaboratorSetTypingFork: "collaborator.setTypingFork",
+    collaboratorSubscribeTypingFork: "collaborator.subscribeTypingFork",
   } as const,
   rpcs: [
     Rpc.make("collaborator.shareThreadFork", {
@@ -190,6 +194,17 @@ export const collaboratorRpcFork = {
     Rpc.make("collaborator.resolveMessageFork", {
       payload: CollaboratorResolveMessageInputFork,
       error: Schema.Union([CollaboratorMessageErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("collaborator.setTypingFork", {
+      payload: CollaboratorSetTypingInputFork,
+      error: EnvironmentAuthorizationError,
+    }),
+    // Who else is typing in the thread; every host session counts as the one typist `host`.
+    Rpc.make("collaborator.subscribeTypingFork", {
+      payload: Schema.Struct({ threadId: ThreadId }),
+      success: Schema.Array(CollaboratorTypistFork),
+      error: EnvironmentAuthorizationError,
+      stream: true,
     }),
   ] as const,
 };
