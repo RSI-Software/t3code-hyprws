@@ -512,6 +512,7 @@ it.effect(
                   ({
                     thread: { id: threadId, projectId, deletedAt: null },
                     runs,
+                    runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
                   }) as unknown as OrchestrationV2ThreadProjection,
               ),
             dispatch: (command) =>
@@ -660,6 +661,7 @@ it.effect("waitForThread waits for output only from a run that was asked for one
                 { id: askedRunId, status: "completed", outputSchema: { type: "object" } },
                 { id: plainRunId, status: "completed" },
               ],
+              runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
             } as unknown as OrchestrationV2ThreadProjection),
         }),
       ),
