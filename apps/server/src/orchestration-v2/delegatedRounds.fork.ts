@@ -140,7 +140,10 @@ export const delegatedRoundIsLaterFork = (
 export const delegatedRoundProgressFork = (
   projection: Omit<Parameters<typeof delegatedTaskProgress>[0], "messages"> & {
     readonly messages: ReadonlyArray<
-      Pick<OrchestrationV2ConversationMessage, "runId" | "notification" | "senderThreadId">
+      Pick<
+        OrchestrationV2ConversationMessage,
+        "runId" | "notification" | "senderThreadId" | "createdBy"
+      >
     >;
   },
   parentThreadId: string | null,
