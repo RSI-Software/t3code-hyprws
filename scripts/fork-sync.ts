@@ -1594,8 +1594,16 @@ export interface GitHub {
   /** Open issues under the governed label matching one title phrase. */
   readonly list: (titlePhrase: string) => ReadonlyArray<OpenBlockIssue>;
   readonly create: (title: string, bodyPath: string) => number | null;
-  /** Rewrite an existing issue's title and body in place; the rerun projection. */
-  readonly edit: (issue: number, title: string, bodyPath: string, relabel: boolean) => void;
+  /**
+   * Rewrite an existing issue's title and body in place; the rerun projection.
+   * `readd` drops a label still on the issue first: re-adding it alone fires no webhook.
+   */
+  readonly edit: (
+    issue: number,
+    title: string,
+    bodyPath: string,
+    relabel: "add" | "readd" | null,
+  ) => void;
   /** Close with the small close-evidence comment inline; never the report body. */
   readonly close: (issue: number, comment: string) => void;
 }
@@ -1673,6 +1681,19 @@ export const githubClient = (
       return url === undefined ? null : Number(url);
     },
     edit: (issue, title, bodyPath, relabel) => {
+      if (relabel === "readd")
+        runRequire(
+          runner,
+          "gh",
+          [
+            "issue",
+            "edit",
+            String(issue),
+            ...repo,
+            ...labels.flatMap((label) => ["--remove-label", label]),
+          ],
+          { cwd: root },
+        );
       runRequire(
         runner,
         "gh",
@@ -1685,7 +1706,7 @@ export const githubClient = (
           title,
           "--body-file",
           bodyPath,
-          ...(relabel ? labels.flatMap((label) => ["--add-label", label]) : []),
+          ...(relabel === null ? [] : labels.flatMap((label) => ["--add-label", label])),
         ],
         { cwd: root },
       );
@@ -1771,19 +1792,19 @@ const upsertStandingIssue = (
   const sticky = standing.comments?.findLast(({ body }) => body.includes(AGENT_STICKY_MARKER));
   const jobSettled =
     sticky !== undefined && !AGENT_LIVE_STATES.some((state) => sticky.body.includes(state));
+  const labelled = standingLabels.includes(AGENT_LABEL);
+  const stale = stamp !== null && Date.parse(now) - Date.parse(stamp[1]!) >= AGENT_RETRY_AFTER_MS;
+  // a label still on past the job budget means its delivery never started a job
   const retryDue =
-    !standingLabels.includes(AGENT_LABEL) &&
-    stamp?.[2] === undefined &&
-    (stamp === null ||
-      jobSettled ||
-      Date.parse(now) - Date.parse(stamp[1]!) >= AGENT_RETRY_AFTER_MS);
-  const relabel = labels.length > 0 && !halted && (newKey || retryDue);
+    stamp?.[2] === undefined && (labelled ? stale : stamp === null || jobSettled || stale);
+  const relabel =
+    labels.length > 0 && !halted && (newKey || retryDue) ? (labelled ? "readd" : "add") : null;
   // the machine title suffix never matches the render, so the decision is on
   // the normalised body alone
   const drifted = normalisedBody(standing.body) !== normalisedBody(body);
-  if (drifted || relabel)
+  if (drifted || relabel !== null)
     withBodyFile(
-      relabel ? stamped(body, !newKey) : stamp === null ? body : `${body}\n${stamp[0]}`,
+      relabel !== null ? stamped(body, !newKey) : stamp === null ? body : `${body}\n${stamp[0]}`,
       (bodyPath) => github.edit(standing.number, title, bodyPath, relabel),
     );
   for (const issue of superseded) github.close(issue.number, `Superseded by #${standing.number}.`);
