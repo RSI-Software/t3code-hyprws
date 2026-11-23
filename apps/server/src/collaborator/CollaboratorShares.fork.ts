@@ -722,8 +722,10 @@ const make = Effect.gen(function* () {
   const typingHandlers = (subject: string | null): CollaboratorTypingHandlersFork => {
     if (subject === null || !isCollaboratorSubject(subject)) {
       return {
-        [SET_TYPING]: ({ threadId, typing: on }) =>
-          on ? typing.start(threadId, HOST_TYPIST) : typing.stop(threadId, HOST_TYPIST.subject),
+        [SET_TYPING]: ({ threadId, typing: on, draft }) =>
+          on
+            ? typing.start(threadId, draft === undefined ? HOST_TYPIST : { ...HOST_TYPIST, draft })
+            : typing.stop(threadId, HOST_TYPIST.subject),
         [TYPING]: ({ threadId }) =>
           typing.state(
             threadId,
@@ -735,11 +737,15 @@ const make = Effect.gen(function* () {
       };
     }
     return {
-      [SET_TYPING]: ({ threadId, typing: on }) => {
+      [SET_TYPING]: ({ threadId, typing: on, draft }) => {
         if (!on) return typing.stop(threadId, subject);
         const share = current.get(subject);
         return share?.threadIds.has(threadId)
-          ? typing.start(threadId, { subject, name: share.name })
+          ? typing.start(threadId, {
+              subject,
+              name: share.name,
+              ...(draft === undefined ? {} : { draft }),
+            })
           : Effect.fail(notShared(AuthOrchestrationOperateScope));
       },
       [TYPING]: ({ threadId }) =>

@@ -1,5 +1,5 @@
-// Fork-only (colleague-collab): who is typing in a shared thread's composer. In memory only; a
-// typist the server stops hearing from drops after `TYPING_TTL`.
+// Fork-only (colleague-collab): who is writing in a shared thread's composer, with a read-only
+// copy of their draft. In memory only; a typist the server stops hearing from drops after `TYPING_TTL`.
 import type { CollaboratorTypingStateFork, CollaboratorTypistFork } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -7,7 +7,7 @@ import * as FiberMap from "effect/FiberMap";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
-// Clients heartbeat about every two seconds while the draft changes.
+// Clients heartbeat at least every two seconds while their draft is open.
 const TYPING_TTL = Duration.seconds(5);
 
 interface Typing {
@@ -15,10 +15,9 @@ interface Typing {
   readonly typist: CollaboratorTypistFork;
 }
 
+// A keepalive repeats the same draft, so only a change in who writes or what reaches viewers.
 const sameState = (a: CollaboratorTypingStateFork, b: CollaboratorTypingStateFork) =>
-  a.shared === b.shared &&
-  a.typists.length === b.typists.length &&
-  a.typists.every((typist, index) => typist.subject === b.typists[index]?.subject);
+  a.shared === b.shared && JSON.stringify(a.typists) === JSON.stringify(b.typists);
 
 export const makeCollaboratorTyping = Effect.gen(function* () {
   const ref = yield* SubscriptionRef.make<ReadonlyArray<Typing>>([]);
@@ -37,8 +36,11 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
     threadId: string,
     typist: CollaboratorTypistFork,
   ) {
+    const entry = { threadId, typist };
     yield* SubscriptionRef.update(ref, (all) =>
-      all.some(isEntry(threadId, typist.subject)) ? all : [...all, { threadId, typist }],
+      all.some(isEntry(threadId, typist.subject))
+        ? all.map((other) => (isEntry(threadId, typist.subject)(other) ? entry : other))
+        : [...all, entry],
     );
     // Each heartbeat restarts the countdown.
     yield* FiberMap.run(

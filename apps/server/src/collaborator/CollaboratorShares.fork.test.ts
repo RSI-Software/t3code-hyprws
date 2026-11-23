@@ -1,6 +1,9 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  COLLABORATOR_DRAFT_TEXT_MAX_CHARS,
+  type CollaboratorDraftFork,
+  CollaboratorSetTypingInputFork,
   EnvironmentAuthenticatedPrincipal,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
@@ -23,6 +26,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
@@ -40,6 +44,7 @@ const sharedProject = ProjectId.make("p-shared");
 const otherProject = ProjectId.make("p-other");
 const projectOf = { [shared]: sharedProject, [other]: otherProject } as Record<string, ProjectId>;
 const pairedSubjects = new Set<string>();
+const decodeSetTyping = Schema.decodeExit(CollaboratorSetTypingInputFork);
 
 const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
 const instanceId = ProviderInstanceId.make("codex");
@@ -487,7 +492,7 @@ database("CollaboratorSharesFork", (it) => {
   );
 
   it.effect(
-    "tells each viewer who else is typing until they stop, go quiet, or lose the share",
+    "shows each viewer the others' drafts until they stop, go quiet, or lose the share",
     () =>
       withService(
         Effect.gen(function* () {
@@ -498,8 +503,12 @@ database("CollaboratorSharesFork", (it) => {
           }
           const host = service.typingHandlers(null);
           const sam = service.typingHandlers("colleague:sam");
-          const typing = (handlers: typeof host, on: boolean) =>
-            handlers["collaborator.setTypingFork"]({ threadId: shared, typing: on });
+          const typing = (handlers: typeof host, on: boolean, draft?: CollaboratorDraftFork) =>
+            handlers["collaborator.setTypingFork"]({
+              threadId: shared,
+              typing: on,
+              ...(draft === undefined ? {} : { draft }),
+            });
           const watch = Effect.fn(function* (handlers: typeof host) {
             const seen = yield* Queue.unbounded<unknown>();
             yield* handlers["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
@@ -538,6 +547,27 @@ database("CollaboratorSharesFork", (it) => {
           assert.deepStrictEqual(yield* Queue.take(samSeen), hostTyping);
           yield* typing(host, false);
           assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+
+          // The host reads Sam's draft as it changes; a keepalive repeating it sends nothing.
+          const draft = (text: string) => ({ text, truncated: false, chips: [] });
+          const samWriting = (text: string) => ({
+            shared: true,
+            typists: [{ subject: "colleague:sam", name: "Sam", draft: draft(text) }],
+          });
+          yield* typing(sam, true, draft("Fix the"));
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), samWriting("Fix the"));
+          yield* typing(sam, true, draft("Fix the"));
+          assert.strictEqual(yield* Queue.size(hostSeen), 0);
+          yield* typing(sam, true, draft("Fix the bug"));
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), samWriting("Fix the bug"));
+          yield* typing(sam, false);
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
+          const overCap = decodeSetTyping({
+            threadId: shared,
+            typing: true,
+            draft: draft("x".repeat(COLLABORATOR_DRAFT_TEXT_MAX_CHARS + 1)),
+          });
+          assert.isTrue(Exit.isFailure(overCap));
 
           yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(false));
