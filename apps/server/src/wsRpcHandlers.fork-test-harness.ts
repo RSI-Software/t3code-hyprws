@@ -21,5 +21,8 @@ export const layerUnusedWsRpcServicesFork = Layer.mergeAll(
     messageHandlers: () => {
       throw new Error("No test sends a collaborator message RPC through this harness.");
     },
+    typingHandlers: () => {
+      throw new Error("No test sends a collaborator typing RPC through this harness.");
+    },
   }),
 );

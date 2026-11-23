@@ -1,6 +1,9 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  COLLABORATOR_DRAFT_TEXT_MAX_CHARS,
+  type CollaboratorDraftFork,
+  CollaboratorSetTypingInputFork,
   EnvironmentAuthenticatedPrincipal,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
@@ -23,8 +26,10 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
@@ -39,6 +44,7 @@ const sharedProject = ProjectId.make("p-shared");
 const otherProject = ProjectId.make("p-other");
 const projectOf = { [shared]: sharedProject, [other]: otherProject } as Record<string, ProjectId>;
 const pairedSubjects = new Set<string>();
+const decodeSetTyping = Schema.decodeExit(CollaboratorSetTypingInputFork);
 
 const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
 const instanceId = ProviderInstanceId.make("codex");
@@ -455,6 +461,9 @@ database("CollaboratorSharesFork", (it) => {
         assert.isTrue(yield* allowed(WS_METHODS.serverGetConfig));
         assert.isTrue(yield* allowed(turnDiff, { threadId: shared }));
         assert.isFalse(yield* allowed(turnDiff, { threadId: other }));
+        const typing = WS_METHODS.collaboratorSetTypingFork;
+        assert.isTrue(yield* allowed(typing, { threadId: shared, typing: true }));
+        assert.isFalse(yield* allowed(typing, { threadId: other, typing: true }));
         assert.isFalse(yield* allowed(WS_METHODS.terminalOpen));
         assert.isFalse(yield* allowed(WS_METHODS.projectsMutate));
         const asset = (resource: object) => allowed(WS_METHODS.assetsCreateUrl, { resource });
@@ -480,6 +489,129 @@ database("CollaboratorSharesFork", (it) => {
         assert.isTrue(yield* httpRead("owner", other));
       }),
     ),
+  );
+
+  it.effect(
+    "shows each viewer the others' drafts until they stop, go quiet, or lose the share",
+    () =>
+      withService(
+        Effect.gen(function* () {
+          const service = yield* CollaboratorShares.CollaboratorSharesFork;
+          // Earlier tests left Ana sharing the thread.
+          for (const subject of ["colleague:ana", "colleague:sam"]) {
+            yield* service.unshare({ threadId: shared, subject });
+          }
+          const host = service.typingHandlers(null);
+          const sam = service.typingHandlers("colleague:sam");
+          const typing = (handlers: typeof host, on: boolean, draft?: CollaboratorDraftFork) =>
+            handlers["collaborator.setTypingFork"]({
+              threadId: shared,
+              typing: on,
+              ...(draft === undefined ? {} : { draft }),
+            });
+          const watch = Effect.fn(function* (handlers: typeof host) {
+            const seen = yield* Queue.unbounded<unknown>();
+            yield* handlers["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
+              Stream.runForEach((state) => Queue.offer(seen, state)),
+              Effect.forkChild,
+            );
+            return seen;
+          });
+          const idle = (shared: boolean) => ({ shared, typists: [] });
+          const samTyping = { shared: true, typists: [{ subject: "colleague:sam", name: "Sam" }] };
+          const hostTyping = { shared: true, typists: [{ subject: "host" }] };
+
+          // Sharing and unsharing reach both sides with nobody typing.
+          const hostSeen = yield* watch(host);
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(false));
+          yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
+          const samSeen = yield* watch(sam);
+          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+
+          yield* typing(sam, true);
+          yield* typing(host, true);
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), samTyping);
+          assert.deepStrictEqual(yield* Queue.take(samSeen), hostTyping);
+
+          // A heartbeat restarts the countdown; silence past it drops the typist with no call.
+          yield* TestClock.adjust("4 seconds");
+          yield* typing(sam, true);
+          yield* TestClock.adjust("4 seconds");
+          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+          assert.strictEqual(yield* Queue.size(hostSeen), 0);
+          yield* TestClock.adjust("1 second");
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
+
+          yield* typing(host, true);
+          assert.deepStrictEqual(yield* Queue.take(samSeen), hostTyping);
+          yield* typing(host, false);
+          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+
+          // The host reads Sam's draft as it changes; a keepalive repeating it sends nothing.
+          const draft = (text: string) => ({ text, truncated: false, chips: [] });
+          const samWriting = (text: string) => ({
+            shared: true,
+            typists: [{ subject: "colleague:sam", name: "Sam", draft: draft(text) }],
+          });
+          yield* typing(sam, true, draft("Fix the"));
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), samWriting("Fix the"));
+          yield* typing(sam, true, draft("Fix the"));
+          assert.strictEqual(yield* Queue.size(hostSeen), 0);
+          yield* typing(sam, true, draft("Fix the bug"));
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), samWriting("Fix the bug"));
+          yield* typing(sam, false);
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
+
+          // Each of the host's devices holds its own draft; one stopping leaves the other's.
+          const onDevice = (device: string, text?: string) =>
+            host["collaborator.setTypingFork"]({
+              threadId: shared,
+              device,
+              ...(text === undefined ? { typing: false } : { typing: true, draft: draft(text) }),
+            });
+          const hostWriting = (...devices: ReadonlyArray<[string, string]>) => ({
+            shared: true,
+            typists: devices.map(([device, text]) => ({
+              subject: "host",
+              draft: draft(text),
+              device,
+            })),
+          });
+          yield* onDevice("laptop", "Ship it");
+          assert.deepStrictEqual(yield* Queue.take(samSeen), hostWriting(["laptop", "Ship it"]));
+          yield* onDevice("desk", "Wait");
+          assert.deepStrictEqual(
+            yield* Queue.take(samSeen),
+            hostWriting(["laptop", "Ship it"], ["desk", "Wait"]),
+          );
+          yield* onDevice("desk");
+          assert.deepStrictEqual(yield* Queue.take(samSeen), hostWriting(["laptop", "Ship it"]));
+          yield* onDevice("laptop");
+          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+          const overCap = decodeSetTyping({
+            threadId: shared,
+            typing: true,
+            draft: draft("x".repeat(COLLABORATOR_DRAFT_TEXT_MAX_CHARS + 1)),
+          });
+          assert.isTrue(Exit.isFailure(overCap));
+
+          yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
+          assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(false));
+          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(false));
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(typing(sam, true))));
+
+          // Unsharing drops Sam's typing, so a re-share within the heartbeat shows nobody.
+          yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+          yield* typing(sam, true);
+          yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
+          yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+          const again = yield* host["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
+            Stream.runHead,
+          );
+          assert.deepStrictEqual(Option.getOrThrow(again), idle(true));
+        }),
+      ),
   );
 
   it.effect("bases the link on the local tunnel, then the sharing client's public origin", () =>
