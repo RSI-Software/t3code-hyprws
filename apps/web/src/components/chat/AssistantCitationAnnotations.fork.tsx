@@ -31,6 +31,7 @@ const HIGHLIGHT = {
 } as const;
 const LAYER = "[data-annotation-layer]";
 const COMPOSER_CHIP = ".composer-tiptap [data-assistant-citation-chip]";
+const POPUP = "[data-annotation-popup]";
 const TEXT_HOVER_CLOSE_MS = 180;
 /** Marker height in px; matches the marker's `h-3.5`. */
 const MARKER_SIZE = 14;
@@ -119,6 +120,8 @@ export function AssistantCitationAnnotations({
   /** Thread keys and passage ids already seen, with the time a passage's pop ends. */
   const seenRef = useRef(new Map<string, number>());
   const closeTimerRef = useRef<number | null>(null);
+  // React fires the popup's pointerenter before the viewport's native pointerleave.
+  const popupHoveredRef = useRef(false);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- paints CSS Highlight ranges and places markers over rendered markdown, repainting when rows remount, stream, or reflow
   useEffect(() => {
@@ -259,6 +262,7 @@ export function AssistantCitationAnnotations({
   };
   const closeTextPreviewSoon = () => {
     cancelClose();
+    if (popupHoveredRef.current) return;
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;
       setOpen((current) => (current?.fromText && !current.editing ? null : current));
@@ -268,8 +272,13 @@ export function AssistantCitationAnnotations({
   const onTextHover = useEffectEvent((key: string | null) => {
     setHoveredKey(key);
     if (key) {
+      popupHoveredRef.current = false;
       cancelClose();
-      setOpen((current) => (current?.editing ? current : { key, editing: false, fromText: true }));
+      setOpen((current) =>
+        current?.editing || current?.key === key
+          ? current
+          : { key, editing: false, fromText: true },
+      );
     } else closeTextPreviewSoon();
   });
   const onComposerChipHover = useEffectEvent((index: number) =>
@@ -288,12 +297,26 @@ export function AssistantCitationAnnotations({
     const onMove = (event: PointerEvent) => {
       if (event.pointerType === "touch" || (event.target as Element).closest?.(LAYER)) return;
       const { clientX: x, clientY: y } = event;
+      const inside = (rect: DOMRect) =>
+        x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
       for (const [key, range] of rangesRef.current) {
         for (const rect of range.getClientRects()) {
-          if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-            return hover(key);
-          }
+          if (inside(rect)) return hover(key);
         }
+      }
+      // Keep the preview while the pointer crosses the box spanning the passage and its popup.
+      const passage = hovered ? rangesRef.current.get(hovered)?.getBoundingClientRect() : null;
+      const popup = document.querySelector(POPUP)?.getBoundingClientRect();
+      if (passage && popup) {
+        const left = Math.min(passage.left, popup.left);
+        const top = Math.min(passage.top, popup.top);
+        const corridor = new DOMRect(
+          left,
+          top,
+          Math.max(passage.right, popup.right) - left,
+          Math.max(passage.bottom, popup.bottom) - top,
+        );
+        if (inside(corridor)) return;
       }
       hover(null);
     };
@@ -356,7 +379,11 @@ export function AssistantCitationAnnotations({
               cancelClose();
               setOpen(next);
             }}
-            onPopupHover={(hovering) => (hovering ? cancelClose() : closeTextPreviewSoon())}
+            onPopupHover={(hovering) => {
+              popupHoveredRef.current = hovering;
+              if (hovering) cancelClose();
+              else closeTextPreviewSoon();
+            }}
             onSave={(comment) => saveComment(marker.annotation, comment)}
             onRemove={() => remove(marker.annotation)}
           />
@@ -440,10 +467,11 @@ function AnnotationMarker({
         side="top"
         align="start"
         sideOffset={6}
-        width="sm"
+        width={open?.editing ? "md" : "sm"}
         padding="compact"
         initialFocus={open?.editing ? inputRef : false}
         finalFocus={false}
+        data-annotation-popup=""
         onPointerEnter={() => onPopupHover(true)}
         onPointerLeave={() => onPopupHover(false)}
       >
@@ -455,26 +483,28 @@ function AnnotationMarker({
             onCancel={() => onOpenChange({ key, editing: false, fromText: false })}
           />
         ) : (
-          <div className="flex flex-col gap-2 text-sm">
-            {comment ? (
-              <p className="whitespace-pre-wrap" dir="auto">
-                {comment}
-              </p>
-            ) : (
-              <p className="text-muted-foreground">{gt("Add a comment")}</p>
-            )}
+          <div className="flex items-start gap-2 text-sm">
+            <p
+              className={cn(
+                "min-w-0 flex-1 py-0.5 whitespace-pre-wrap wrap-break-word",
+                !comment && "text-muted-foreground",
+              )}
+              dir="auto"
+            >
+              {comment || gt("Add a comment")}
+            </p>
             {isDraft ? (
-              <div className="flex justify-end gap-1">
+              <div className="-me-1 flex shrink-0">
                 <Button
                   variant="ghost"
-                  size="xs"
+                  size="icon-xs"
+                  aria-label={gt("Edit citation comment")}
                   onClick={() => {
                     onOpenChange({ key, editing: true, fromText: false });
                     requestAnimationFrame(() => inputRef.current?.focus());
                   }}
                 >
                   <PencilIcon aria-hidden="true" />
-                  {gt("Edit comment")}
                 </Button>
                 <Button
                   variant="ghost"
