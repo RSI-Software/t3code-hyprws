@@ -1081,6 +1081,7 @@ describe("DesktopWindow", () => {
               linkURL: "",
               mediaType: "none",
               editFlags: { canCut: false, canCopy: true, canPaste: false, canSelectAll: true },
+              selectionText: "selected text", // fork-hook: upstream-fixes/browser-context-menu-selection
             },
           );
           const menu = yield* Queue.take(menus);
