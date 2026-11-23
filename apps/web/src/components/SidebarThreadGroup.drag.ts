@@ -91,6 +91,12 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   };
   const projection =
     drag?.overId == null ? null : project(drag.activeId, drag.overId, drag.steps).projected;
+  // A nest, or a move inside the row's own group, places it by its group's parent, not by a pin.
+  const keepsGroupSection =
+    projection !== null &&
+    (projection.depth === 1 ||
+      (projection.parent?.kind === "group" &&
+        projection.parent.groupKey === tree.nodes.get(projection.activeId)?.group?.groupKey));
 
   // Both events carry the current target; the first one of a drag also
   // starts it, taking the pickup point from the event that activated it.
@@ -126,6 +132,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   return {
     nesting: drag?.steps === 1,
     projection,
+    keepsGroupSection,
     dissolvingGroupKey: sidebarThreadGroupDissolvingFork(tree, projection),
     over,
     release,
