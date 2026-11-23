@@ -51,6 +51,7 @@ function makeWindow(
   const webContentsListeners = new Map<string, Listener>();
   const windowListeners = new Map<string, Listener>();
   const webContents = {
+    session: { webRequest: { onBeforeSendHeaders: vi.fn() } },
     isDestroyed: () => false,
     getURL: () => "t3code-dev://app/",
     getZoomLevel: () => 0,
