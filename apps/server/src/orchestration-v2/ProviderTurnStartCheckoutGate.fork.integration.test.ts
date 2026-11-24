@@ -563,13 +563,18 @@ it.live.each(recoveries)(
             projection.runs.map((run) => run.status),
             timeline.flatMap(([type]) => (type === "user_message" ? ["completed"] : [])),
           );
-          const checkoutPath = { feature, root };
-          assert.deepEqual(yield* Ref.get(log), {
-            opened: sessions.opened.map((checkout) => checkoutPath[checkout]),
-            turns: sessions.turns.map((checkout) => checkoutPath[checkout]),
-            closed: sessions.closed,
-            unloaded: sessions.unloaded ?? 0,
-          });
+          // The replay harness runs a thread without a worktree in its own workspace, not the project root.
+          const checkoutOf = (cwd: string) => (cwd === feature ? "feature" : "root");
+          const seen = yield* Ref.get(log);
+          assert.deepEqual(
+            { ...seen, opened: seen.opened.map(checkoutOf), turns: seen.turns.map(checkoutOf) },
+            {
+              opened: sessions.opened,
+              turns: sessions.turns,
+              closed: sessions.closed,
+              unloaded: sessions.unloaded ?? 0,
+            },
+          );
           // The recovery notice sits where the recovery happened, after the
           // prior run's items.
           const runOrdinals = new Map(projection.runs.map((run) => [run.id, run.ordinal]));
