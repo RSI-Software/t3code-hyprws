@@ -1415,9 +1415,9 @@ const imageToolRegistration = <Tools extends Record<string, Tool.Any>, A, E, R, 
   register: Effect.Effect<A, E, R>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
 ) =>
-  Layer.effectDiscard(withToolAnalytics(withToolResultCapture(withToolSpans(register)))).pipe(
-    Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)),
-  );
+  Layer.effectDiscard(
+    withToolAnalytics(withToolResultCapture(withToolSpans(withToolVisibility(register)))),
+  ).pipe(Layer.provide(McpToolAccess.HandlersLayer.layer(handlers))); // fork-hook: upstream-fixes/image-tool-visibility
 
 export const layerHtmlToolkit = Layer.mergeAll(
   toolkitRegistration(HtmlRenderToolkit, HtmlHandlers.layerRender),
