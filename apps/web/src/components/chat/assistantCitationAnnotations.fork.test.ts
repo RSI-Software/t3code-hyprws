@@ -6,6 +6,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  type PeerDraft,
   peerHues,
   threadAnnotations,
   withDraftCitationComment,
@@ -44,7 +45,7 @@ describe("threadAnnotations", () => {
       [{ id: "sent-1", text: `${second} ${cite("Streams a terminal result", 70)}`, owner: null }],
       [],
       [],
-      "",
+      [""],
     );
     expect(annotations.map(({ citation, draftNumber }) => [citation.text, draftNumber])).toEqual([
       ["Reads the manifest first", 2],
@@ -69,16 +70,18 @@ describe("threadAnnotations", () => {
           owner: "Alex",
           citations: [citation(shared, 40), citation("x", 0, { threadId: ThreadId.make("other") })],
         },
+        // Alex's page before a reload, until the server forgets it.
+        { key: "alex-old", owner: "Alex", citations: [citation(shared, 40)] },
       ],
-      "Jordan",
+      ["", "Jordan", "Alex"],
     );
-    // Jordan's own name joins the hue choice: Alex keeps its hash's hue, so Jordan moves on.
+    // Sam's share is gone, so Sam follows everyone who joined.
     expect(
       annotations.map(({ key, owner, draftNumber, hue }) => [key, owner, draftNumber, hue]),
     ).toEqual([
       ["draft:0", null, 1, null],
-      ["peer:alex:0", "Alex", 1, 4],
-      ["sent:sent-sam:0", "Sam", null, 1],
+      ["peer:alex:0", "Alex", 1, 2],
+      ["sent:sent-sam:0", "Sam", null, 3],
     ]);
   });
 
@@ -89,7 +92,7 @@ describe("threadAnnotations", () => {
       [{ id: "sent-1", text: second, owner: null }],
       [],
       [{ key: "host", owner: "", citations: [citation("Asks before it writes", 40)] }],
-      "Alex",
+      ["", "Alex"],
     );
     expect(annotations.map(({ key, owner }) => [key, owner])).toEqual([
       ["peer:host:0", ""],
@@ -97,28 +100,41 @@ describe("threadAnnotations", () => {
     ]);
   });
 
-  it("keeps everyone's hue when a waiting message only the host sees joins", () => {
+  it("keeps Jordan's hue when Alex starts citing", () => {
+    const people = ["", "Alex", "Jordan"];
+    const jordan = { key: "jordan", owner: "Jordan", citations: [citation("Reads", 10)] };
+    const alex = { key: "alex", owner: "Alex", citations: [citation("Asks", 40)] };
+    const hues = (peers: PeerDraft[]) =>
+      threadAnnotations(threadRef, "", [], [], peers, people).map(({ owner, hue }) => [owner, hue]);
+    expect(hues([jordan])).toEqual([["Jordan", 2]]);
+    expect(hues([jordan, alex])).toEqual([
+      ["Jordan", 2],
+      ["Alex", 1],
+    ]);
+  });
+
+  it("shows a waiting cite once when its sent copy has arrived", () => {
     const annotations = threadAnnotations(
       threadRef,
       "",
+      [{ id: "sent-1", text: first, owner: "Alex" }],
+      [
+        { id: "waiting:1", text: first, owner: "Alex" },
+        { id: "waiting:2", text: second, owner: "Alex" },
+      ],
       [],
-      [{ id: "waiting:1", text: second, owner: "Alex" }],
-      [{ key: "jordan", owner: "Jordan", citations: [citation("Reads the manifest first", 10)] }],
-      "",
+      ["", "Alex"],
     );
-    // Jordan keeps the hue every other client gives them; Alex, hashing alike, moves on.
-    expect(annotations.map(({ owner, hue }) => [owner, hue])).toEqual([
-      ["Jordan", 4],
-      ["Alex", 5],
-    ]);
+    expect(annotations.map(({ key }) => key)).toEqual(["sent:sent-1:0", "sent:waiting:2:0"]);
   });
 });
 
 describe("peerHues", () => {
-  it("gives up to six names distinct hues, the same whatever order they arrive in", () => {
-    const hues = { Alex: 4, Host: 0, Jordan: 5, Morgan: 1 };
-    expect(Object.fromEntries(peerHues(["Morgan", "Jordan", "Host", "Alex"]))).toEqual(hues);
-    expect(Object.fromEntries(peerHues(["Alex", "Host", "Morgan", "Jordan"]))).toEqual(hues);
+  it("colours people in the order they joined, then anyone else by name", () => {
+    const hues = { "": 0, Jordan: 1, Alex: 2, Morgan: 3, Sam: 4 };
+    expect(Object.fromEntries(peerHues(["", "Jordan", "Alex"], ["Sam", "Morgan", "Alex"]))).toEqual(
+      hues,
+    );
   });
 });
 

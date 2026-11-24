@@ -17,7 +17,14 @@ interface Typing {
 
 // A keepalive repeats the same draft, so only a change in who writes or what reaches viewers.
 const sameState = (a: CollaboratorTypingStateFork, b: CollaboratorTypingStateFork) =>
-  a.shared === b.shared && JSON.stringify(a.typists) === JSON.stringify(b.typists);
+  JSON.stringify(a) === JSON.stringify(b);
+
+interface TypingContext {
+  readonly shared: boolean;
+  /** Everyone the thread is shared with, in the order they joined. */
+  readonly people: ReadonlyArray<string>;
+  readonly you: string | undefined;
+}
 
 export const makeCollaboratorTyping = Effect.gen(function* () {
   const ref = yield* SubscriptionRef.make<ReadonlyArray<Typing>>([]);
@@ -87,16 +94,11 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
     stop,
     drop,
     /** Everyone but `viewer` typing in the thread while `shared`, re-emitted only on a change. */
-    state: (
-      threadId: string,
-      viewer: string,
-      shared: Stream.Stream<boolean>,
-      you: string | undefined,
-    ) =>
+    state: (threadId: string, viewer: string, context: Stream.Stream<TypingContext>) =>
       Stream.zipLatestWith(
-        shared,
+        context,
         SubscriptionRef.changes(ref),
-        (shared, all): CollaboratorTypingStateFork => ({
+        ({ shared, people, you }, all): CollaboratorTypingStateFork => ({
           shared,
           typists: shared
             ? all.flatMap((entry) =>
@@ -105,6 +107,7 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
                   : [],
               )
             : [],
+          ...(shared ? { people } : {}),
           ...(you === undefined ? {} : { you }),
         }),
       ).pipe(Stream.changesWith(sameState)),

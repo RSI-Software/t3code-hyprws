@@ -159,6 +159,8 @@ function ThreadTyping({
       editedAt = Date.now();
       flushAfter(throttled());
     });
+    // A draft already open, as after a reload, shares its citations without waiting for an edit.
+    flush();
     return () => {
       closed = true;
       clearTimeout(timer);
