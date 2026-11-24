@@ -10,7 +10,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { reviewCommentContextId, reviewCommentContextLabel } from "~/lib/composerContextRecords";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "~/lib/terminalContext";
-import { collaboratorDraftFork } from "./collaboratorDraft.fork";
+import { collaboratorDraftFork, withinActive } from "./collaboratorDraft.fork";
 
 const empty = {
   prompt: "",
@@ -81,16 +81,29 @@ describe("collaboratorDraftFork", () => {
       },
       threadId,
     );
-    expect(draft?.text).toBe(`Look at app.ts L12 and “the quoted reply”“another thread”`);
-    expect(draft?.chips.map(({ kind }) => kind)).toEqual([
-      "terminal",
-      "review-comment",
-      "citation",
-      "citation",
+    // This thread's citation shows on its passage, never in the text or as a chip.
+    expect(draft?.text).toBe("Look at app.ts L12 and");
+    expect(draft?.chips.map(({ kind, label }) => [kind, label])).toEqual([
+      ["terminal", "Terminal 1 lines 1-2"],
+      ["review-comment", "app.ts L12"],
+      ["citation", "another thread"],
     ]);
-    // Only this thread's citations travel whole, so others can mark them inline.
     expect(draft?.citations).toEqual([quoted]);
     expect(JSON.stringify(draft)).not.toMatch(/SECRET/);
+  });
+
+  it("keeps this thread's citations marked however long the draft sits idle", () => {
+    const quoted = citation("thread", "the quoted reply");
+    const citedOnly = { text: "", truncated: false, chips: [], citations: [quoted] };
+    const cited = serializeAssistantCitation(quoted);
+    expect(collaboratorDraftFork({ ...empty, prompt: ` ${cited} ` }, threadId)).toEqual(citedOnly);
+    const writing = collaboratorDraftFork({ ...empty, prompt: `${cited} why?` }, threadId);
+    expect(withinActive(writing, 29_000)).toBe(writing);
+    // Idle, the text stops showing but the citations keep marking their passages.
+    expect(withinActive(writing, 31_000)).toEqual(citedOnly);
+    expect(
+      withinActive(collaboratorDraftFork({ ...empty, prompt: "why?" }, threadId), 31_000),
+    ).toBeNull();
   });
 
   it("keeps the end of a draft past the cap", () => {

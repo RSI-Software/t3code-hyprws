@@ -522,31 +522,33 @@ database("CollaboratorSharesFork", (it) => {
           const hostTyping = { shared: true, typists: [{ subject: "host" }] };
 
           // Sharing and unsharing reach both sides with nobody typing.
+          // Sam's own name rides along, so Sam's client can tell their sent messages apart.
+          const asSam = <S extends object>(state: S) => ({ ...state, you: "Sam" });
           const hostSeen = yield* watch(host);
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(false));
           yield* service.share({ threadId: shared, collaboratorName: "Sam" });
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
           const samSeen = yield* watch(sam);
-          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+          assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(idle(true)));
 
           yield* typing(sam, true);
           yield* typing(host, true);
           assert.deepStrictEqual(yield* Queue.take(hostSeen), samTyping);
-          assert.deepStrictEqual(yield* Queue.take(samSeen), hostTyping);
+          assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(hostTyping));
 
           // A heartbeat restarts the countdown; silence past it drops the typist with no call.
           yield* TestClock.adjust("4 seconds");
           yield* typing(sam, true);
           yield* TestClock.adjust("4 seconds");
-          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+          assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(idle(true)));
           assert.strictEqual(yield* Queue.size(hostSeen), 0);
           yield* TestClock.adjust("1 second");
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
 
           yield* typing(host, true);
-          assert.deepStrictEqual(yield* Queue.take(samSeen), hostTyping);
+          assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(hostTyping));
           yield* typing(host, false);
-          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+          assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(idle(true)));
 
           // The host reads Sam's draft as it changes; a keepalive repeating it sends nothing.
           const draft = (text: string) => ({ text, truncated: false, chips: [] });
@@ -579,16 +581,22 @@ database("CollaboratorSharesFork", (it) => {
             })),
           });
           yield* onDevice("laptop", "Ship it");
-          assert.deepStrictEqual(yield* Queue.take(samSeen), hostWriting(["laptop", "Ship it"]));
+          assert.deepStrictEqual(
+            yield* Queue.take(samSeen),
+            asSam(hostWriting(["laptop", "Ship it"])),
+          );
           yield* onDevice("desk", "Wait");
           assert.deepStrictEqual(
             yield* Queue.take(samSeen),
-            hostWriting(["laptop", "Ship it"], ["desk", "Wait"]),
+            asSam(hostWriting(["laptop", "Ship it"], ["desk", "Wait"])),
           );
           yield* onDevice("desk");
-          assert.deepStrictEqual(yield* Queue.take(samSeen), hostWriting(["laptop", "Ship it"]));
+          assert.deepStrictEqual(
+            yield* Queue.take(samSeen),
+            asSam(hostWriting(["laptop", "Ship it"])),
+          );
           yield* onDevice("laptop");
-          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(true));
+          assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(idle(true)));
           const overCap = decodeSetTyping({
             threadId: shared,
             typing: true,
@@ -598,7 +606,7 @@ database("CollaboratorSharesFork", (it) => {
 
           yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(false));
-          assert.deepStrictEqual(yield* Queue.take(samSeen), idle(false));
+          assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(idle(false)));
           assert.isTrue(Exit.isFailure(yield* Effect.exit(typing(sam, true))));
 
           // Unsharing drops Sam's typing, so a re-share within the heartbeat shows nobody.

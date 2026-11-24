@@ -17,10 +17,10 @@ import type { TimelineEntry } from "../../session-logic";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { useCollaboratorCitationsFork } from "../collaborator/CollaboratorChat.fork";
+import { HOST_NAME } from "../collaborator/CollaboratorTyping.fork";
 import { AssistantCitationCommentEditor } from "./AssistantCitationCommentEditor";
 import {
   PEER_HUES,
-  peerHue,
   threadAnnotations,
   withDraftCitationComment,
   withoutDraftCitation,
@@ -98,6 +98,12 @@ function paintActive(
 const peerStyle = (hue: number | null) =>
   (hue === null ? {} : { "--annotation-peer": `var(--annotation-peer-${hue})` }) as CSSProperties;
 
+/** Who sent a message, as this viewer names them; null for the viewer's own. */
+const ownerOf = (
+  guestName: string | undefined,
+  { hostName, you }: { hostName: string | null; you: string | null },
+) => (guestName === undefined ? hostName : guestName === you ? null : guestName);
+
 /** A cite's first letter, so a marker says whose it is. */
 const initialOf = (owner: string) => [...owner.trim()][0]?.toLocaleUpperCase() ?? "?";
 
@@ -161,8 +167,7 @@ export function AssistantCitationAnnotations({
           {
             id: entry.id,
             text: entry.message.text,
-            owner:
-              resolveUserMessagePresentation(entry.message).guestName ?? collaborators.hostName,
+            owner: ownerOf(resolveUserMessagePresentation(entry.message).guestName, collaborators),
           },
         ]
       : [],
@@ -175,6 +180,7 @@ export function AssistantCitationAnnotations({
           draft,
           [...sent, ...collaborators.waiting],
           collaborators.peers,
+          collaborators.you ?? HOST_NAME,
         )
       : [],
   );
@@ -237,7 +243,7 @@ export function AssistantCitationAnnotations({
         ranges.set(annotation.key, range);
         if (annotation.owner !== null) others.add(annotation.key);
         // Someone else's passage keeps their colour and marker once sent, so it stays theirs.
-        if (annotation.owner !== null) peerRanges[peerHue(annotation.owner)]!.push(range);
+        if (annotation.hue !== null) peerRanges[annotation.hue]!.push(range);
         else if (annotation.draftNumber === null) sentRanges.push(range);
         else draftRanges.push(range);
         if (
@@ -512,11 +518,11 @@ function AnnotationMarker({
   useEffect(() => {
     if (!isOpen) actionsRef.current?.close();
   }, [isOpen]);
-  const { citation, draftNumber, key, owner } = annotation;
+  const { citation, draftNumber, key, hue } = annotation;
+  const owner = annotation.owner === HOST_NAME ? gt("Host") : annotation.owner;
   const isDraft = draftNumber !== null;
   // Only your own draft's citations edit; everyone else's are read-only.
   const editable = isDraft && owner === null;
-  const hue = owner === null ? null : peerHue(owner);
   const comment = citation.comment?.trim();
   return (
     <Popover

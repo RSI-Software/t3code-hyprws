@@ -12,6 +12,8 @@ export type Annotation = {
   draftNumber: number | null;
   /** Who cited it in a shared thread; null for you. */
   owner: string | null;
+  /** The owner's colour; null for you. */
+  hue: number | null;
 };
 
 /** Someone else's live draft in a shared thread, with this thread's citations. */
@@ -26,11 +28,22 @@ export type SentMessage = { id: string; text: string; owner: string | null };
 /** How many people a shared thread colours apart before hues repeat; matches the CSS. */
 export const PEER_HUES = 6;
 
-/** The same name gets the same hue on every client. */
-export function peerHue(owner: string): number {
-  let hash = 0;
-  for (const char of owner) hash = (Math.imul(hash, 31) + char.codePointAt(0)!) | 0;
-  return Math.abs(hash) % PEER_HUES;
+/**
+ * Each name's hue from its hash, bumped to the next free one on a clash, so up to six people
+ * never share. Every client that sees the same names picks the same hues.
+ */
+export function peerHues(names: Iterable<string>): Map<string, number> {
+  const hues = new Map<string, number>();
+  const taken = new Set<number>();
+  for (const name of [...new Set(names)].sort()) {
+    let hash = 0;
+    for (const char of name) hash = (Math.imul(hash, 31) + char.codePointAt(0)!) | 0;
+    let hue = Math.abs(hash) % PEER_HUES;
+    while (taken.has(hue) && taken.size < PEER_HUES) hue = (hue + 1) % PEER_HUES;
+    taken.add(hue);
+    hues.set(name, hue);
+  }
+  return hues;
 }
 
 const passageKey = ({ messageId, start, end }: AssistantCitation) => `${messageId}:${start}:${end}`;
@@ -44,22 +57,26 @@ const citationsIn = (text: string) =>
 const ownedPassage = (owner: string | null, citation: AssistantCitation) =>
   `${owner ?? ""}\u0000${passageKey(citation)}`;
 
+type Unhued = Omit<Annotation, "hue">;
+
 /**
  * Your draft's citations first, then others' live drafts, then sent ones. A passage someone
  * still drafts hides their sent copy; different people citing one passage each keep theirs.
+ * `you` is your own name as the others see it, so everyone's hues agree.
  */
 export function threadAnnotations(
   threadRef: ScopedThreadRef,
   draft: string,
   sent: ReadonlyArray<SentMessage>,
-  peers: ReadonlyArray<PeerDraft> = [],
+  peers: ReadonlyArray<PeerDraft>,
+  you: string,
 ): Annotation[] {
-  const drafts: Annotation[] = citationsIn(draft).flatMap(({ citation }, index) =>
+  const drafts: Unhued[] = citationsIn(draft).flatMap(({ citation }, index) =>
     citesThread(citation, threadRef)
       ? [{ key: `draft:${index}`, citation, draftNumber: index + 1, owner: null }]
       : [],
   );
-  const peerDrafts: Annotation[] = peers.flatMap((peer) =>
+  const peerDrafts: Unhued[] = peers.flatMap((peer) =>
     peer.citations.flatMap((citation, index) =>
       citesThread(citation, threadRef)
         ? [
@@ -76,7 +93,7 @@ export function threadAnnotations(
   const drafted = new Set(
     [...drafts, ...peerDrafts].map(({ owner, citation }) => ownedPassage(owner, citation)),
   );
-  const sentAnnotations: Annotation[] = sent.flatMap((message) =>
+  const sentAnnotations: Unhued[] = sent.flatMap((message) =>
     citationsIn(message.text).flatMap(({ citation }, index) =>
       citesThread(citation, threadRef) && !drafted.has(ownedPassage(message.owner, citation))
         ? [
@@ -90,7 +107,12 @@ export function threadAnnotations(
         : [],
     ),
   );
-  return [...drafts, ...peerDrafts, ...sentAnnotations];
+  const all = [...drafts, ...peerDrafts, ...sentAnnotations];
+  const hues = peerHues(all.map(({ owner }) => owner ?? you));
+  return all.map((annotation) => ({
+    ...annotation,
+    hue: annotation.owner === null ? null : hues.get(annotation.owner)!,
+  }));
 }
 
 /** The draft with its `draftNumber`th citation's comment replaced, or null when it is gone. */

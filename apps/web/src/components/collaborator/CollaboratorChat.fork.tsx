@@ -351,20 +351,22 @@ export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) 
     threadRef !== null &&
     configs.get(threadRef.environmentId)?.environment.capabilities.collaboratorsFork === true &&
     thread?.collaboratorFork !== "frozen";
-  const typists =
-    useEnvironmentQuery(
-      served
-        ? typingSubscription({
-            environmentId: threadRef.environmentId,
-            input: { threadId: threadRef.threadId },
-          })
-        : null,
-    ).data?.typists ?? NO_TYPISTS;
+  const typing = useEnvironmentQuery(
+    served
+      ? typingSubscription({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId },
+        })
+      : null,
+  ).data;
+  const typists = typing?.typists ?? NO_TYPISTS;
   const waiting = useWaitingMessages(threadRef?.environmentId ?? null);
   const asCollaborator = thread?.collaboratorFork !== undefined;
   return {
     /** Who wrote an unattributed message: you as the host, else the host. */
     hostName: asCollaborator ? HOST_NAME : null,
+    /** A collaborator's own name, which their sent messages carry; null for the host. */
+    you: typing?.you ?? null,
     peers: typists.flatMap(({ subject, device, name, draft }) =>
       draft?.citations?.length
         ? [

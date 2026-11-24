@@ -6,6 +6,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  peerHues,
   threadAnnotations,
   withDraftCitationComment,
   withoutDraftCitation,
@@ -37,9 +38,13 @@ const second = cite("Asks before it writes", 40);
 
 describe("threadAnnotations", () => {
   it("numbers draft citations by draft position and drops sent duplicates", () => {
-    const annotations = threadAnnotations(threadRef, `${elsewhere} ${first} and ${second}`, [
-      { id: "sent-1", text: `${second} ${cite("Streams a terminal result", 70)}`, owner: null },
-    ]);
+    const annotations = threadAnnotations(
+      threadRef,
+      `${elsewhere} ${first} and ${second}`,
+      [{ id: "sent-1", text: `${second} ${cite("Streams a terminal result", 70)}`, owner: null }],
+      [],
+      "Host",
+    );
     expect(annotations.map(({ citation, draftNumber }) => [citation.text, draftNumber])).toEqual([
       ["Reads the manifest first", 2],
       ["Asks before it writes", 3],
@@ -63,12 +68,24 @@ describe("threadAnnotations", () => {
           citations: [citation(shared, 40), citation("x", 0, { threadId: ThreadId.make("other") })],
         },
       ],
+      "Jordan",
     );
-    expect(annotations.map(({ key, owner, draftNumber }) => [key, owner, draftNumber])).toEqual([
-      ["draft:0", null, 1],
-      ["peer:alex:0", "Alex", 1],
-      ["sent:sent-sam:0", "Sam", null],
+    // Jordan's own name joins the hue choice: Alex keeps its hash's hue, so Jordan moves on.
+    expect(
+      annotations.map(({ key, owner, draftNumber, hue }) => [key, owner, draftNumber, hue]),
+    ).toEqual([
+      ["draft:0", null, 1, null],
+      ["peer:alex:0", "Alex", 1, 4],
+      ["sent:sent-sam:0", "Sam", null, 1],
     ]);
+  });
+});
+
+describe("peerHues", () => {
+  it("gives up to six names distinct hues, the same whatever order they arrive in", () => {
+    const hues = { Alex: 4, Host: 0, Jordan: 5, Morgan: 1 };
+    expect(Object.fromEntries(peerHues(["Morgan", "Jordan", "Host", "Alex"]))).toEqual(hues);
+    expect(Object.fromEntries(peerHues(["Alex", "Host", "Morgan", "Jordan"]))).toEqual(hues);
   });
 });
 
