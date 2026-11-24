@@ -43,7 +43,8 @@ describe("threadAnnotations", () => {
       `${elsewhere} ${first} and ${second}`,
       [{ id: "sent-1", text: `${second} ${cite("Streams a terminal result", 70)}`, owner: null }],
       [],
-      "Host",
+      [],
+      "",
     );
     expect(annotations.map(({ citation, draftNumber }) => [citation.text, draftNumber])).toEqual([
       ["Reads the manifest first", 2],
@@ -61,6 +62,7 @@ describe("threadAnnotations", () => {
         { id: "sent-alex", text: second, owner: "Alex" },
         { id: "sent-sam", text: second, owner: "Sam" },
       ],
+      [],
       [
         {
           key: "alex",
@@ -77,6 +79,22 @@ describe("threadAnnotations", () => {
       ["draft:0", null, 1, null],
       ["peer:alex:0", "Alex", 1, 4],
       ["sent:sent-sam:0", "Sam", null, 1],
+    ]);
+  });
+
+  it("keeps everyone's hue when a waiting message only the host sees joins", () => {
+    const annotations = threadAnnotations(
+      threadRef,
+      "",
+      [],
+      [{ id: "waiting:1", text: second, owner: "Alex" }],
+      [{ key: "jordan", owner: "Jordan", citations: [citation("Reads the manifest first", 10)] }],
+      "",
+    );
+    // Jordan keeps the hue every other client gives them; Alex, hashing alike, moves on.
+    expect(annotations.map(({ owner, hue }) => [owner, hue])).toEqual([
+      ["Jordan", 4],
+      ["Alex", 5],
     ]);
   });
 });

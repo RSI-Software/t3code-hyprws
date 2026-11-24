@@ -47,8 +47,8 @@ const setTypingCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   },
 });
 
-/** The host as cites name them; a collaborator's copy holds no name for them. */
-export const HOST_NAME = "Host";
+/** The host as cites key them: never a collaborator's name, which needs a letter or digit. */
+export const HOST_KEY = "";
 
 // At most four sends a second while the draft changes, the last always arriving.
 const THROTTLE_MS = 250;

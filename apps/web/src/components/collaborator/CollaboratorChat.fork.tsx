@@ -37,7 +37,7 @@ import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { CollaboratorTypingFork, HOST_NAME, typingSubscription } from "./CollaboratorTyping.fork";
+import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
 
 const collaboratorMessages = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:messages",
@@ -347,10 +347,10 @@ const NO_TYPISTS: ReadonlyArray<CollaboratorTypistFork> = [];
 export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) {
   const thread = useQuietThreadShell(threadRef);
   const configs = useServerConfigs();
+  // A frozen thread still subscribes: no one types there, but it says who you are.
   const served =
     threadRef !== null &&
-    configs.get(threadRef.environmentId)?.environment.capabilities.collaboratorsFork === true &&
-    thread?.collaboratorFork !== "frozen";
+    configs.get(threadRef.environmentId)?.environment.capabilities.collaboratorsFork === true;
   const typing = useEnvironmentQuery(
     served
       ? typingSubscription({
@@ -364,7 +364,7 @@ export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) 
   const asCollaborator = thread?.collaboratorFork !== undefined;
   return {
     /** Who wrote an unattributed message: you as the host, else the host. */
-    hostName: asCollaborator ? HOST_NAME : null,
+    hostName: asCollaborator ? HOST_KEY : null,
     /** A collaborator's own name, which their sent messages carry; null for the host. */
     you: typing?.you ?? null,
     peers: typists.flatMap(({ subject, device, name, draft }) =>
@@ -372,7 +372,7 @@ export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) 
         ? [
             {
               key: `${subject}:${device ?? ""}`,
-              owner: name ?? HOST_NAME,
+              owner: name ?? HOST_KEY,
               citations: draft.citations,
             },
           ]

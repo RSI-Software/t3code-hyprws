@@ -17,7 +17,7 @@ import type { TimelineEntry } from "../../session-logic";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { useCollaboratorCitationsFork } from "../collaborator/CollaboratorChat.fork";
-import { HOST_NAME } from "../collaborator/CollaboratorTyping.fork";
+import { HOST_KEY } from "../collaborator/CollaboratorTyping.fork";
 import { AssistantCitationCommentEditor } from "./AssistantCitationCommentEditor";
 import {
   PEER_HUES,
@@ -178,9 +178,10 @@ export function AssistantCitationAnnotations({
       ? threadAnnotations(
           threadRef,
           draft,
-          [...sent, ...collaborators.waiting],
+          sent,
+          collaborators.waiting,
           collaborators.peers,
-          collaborators.you ?? HOST_NAME,
+          collaborators.you ?? HOST_KEY,
         )
       : [],
   );
@@ -519,7 +520,7 @@ function AnnotationMarker({
     if (!isOpen) actionsRef.current?.close();
   }, [isOpen]);
   const { citation, draftNumber, key, hue } = annotation;
-  const owner = annotation.owner === HOST_NAME ? gt("Host") : annotation.owner;
+  const owner = annotation.owner === HOST_KEY ? gt("Host") : annotation.owner;
   const isDraft = draftNumber !== null;
   // Only your own draft's citations edit; everyone else's are read-only.
   const editable = isDraft && owner === null;
