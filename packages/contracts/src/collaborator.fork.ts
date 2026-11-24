@@ -137,6 +137,8 @@ export type CollaboratorTypistFork = typeof CollaboratorTypistFork.Type;
 export const CollaboratorTypingStateFork = Schema.Struct({
   shared: Schema.Boolean,
   typists: Schema.Array(CollaboratorTypistFork),
+  /** A collaborator's own name, so their client knows which sent messages are theirs. */
+  you: Schema.optional(Schema.String),
 });
 export type CollaboratorTypingStateFork = typeof CollaboratorTypingStateFork.Type;
 
