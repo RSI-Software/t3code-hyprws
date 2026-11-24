@@ -7,6 +7,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcSubscriptionAtomFamily,
+  isAtomCommandInterrupted,
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type CollaboratorMessageFork,
@@ -27,7 +28,7 @@ import { connectionAtomRuntime } from "~/connection/runtime";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
 import { useQuietThreadShell, useServerConfigs } from "~/state/entities";
-import { useEnvironmentQuery } from "~/state/query";
+import { formatEnvironmentQueryError, useEnvironmentQuery } from "~/state/query";
 import { environmentSession } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
@@ -143,6 +144,13 @@ export function useCollaboratorChatFork(
       environmentId: thread.environmentId,
       input: { threadId: thread.id, text },
     }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        toastManager.add({
+          type: "error",
+          title: "Could not send for approval",
+          description: formatEnvironmentQueryError(result.cause),
+        });
+      }
       // Keep anything typed while the message was on its way.
       if (result._tag !== "Success" || prompt() !== text) return;
       clearComposerContent(draftTarget);
@@ -367,6 +375,8 @@ export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) 
     hostName: asCollaborator ? HOST_KEY : null,
     /** A collaborator's own name, which their sent messages carry; null for the host. */
     you: typing?.you ?? null,
+    /** Everyone in the order they joined the thread, the host first, which orders their hues. */
+    people: [HOST_KEY, ...(typing?.people ?? [])],
     peers: typists.flatMap(({ subject, device, name, draft }) =>
       draft?.citations?.length
         ? [

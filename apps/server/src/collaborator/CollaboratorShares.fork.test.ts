@@ -4,6 +4,7 @@ import {
   COLLABORATOR_DRAFT_TEXT_MAX_CHARS,
   type CollaboratorDraftFork,
   CollaboratorSetTypingInputFork,
+  CollaboratorSubmitMessageInputFork,
   EnvironmentAuthenticatedPrincipal,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
@@ -45,6 +46,7 @@ const otherProject = ProjectId.make("p-other");
 const projectOf = { [shared]: sharedProject, [other]: otherProject } as Record<string, ProjectId>;
 const pairedSubjects = new Set<string>();
 const decodeSetTyping = Schema.decodeExit(CollaboratorSetTypingInputFork);
+const decodeSubmitMessage = Schema.decodeEffect(CollaboratorSubmitMessageInputFork);
 
 const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
 const instanceId = ProviderInstanceId.make("codex");
@@ -362,12 +364,17 @@ database("CollaboratorSharesFork", (it) => {
         );
         assert.isTrue(Exit.isFailure(direct));
         yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "first" });
-        yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "second" });
+        // Cited messages run long; one waits as long as the host could send it.
+        const long = yield* decodeSubmitMessage({
+          threadId: shared,
+          text: "x".repeat(10_000),
+        });
+        yield* sam["collaborator.submitMessageFork"](long);
         assert.deepStrictEqual(
           (yield* waiting(host)).map(({ name, text }) => ({ name, text })),
           [
             { name: "Sam", text: "first" },
-            { name: "Sam", text: "second" },
+            { name: "Sam", text: long.text },
           ],
         );
         assert.deepStrictEqual(yield* waiting(service.messageHandlers("colleague:ana")), []);
@@ -517,9 +524,20 @@ database("CollaboratorSharesFork", (it) => {
             );
             return seen;
           });
-          const idle = (shared: boolean) => ({ shared, typists: [] });
-          const samTyping = { shared: true, typists: [{ subject: "colleague:sam", name: "Sam" }] };
-          const hostTyping = { shared: true, typists: [{ subject: "host" }] };
+          // Everyone who ever joined the thread, in order, so each client colours them alike.
+          // Earlier tests shared it with Sam, then Ana.
+          const people = ["Sam", "Ana"];
+          const idle = (shared: boolean) => ({
+            shared,
+            typists: [],
+            ...(shared ? { people } : {}),
+          });
+          const samTyping = {
+            shared: true,
+            typists: [{ subject: "colleague:sam", name: "Sam" }],
+            people,
+          };
+          const hostTyping = { shared: true, typists: [{ subject: "host" }], people };
 
           // Sharing and unsharing reach both sides with nobody typing.
           // Sam's own name rides along, so Sam's client can tell their sent messages apart.
@@ -555,6 +573,7 @@ database("CollaboratorSharesFork", (it) => {
           const samWriting = (text: string) => ({
             shared: true,
             typists: [{ subject: "colleague:sam", name: "Sam", draft: draft(text) }],
+            people,
           });
           yield* typing(sam, true, draft("Fix the"));
           assert.deepStrictEqual(yield* Queue.take(hostSeen), samWriting("Fix the"));
@@ -579,6 +598,7 @@ database("CollaboratorSharesFork", (it) => {
               draft: draft(text),
               device,
             })),
+            people,
           });
           yield* onDevice("laptop", "Ship it");
           assert.deepStrictEqual(
@@ -618,6 +638,13 @@ database("CollaboratorSharesFork", (it) => {
             Stream.runHead,
           );
           assert.deepStrictEqual(Option.getOrThrow(again), idle(true));
+
+          // Typing "sam" for another thread reaches the same person, who stays "Sam".
+          yield* service.share({ threadId: other, collaboratorName: "sam" });
+          const renamed = yield* sam["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
+            Stream.runHead,
+          );
+          assert.deepStrictEqual(Option.getOrThrow(renamed), asSam(idle(true)));
         }),
       ),
   );
