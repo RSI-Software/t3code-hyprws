@@ -517,9 +517,20 @@ database("CollaboratorSharesFork", (it) => {
             );
             return seen;
           });
-          const idle = (shared: boolean) => ({ shared, typists: [] });
-          const samTyping = { shared: true, typists: [{ subject: "colleague:sam", name: "Sam" }] };
-          const hostTyping = { shared: true, typists: [{ subject: "host" }] };
+          // Everyone who ever joined the thread, in order, so each client colours them alike.
+          // Earlier tests shared it with Sam, then Ana.
+          const people = ["Sam", "Ana"];
+          const idle = (shared: boolean) => ({
+            shared,
+            typists: [],
+            ...(shared ? { people } : {}),
+          });
+          const samTyping = {
+            shared: true,
+            typists: [{ subject: "colleague:sam", name: "Sam" }],
+            people,
+          };
+          const hostTyping = { shared: true, typists: [{ subject: "host" }], people };
 
           // Sharing and unsharing reach both sides with nobody typing.
           // Sam's own name rides along, so Sam's client can tell their sent messages apart.
@@ -555,6 +566,7 @@ database("CollaboratorSharesFork", (it) => {
           const samWriting = (text: string) => ({
             shared: true,
             typists: [{ subject: "colleague:sam", name: "Sam", draft: draft(text) }],
+            people,
           });
           yield* typing(sam, true, draft("Fix the"));
           assert.deepStrictEqual(yield* Queue.take(hostSeen), samWriting("Fix the"));
@@ -579,6 +591,7 @@ database("CollaboratorSharesFork", (it) => {
               draft: draft(text),
               device,
             })),
+            people,
           });
           yield* onDevice("laptop", "Ship it");
           assert.deepStrictEqual(
@@ -618,6 +631,13 @@ database("CollaboratorSharesFork", (it) => {
             Stream.runHead,
           );
           assert.deepStrictEqual(Option.getOrThrow(again), idle(true));
+
+          // Typing "sam" for another thread reaches the same person, who stays "Sam".
+          yield* service.share({ threadId: other, collaboratorName: "sam" });
+          const renamed = yield* sam["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
+            Stream.runHead,
+          );
+          assert.deepStrictEqual(Option.getOrThrow(renamed), asSam(idle(true)));
         }),
       ),
   );
