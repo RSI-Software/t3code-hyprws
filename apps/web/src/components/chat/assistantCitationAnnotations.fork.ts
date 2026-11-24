@@ -29,27 +29,17 @@ export type SentMessage = { id: string; text: string; owner: string | null };
 export const PEER_HUES = 6;
 
 /**
- * Each name's hue from its hash, bumped to the next free one on a clash, so up to six people
- * never share. Every client that sees the same names picks the same hues; `later` names, which
- * only some clients see, take what is left without moving anyone else.
+ * Hues in the order people joined the thread, so a colour never moves while others start or stop
+ * citing, and the first six never share. `people` is that order, the same on every client;
+ * anyone else, such as someone whose share is gone, follows by name.
  */
 export function peerHues(
-  names: Iterable<string>,
-  later: Iterable<string> = [],
+  people: ReadonlyArray<string>,
+  others: Iterable<string> = [],
 ): Map<string, number> {
-  const hues = new Map<string, number>();
-  const taken = new Set<number>();
-  const first = new Set(names);
-  const rest = [...new Set(later)].filter((name) => !first.has(name));
-  for (const name of [...[...first].sort(), ...rest.sort()]) {
-    let hash = 0;
-    for (const char of name) hash = (Math.imul(hash, 31) + char.codePointAt(0)!) | 0;
-    let hue = Math.abs(hash) % PEER_HUES;
-    while (taken.has(hue) && taken.size < PEER_HUES) hue = (hue + 1) % PEER_HUES;
-    taken.add(hue);
-    hues.set(name, hue);
-  }
-  return hues;
+  const joined = new Set(people);
+  const rest = [...new Set(others)].filter((name) => !joined.has(name)).sort();
+  return new Map([...joined, ...rest].map((name, index) => [name, index % PEER_HUES]));
 }
 
 const passageKey = ({ messageId, start, end }: AssistantCitation) => `${messageId}:${start}:${end}`;
@@ -63,13 +53,15 @@ const citationsIn = (text: string) =>
 // The host's key is "", so null (you) must stay distinct from it.
 const ownedPassage = (owner: string | null, citation: AssistantCitation) =>
   JSON.stringify([owner, passageKey(citation)]);
+const sameCite = (owner: string | null, citation: AssistantCitation) =>
+  JSON.stringify([owner, passageKey(citation), citation.comment ?? null]);
 
 type Unhued = Omit<Annotation, "hue">;
 
 /**
  * Your draft's citations first, then others' live drafts, then sent and waiting ones. A passage
  * someone still drafts hides their sent copy; different people citing one passage each keep theirs.
- * `you` is your own name as the others see it, so everyone's hues agree.
+ * `people` orders everyone's hues, as `peerHues` takes it.
  */
 export function threadAnnotations(
   threadRef: ScopedThreadRef,
@@ -77,16 +69,24 @@ export function threadAnnotations(
   sent: ReadonlyArray<SentMessage>,
   waiting: ReadonlyArray<SentMessage>,
   peers: ReadonlyArray<PeerDraft>,
-  you: string,
+  people: ReadonlyArray<string>,
 ): Annotation[] {
   const drafts: Unhued[] = citationsIn(draft).flatMap(({ citation }, index) =>
     citesThread(citation, threadRef)
       ? [{ key: `draft:${index}`, citation, draftNumber: index + 1, owner: null }]
       : [],
   );
+  // A reloaded page drafts anew while its old copy waits out the server's expiry; show one.
+  const peerCites = new Set<string>();
+  const firstCopy = (owner: string, citation: AssistantCitation) => {
+    const cite = sameCite(owner, citation);
+    if (peerCites.has(cite)) return false;
+    peerCites.add(cite);
+    return true;
+  };
   const peerDrafts: Unhued[] = peers.flatMap((peer) =>
     peer.citations.flatMap((citation, index) =>
-      citesThread(citation, threadRef)
+      citesThread(citation, threadRef) && firstCopy(peer.owner, citation)
         ? [
             {
               key: `peer:${peer.key}:${index}`,
@@ -101,10 +101,12 @@ export function threadAnnotations(
   const drafted = new Set(
     [...drafts, ...peerDrafts].map(({ owner, citation }) => ownedPassage(owner, citation)),
   );
-  const sentIn = (messages: ReadonlyArray<SentMessage>): Unhued[] =>
+  const sentIn = (messages: ReadonlyArray<SentMessage>, skip: ReadonlySet<string>): Unhued[] =>
     messages.flatMap((message) =>
       citationsIn(message.text).flatMap(({ citation }, index) =>
-        citesThread(citation, threadRef) && !drafted.has(ownedPassage(message.owner, citation))
+        citesThread(citation, threadRef) &&
+        !drafted.has(ownedPassage(message.owner, citation)) &&
+        !skip.has(sameCite(message.owner, citation))
           ? [
               {
                 key: `sent:${message.id}:${index}`,
@@ -116,12 +118,18 @@ export function threadAnnotations(
           : [],
       ),
     );
-  const seenByAll = [...drafts, ...peerDrafts, ...sentIn(sent)];
-  // Only the host and its author see a waiting message, so it must not move anyone's hue.
-  const seenBySome = sentIn(waiting);
-  const nameOf = ({ owner }: Unhued) => owner ?? you;
-  const hues = peerHues(seenByAll.map(nameOf), seenBySome.map(nameOf));
-  return [...seenByAll, ...seenBySome].map((annotation) => ({
+  const sentCites = sentIn(sent, new Set());
+  // A message the host just sent can still show as waiting; one copy is enough.
+  const waitingCites = sentIn(
+    waiting,
+    new Set(sentCites.map(({ owner, citation }) => sameCite(owner, citation))),
+  );
+  const all = [...drafts, ...peerDrafts, ...sentCites, ...waitingCites];
+  const hues = peerHues(
+    people,
+    all.flatMap(({ owner }) => (owner === null ? [] : [owner])),
+  );
+  return all.map((annotation) => ({
     ...annotation,
     hue: annotation.owner === null ? null : hues.get(annotation.owner)!,
   }));

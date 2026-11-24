@@ -1,6 +1,7 @@
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { getUserQueuedThreadRuns } from "@t3tools/client-runtime/state/thread-workflows";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
@@ -13,6 +14,7 @@ import { queuedRunEditDraftId, useComposerDraftStore } from "~/composerDraftStor
 import { resolveAssistantCitationRange } from "~/lib/assistantTextSelection";
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
+import { useQuietThreadProjection } from "~/state/entities";
 import type { TimelineEntry } from "../../session-logic";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -161,13 +163,23 @@ export function AssistantCitationAnnotations({
     draftTarget ? (store.getComposerDraft(draftTarget)?.prompt ?? "") : "",
   );
   const collaborators = useCollaboratorCitationsFork(threadRef);
-  const sent = entries.flatMap((entry) =>
-    entry.kind === "message" && entry.message.role === "user"
+  const projection = useQuietThreadProjection(threadRef)?.projection;
+  // A queued message joins the timeline only when its turn starts, so its cites come from the queue.
+  const queued = projection
+    ? getUserQueuedThreadRuns(projection).flatMap(
+        ({ userMessageId }) => projection.messages.find(({ id }) => id === userMessageId) ?? [],
+      )
+    : [];
+  const sent = [
+    ...entries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
+    ...queued.filter(({ id }) => !entries.some((entry) => entry.id === id)),
+  ].flatMap((message) =>
+    message.role === "user"
       ? [
           {
-            id: entry.id,
-            text: entry.message.text,
-            owner: ownerOf(resolveUserMessagePresentation(entry.message).guestName, collaborators),
+            id: message.id,
+            text: message.text,
+            owner: ownerOf(resolveUserMessagePresentation(message).guestName, collaborators),
           },
         ]
       : [],
@@ -181,7 +193,7 @@ export function AssistantCitationAnnotations({
           sent,
           collaborators.waiting,
           collaborators.peers,
-          collaborators.you ?? HOST_KEY,
+          collaborators.people,
         )
       : [],
   );
