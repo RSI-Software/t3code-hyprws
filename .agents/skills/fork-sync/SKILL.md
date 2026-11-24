@@ -273,7 +273,7 @@ A live one holds the job open and can rewrite the marker after the bundle.
 4. Rerun once, after the whole batch
 
 **Memory.** The job's scratch lives in RAM, under its 12 GiB limit.
-One install and two checkouts hold about 6 GiB; the first `fork:ci` peaks 4.5 GiB above that.
+The repo image holds the install and its pnpm store on disk; the driver's worktree install copies from that store, so files in RAM stay under 1 GiB.
 The driver's kept worktree is the only other checkout; never clone, copy, add another, or run a second install.
 The one exception: `fork:fold apply`'s own rebase worktree, which holds no install.
 

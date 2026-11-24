@@ -1,5 +1,13 @@
 # Agent job size for rsi-agent; sizes live in RSI-Software/rsi apps/rsi-agent/server/providers/job-size.ts.
-# Job scratch lives in RAM: fork-sync holds ~6 GiB of files (one install, two checkouts), and its first
-# fork:ci peaks at 10.6 GiB at 2 CPUs, over standard's 10Gi limit.
+# Job scratch lives in RAM; this image keeps the install, and the pnpm store fork-sync's worktree links from, on disk.
 sandbox:
   size: heavy
+# rsi-agent builds a sandbox image from this recipe on green trunk; agent jobs start from it.
+# Root lifecycle scripts need files the dependency layer leaves out; `rebuild` still builds allowed dependencies.
+# Only hyprws CI gates a build: the land run also runs on trunk, and fails while a sync waits on attention.
+image:
+  lockfiles: [pnpm-lock.yaml]
+  files: ["**/package.json", pnpm-workspace.yaml, .pnpmfile.cjs, "patches/**", "apps/*/deps/**"]
+  install: export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack pnpm install --frozen-lockfile --ignore-scripts && corepack pnpm rebuild
+  rebuild: merge
+  checks: [hyprws CI]
