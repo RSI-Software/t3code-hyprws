@@ -45,49 +45,59 @@ const terminal = {
   text: "SECRET-TERMINAL-TEXT",
 };
 
+const threadId = ThreadId.make("thread");
+const citation = (thread: string, text: string) => ({
+  version: 1 as const,
+  environmentId: EnvironmentId.make("env"),
+  threadId: ThreadId.make(thread),
+  messageId: MessageId.make("m1"),
+  text,
+  start: 0,
+  end: text.length,
+  prefix: "",
+  suffix: "",
+});
+
 describe("collaboratorDraftFork", () => {
   it("shows nothing for an empty draft", () => {
-    expect(collaboratorDraftFork(null)).toBeNull();
-    expect(collaboratorDraftFork({ ...empty, prompt: "  \n" })).toBeNull();
+    expect(collaboratorDraftFork(null, threadId)).toBeNull();
+    expect(collaboratorDraftFork({ ...empty, prompt: "  \n" }, threadId)).toBeNull();
   });
 
   it("reads contexts as labels and chips, never their bodies", () => {
-    const quote = serializeAssistantCitation({
-      version: 1,
-      environmentId: EnvironmentId.make("env"),
-      threadId: ThreadId.make("thread"),
-      messageId: MessageId.make("m1"),
-      text: "the quoted reply",
-      start: 0,
-      end: 16,
-      prefix: "",
-      suffix: "",
-    });
+    const quoted = citation("thread", "the quoted reply");
+    const elsewhere = serializeAssistantCitation(citation("other", "another thread"));
     const reviewReference = {
       kind: "review-comment",
       contextId: reviewCommentContextId(comment.id),
       label: reviewCommentContextLabel(comment),
     };
-    const draft = collaboratorDraftFork({
-      ...empty,
-      prompt: `Look at ${formatComposerContextReference(reviewReference)} and ${INLINE_TERMINAL_CONTEXT_PLACEHOLDER}${quote}`,
-      reviewComments: [comment],
-      terminalContexts: [terminal],
-    });
-    expect(draft?.text).toBe(`Look at app.ts L12 and “the quoted reply”`);
+    const draft = collaboratorDraftFork(
+      {
+        ...empty,
+        prompt: `Look at ${formatComposerContextReference(reviewReference)} and ${INLINE_TERMINAL_CONTEXT_PLACEHOLDER}${serializeAssistantCitation(quoted)}${elsewhere}`,
+        reviewComments: [comment],
+        terminalContexts: [terminal],
+      },
+      threadId,
+    );
+    expect(draft?.text).toBe(`Look at app.ts L12 and “the quoted reply”“another thread”`);
     expect(draft?.chips.map(({ kind }) => kind)).toEqual([
       "terminal",
       "review-comment",
       "citation",
+      "citation",
     ]);
+    // Only this thread's citations travel whole, so others can mark them inline.
+    expect(draft?.citations).toEqual([quoted]);
     expect(JSON.stringify(draft)).not.toMatch(/SECRET/);
   });
 
   it("keeps the end of a draft past the cap", () => {
-    const draft = collaboratorDraftFork({
-      ...empty,
-      prompt: `start ${"x".repeat(COLLABORATOR_DRAFT_TEXT_MAX_CHARS)} end`,
-    });
+    const draft = collaboratorDraftFork(
+      { ...empty, prompt: `start ${"x".repeat(COLLABORATOR_DRAFT_TEXT_MAX_CHARS)} end` },
+      threadId,
+    );
     expect(draft?.truncated).toBe(true);
     expect(draft?.text).toHaveLength(COLLABORATOR_DRAFT_TEXT_MAX_CHARS);
     expect(draft?.text.endsWith(" end")).toBe(true);
