@@ -236,6 +236,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --animate-step-in: step-in 180ms ease-out;
   --animate-step-ping: step-ping 520ms ease-out;
   --animate-check-draw: check-draw 200ms ease-out;
+  --animate-citation-pop: citation-pop 420ms cubic-bezier(0.3, 1.5, 0.5, 1) backwards;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
@@ -369,6 +370,24 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   @keyframes check-draw {
     from {
       stroke-dashoffset: 12;
+    }
+  }
+  /* Keeps the marker's 2px background ring while a primary ring fades out past it. */
+  @keyframes citation-pop {
+    from {
+      opacity: 0;
+      scale: 0.3;
+      box-shadow:
+        0 0 0 2px var(--background),
+        0 0 0 2px color-mix(in oklab, var(--primary) 50%, transparent);
+    }
+    60% {
+      opacity: 1;
+    }
+    to {
+      box-shadow:
+        0 0 0 2px var(--background),
+        0 0 0 10px transparent;
     }
   }
   @keyframes status-ping {

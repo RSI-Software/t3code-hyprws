@@ -370,7 +370,8 @@ export function AssistantCitationSource({
     <div
       ref={rootRef}
       tabIndex={-1}
-      className="outline-none"
+      // Cited passages' markers sit inside the message they cite.
+      className="outline-none has-[>[data-citation-markers]]:relative"
       data-assistant-citation-source={messageId}
       data-assistant-citation-environment={threadRef?.environmentId}
       data-assistant-citation-thread={threadRef?.threadId}

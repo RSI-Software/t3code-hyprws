@@ -104,3 +104,18 @@ it("previews the innermost of two overlapping citations under the pointer", asyn
   await expect.element(page.getByText("On the line", { exact: true })).toBeVisible();
   await setPrompt("");
 });
+
+it("pops the new badge when a passage the draft already cites is cited again", async () => {
+  const cite = serializeAssistantCitation(citation);
+  await setPrompt(`${cite} `);
+  await using _screen = await render(<Timeline sourceKey="pops" />);
+  const fresh = () =>
+    [...document.querySelectorAll("[data-citation-markers] > span")].map((marker) =>
+      marker.hasAttribute("data-fresh"),
+    );
+  await vi.waitFor(() => expect(fresh()).toEqual([false]));
+
+  await setPrompt(`${cite} ${cite} `);
+  await vi.waitFor(() => expect(fresh()).toEqual([false, true]));
+  await setPrompt("");
+});

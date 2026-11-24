@@ -12,6 +12,7 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  type ComponentProps,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -27,6 +28,7 @@ import {
 import { cn } from "~/lib/utils";
 import { useQuietThreadShell } from "~/state/entities";
 import { ContextChip, ContextChipAction, ContextChipLabel } from "../ContextChip";
+import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { AssistantCitationCommentEditor } from "./AssistantCitationCommentEditor";
 import { resolveAssistantCitationCommentDismissal } from "./assistantCitationCommentDismissal";
@@ -53,6 +55,22 @@ function useCitationSourceLinkProps(citation: AssistantCitation) {
 }
 
 const flat = (text: string) => text.replace(/\s+/g, " ");
+
+/**
+ * The `❝n` badge a draft citation's composer chip shares with its marker in the transcript.
+ * Without a `number`, it shows the chip's place among the composer's citation chips.
+ */
+export function AssistantCitationBadge({
+  number,
+  ...props
+}: { number?: number } & Pick<ComponentProps<typeof Badge>, "render">) {
+  return (
+    <Badge size="xs" {...props}>
+      <QuoteIcon aria-hidden="true" className="size-2 fill-current" />
+      {number ?? <span className="after:content-[counter(assistant-citation)]" />}
+    </Badge>
+  );
+}
 
 /**
  * The card a response shows as inside a message. Clicking it goes to the source; a comment follows
@@ -249,7 +267,7 @@ export function AssistantCitationChip({
       className="inline-flex min-w-0 items-center gap-[0.2em] self-baseline text-inherit no-underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current rounded-sm"
       aria-label={gt("View cited assistant text: {label}", { label })}
     >
-      <QuoteIcon aria-hidden="true" />
+      <AssistantCitationBadge />
       <ContextChipLabel className="max-w-[16em]" dir={textDirection(label)}>
         {label}
       </ContextChipLabel>
@@ -259,6 +277,7 @@ export function AssistantCitationChip({
     <ContextChip
       kind="citation"
       contentEditable={false}
+      className="[counter-increment:assistant-citation]"
       data-assistant-citation-chip="true"
       data-markdown-copy={serializeAssistantCitation(citation)}
     >
