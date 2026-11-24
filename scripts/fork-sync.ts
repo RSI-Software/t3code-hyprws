@@ -460,6 +460,7 @@ const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string)
     cwd: worktree,
     env: {
       ...verificationEnv(worktree),
+      ...mainStoreEnv(root),
       ...projectScriptRuntimeEnv({ project: { cwd: root }, worktreePath: worktree }),
     },
     stream: true,
@@ -1269,6 +1270,30 @@ const verificationEnv = (worktree: string): NodeJS.ProcessEnv => ({
   PATH: worktreeExecutablePath(process.env.PATH, worktree),
 });
 
+/**
+ * The main checkout's pnpm store, so a worktree install reuses it rather than fetch a second copy.
+ * In an rsi-agent job the inherited store is in RAM, while the repo image's sits on disk inside the
+ * checkout. Hardlinks out of that image layer copy up file by file (423s against 186s), so copy.
+ */
+const mainStoreEnv = (root: string): NodeJS.ProcessEnv => {
+  try {
+    const { storeDir } = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(root, "node_modules", ".modules.yaml"), "utf8"),
+    ) as { readonly storeDir?: unknown };
+    if (typeof storeDir !== "string") return {};
+    // pnpm records the versioned store (`.../v11`) and appends the version to the setting itself.
+    const store = NodePath.dirname(storeDir);
+    const inCheckout = !NodePath.relative(root, store).startsWith("..");
+    return {
+      pnpm_config_store_dir: store,
+      npm_config_store_dir: store,
+      ...(inCheckout ? { pnpm_config_package_import_method: "copy" } : {}),
+    };
+  } catch {
+    return {};
+  }
+};
+
 /** The last lines of combined command output kept in a failure detail. */
 export const CHECK_DETAIL_TAIL_LINES = 40;
 
@@ -1352,7 +1377,7 @@ const localForkCi = (runner: CommandRunner, root: string, sha: string): string |
   // it. Setup itself refuses an unpublished HEAD, so install directly.
   const install = runner.run("vp", ["i", "--frozen-lockfile", "--", "--yes"], {
     cwd: worktree,
-    env: verificationEnv(worktree),
+    env: { ...verificationEnv(worktree), ...mainStoreEnv(root) },
     stream: true,
   });
   if (install.status !== 0 || install.error !== undefined)
