@@ -6,6 +6,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  markerPops,
   type PeerDraft,
   peerHues,
   threadAnnotations,
@@ -156,5 +157,42 @@ describe("draft citation edits", () => {
     expect(withoutDraftCitation(draft, 1)).toBe(`Look at and ${second} please`);
     expect(withoutDraftCitation(`${first} tail`, 1)).toBe("tail");
     expect(withoutDraftCitation(draft, 3)).toBeNull();
+  });
+});
+
+describe("markers", () => {
+  it("pops a passage cited again or re-cited, but not a draft turning into its sent copy", () => {
+    const annotations = (draft: string, sent = "", peers: PeerDraft[] = []) =>
+      threadAnnotations(
+        threadRef,
+        draft,
+        sent ? [{ id: "sent-1", text: sent, owner: null }] : [],
+        [],
+        peers,
+        ["", "Alex"],
+      );
+    const pops = (
+      previous: ReadonlyMap<string, number> | undefined,
+      list: ReturnType<typeof annotations>,
+      until: number,
+    ) => {
+      const next = markerPops(previous, list, until);
+      return { ends: next.ends, at: list.map(({ key }) => next.byKey.get(key)) };
+    };
+    const opened = pops(undefined, annotations(second), 100);
+    expect(opened.at).toEqual([0]);
+    const twice = pops(opened.ends, annotations(`${second} ${second}`), 200);
+    expect(twice.at).toEqual([0, 200]);
+    const sent = pops(twice.ends, annotations("", second), 300);
+    expect(sent.at).toEqual([0]);
+    expect(pops(sent.ends, annotations(second, second), 400).at).toEqual([400]);
+    // Citing what a peer already cites pops yours, and leaves theirs still.
+    const alex = [
+      { key: "alex", owner: "Alex", citations: [citation("Asks before it writes", 40)] },
+    ];
+    const peer = pops(opened.ends, annotations("", "", alex), 300);
+    expect(pops(peer.ends, annotations(second, "", alex), 400).at).toEqual([400, 300]);
+    const removed = pops(twice.ends, annotations(""), 300);
+    expect(pops(removed.ends, annotations(second), 400).at).toEqual([400]);
   });
 });
