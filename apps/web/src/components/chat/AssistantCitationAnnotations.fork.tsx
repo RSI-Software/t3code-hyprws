@@ -1,11 +1,12 @@
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { useGT } from "gt-react";
 import { PencilIcon, QuoteIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 import { queuedRunEditDraftId, useComposerDraftStore } from "~/composerDraftStore";
@@ -15,8 +16,11 @@ import { cn } from "~/lib/utils";
 import type { TimelineEntry } from "../../session-logic";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { useCollaboratorCitationsFork } from "../collaborator/CollaboratorChat.fork";
 import { AssistantCitationCommentEditor } from "./AssistantCitationCommentEditor";
 import {
+  PEER_HUES,
+  peerHue,
   threadAnnotations,
   withDraftCitationComment,
   withoutDraftCitation,
@@ -28,20 +32,28 @@ const HIGHLIGHT = {
   draft: "t3-annotation-draft",
   sent: "t3-annotation-sent",
   active: "t3-annotation-active",
+  activePeer: "t3-annotation-active-peer",
 } as const;
+/** One per hue, so each person's live citations wear their colour. */
+const PEER_HIGHLIGHTS = Array.from({ length: PEER_HUES }, (_, hue) => `t3-annotation-peer-${hue}`);
+const ALL_HIGHLIGHTS = [...Object.values(HIGHLIGHT), ...PEER_HIGHLIGHTS];
 const LAYER = "[data-annotation-layer]";
 const COMPOSER_CHIP = ".composer-tiptap [data-assistant-citation-chip]";
 const POPUP = "[data-annotation-popup]";
 const TEXT_HOVER_CLOSE_MS = 180;
 /** Marker height in px; matches the marker's `h-3.5`. */
 const MARKER_SIZE = 14;
-/** Room one `❝n` marker takes when stacking or clamping to the lane edge. */
-const MARKER_WIDTH = 26;
+/** How far a marker reaches into its line's text box, which pads above the capitals. */
+const MARKER_LIFT = 4;
+/** Gap between markers sharing a line. */
+const MARKER_GAP = 2;
 /** Outlasts `--animate-annotation-pop`, so a row remounting later stays still. */
 const POP_MS = 500;
 
 type Marker = {
   annotation: Annotation;
+  /** Room the marker takes when it shares a line or clamps to the lane edge. */
+  width: number;
   source: HTMLElement;
   /** Milliseconds into the pop, so a row remounting mid-pop resumes it; null once done. */
   popElapsed: number | null;
@@ -59,7 +71,11 @@ const sharedHighlights = new Map<string, Highlight>();
 /** Every mounted timeline shares one Highlight per name and swaps only the ranges it owns. */
 function own(owned: Owned, name: string, next: ReadonlyArray<Range>) {
   let highlight = sharedHighlights.get(name);
-  if (!highlight) sharedHighlights.set(name, (highlight = new Highlight()));
+  if (!highlight) {
+    sharedHighlights.set(name, (highlight = new Highlight()));
+    // The hovered passage paints over every other mark it overlaps.
+    if (name === HIGHLIGHT.active || name === HIGHLIGHT.activePeer) highlight.priority = 1;
+  }
   for (const range of owned.get(name) ?? []) highlight.delete(range);
   for (const range of next) highlight.add(range);
   owned.set(name, next);
@@ -67,9 +83,43 @@ function own(owned: Owned, name: string, next: ReadonlyArray<Range>) {
   else CSS.highlights.delete(name);
 }
 
-function paintActive(owned: Owned, ranges: ReadonlyMap<string, Range>, key: string | null) {
+function paintActive(
+  owned: Owned,
+  ranges: ReadonlyMap<string, Range>,
+  others: ReadonlySet<string>,
+  key: string | null,
+) {
   const range = key ? ranges.get(key) : undefined;
-  own(owned, HIGHLIGHT.active, range ? [range] : []);
+  const theirs = key !== null && others.has(key);
+  own(owned, HIGHLIGHT.active, range && !theirs ? [range] : []);
+  own(owned, HIGHLIGHT.activePeer, range && theirs ? [range] : []);
+}
+
+const peerStyle = (hue: number | null) =>
+  (hue === null ? {} : { "--annotation-peer": `var(--annotation-peer-${hue})` }) as CSSProperties;
+
+/** A cite's first letter, so a marker says whose it is. */
+const initialOf = (owner: string) => [...owner.trim()][0]?.toLocaleUpperCase() ?? "?";
+
+/** Rough rendered width: padding plus one slot per glyph (`❝`, an initial, digits). */
+function markerWidth({ draftNumber }: Annotation) {
+  const digits = draftNumber === null ? 0 : String(draftNumber).length;
+  return 14 + 6 * (1 + digits);
+}
+
+/** Markers on one line keep their order but never overlap, and stay inside the lane. */
+function layOutLine(line: Marker[], laneWidth: number) {
+  line.sort((a, b) => a.left - b.left);
+  let cursor = Number.NEGATIVE_INFINITY;
+  for (const marker of line) {
+    marker.left = Math.max(marker.left, cursor + MARKER_GAP);
+    cursor = marker.left + marker.width;
+  }
+  const overflow = cursor - laneWidth;
+  if (overflow > 0) {
+    const shift = Math.min(overflow, line[0]!.left);
+    for (const marker of line) marker.left -= shift;
+  }
 }
 
 const supported = () =>
@@ -104,18 +154,37 @@ export function AssistantCitationAnnotations({
   const draft = useComposerDraftStore((store) =>
     draftTarget ? (store.getComposerDraft(draftTarget)?.prompt ?? "") : "",
   );
+  const collaborators = useCollaboratorCitationsFork(threadRef);
   const sent = entries.flatMap((entry) =>
     entry.kind === "message" && entry.message.role === "user"
-      ? [{ id: entry.id, text: entry.message.text }]
+      ? [
+          {
+            id: entry.id,
+            text: entry.message.text,
+            owner:
+              resolveUserMessagePresentation(entry.message).guestName ?? collaborators.hostName,
+          },
+        ]
       : [],
   );
   // A string key keeps the effects from re-running on every streamed timeline update.
-  const annotationsKey = JSON.stringify(threadRef ? threadAnnotations(threadRef, draft, sent) : []);
+  const annotationsKey = JSON.stringify(
+    threadRef
+      ? threadAnnotations(
+          threadRef,
+          draft,
+          [...sent, ...collaborators.waiting],
+          collaborators.peers,
+        )
+      : [],
+  );
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [open, setOpen] = useState<OpenState | null>(null);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const activeKeyRef = useRef<string | null>(null);
   const rangesRef = useRef(new Map<string, Range>());
+  /** Keys of passages someone else cited, which hover in a neutral tone. */
+  const othersRef = useRef(new Set<string>());
   const ownedRef = useRef<Owned>(new Map());
   /** Thread keys and passage ids already seen, with the time a passage's pop ends. */
   const seenRef = useRef(new Map<string, number>());
@@ -126,6 +195,7 @@ export function AssistantCitationAnnotations({
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- paints CSS Highlight ranges and places markers over rendered markdown, repainting when rows remount, stream, or reflow
   useEffect(() => {
     const ranges = rangesRef.current;
+    const others = othersRef.current;
     const owned = ownedRef.current;
     if (!viewport || !supported()) return;
     const annotations = JSON.parse(annotationsKey) as Annotation[];
@@ -139,8 +209,9 @@ export function AssistantCitationAnnotations({
     }
     const sourceResizes = new Map<HTMLElement, () => void>();
     const clear = () => {
-      for (const name of Object.values(HIGHLIGHT)) own(owned, name, []);
+      for (const name of ALL_HIGHLIGHTS) own(owned, name, []);
       ranges.clear();
+      others.clear();
       setMarkers([]);
     };
     if (annotations.length === 0) {
@@ -153,37 +224,54 @@ export function AssistantCitationAnnotations({
       const next: Marker[] = [];
       const draftRanges: Range[] = [];
       const sentRanges: Range[] = [];
-      const stacked = new Map<string, number>();
+      const peerRanges = PEER_HIGHLIGHTS.map((): Range[] => []);
+      const lines = new Map<string, { marker: Marker; laneWidth: number }[]>();
       const now = performance.now();
       ranges.clear();
+      others.clear();
       for (const annotation of annotations) {
         const source = findSource(viewport, annotation);
         const range = source && resolveAssistantCitationRange(source, annotation.citation);
         if (!source || !range) continue;
         if (!sourceResizes.has(source)) sourceResizes.set(source, observeResize(source, schedule));
         ranges.set(annotation.key, range);
-        (annotation.draftNumber === null ? sentRanges : draftRanges).push(range);
-        if (annotation.draftNumber === null && !annotation.citation.comment) continue;
+        if (annotation.owner !== null) others.add(annotation.key);
+        // Someone else's passage keeps their colour and marker once sent, so it stays theirs.
+        if (annotation.owner !== null) peerRanges[peerHue(annotation.owner)]!.push(range);
+        else if (annotation.draftNumber === null) sentRanges.push(range);
+        else draftRanges.push(range);
+        if (
+          annotation.draftNumber === null &&
+          annotation.owner === null &&
+          !annotation.citation.comment
+        )
+          continue;
         const line = Array.from(range.getClientRects()).findLast((rect) => rect.width > 0);
         if (!line) continue;
         const bounds = source.getBoundingClientRect();
-        // Overlays cannot reflow text, so the marker rides the line's top edge like a footnote.
+        // Overlays cannot reflow text, so the marker sits above the line like a footnote,
+        // clear of the glyphs: a passage ending mid-line keeps the next word readable.
         const left = Math.round(line.right - bounds.left + 1);
-        const top = Math.round(line.top - bounds.top - MARKER_SIZE / 2);
-        // A passage cited twice ends at the same spot; step later markers right, or left at the lane edge.
-        const spot = `${annotation.citation.messageId}:${left}:${top}`;
-        const stack = stacked.get(spot) ?? 0;
-        stacked.set(spot, stack + 1);
-        const step = stack * (MARKER_WIDTH + 2);
-        const edge = Math.min(left, bounds.width - MARKER_WIDTH);
+        const top = Math.round(line.top - bounds.top - MARKER_SIZE + MARKER_LIFT);
         const popEnd = seen.get(passageId(annotation.citation)) ?? 0;
-        next.push({
+        const marker: Marker = {
           annotation,
+          width: markerWidth(annotation),
           source,
           popElapsed: popEnd > now ? Math.round(now - (popEnd - POP_MS)) : null,
-          left: edge + step + MARKER_WIDTH <= bounds.width ? edge + step : edge - step,
+          left,
           top,
-        });
+        };
+        next.push(marker);
+        // Passages ending on one line, or one passage cited by several people, share its markers.
+        const lineKey = `${annotation.citation.messageId}:${top}`;
+        lines.set(lineKey, [...(lines.get(lineKey) ?? []), { marker, laneWidth: bounds.width }]);
+      }
+      for (const line of lines.values()) {
+        layOutLine(
+          line.map(({ marker }) => marker),
+          line[0]!.laneWidth,
+        );
       }
       // Virtualized rows unmount; stop watching sources that left the DOM.
       for (const [source, stop] of sourceResizes) {
@@ -194,7 +282,8 @@ export function AssistantCitationAnnotations({
       }
       own(owned, HIGHLIGHT.draft, draftRanges);
       own(owned, HIGHLIGHT.sent, sentRanges);
-      paintActive(owned, ranges, activeKeyRef.current);
+      PEER_HIGHLIGHTS.forEach((name, hue) => own(owned, name, peerRanges[hue]!));
+      paintActive(owned, ranges, others, activeKeyRef.current);
       const changed =
         next.length !== painted.length ||
         next.some(
@@ -254,7 +343,7 @@ export function AssistantCitationAnnotations({
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors the active passage into the CSS Highlight registry, which lives outside React
   useEffect(() => {
     activeKeyRef.current = activeKey;
-    if (supported()) paintActive(ownedRef.current, rangesRef.current, activeKey);
+    if (supported()) paintActive(ownedRef.current, rangesRef.current, othersRef.current, activeKey);
   }, [activeKey]);
   const cancelClose = () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
@@ -299,11 +388,14 @@ export function AssistantCitationAnnotations({
       const { clientX: x, clientY: y } = event;
       const inside = (rect: DOMRect) =>
         x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+      // Overlapping passages: the shortest under the pointer wins, so a nested cite stays reachable.
+      let hit: { key: string; length: number } | null = null;
       for (const [key, range] of rangesRef.current) {
-        for (const rect of range.getClientRects()) {
-          if (inside(rect)) return hover(key);
-        }
+        if (![...range.getClientRects()].some(inside)) continue;
+        const length = range.toString().length;
+        if (hit === null || length < hit.length) hit = { key, length };
       }
+      if (hit) return hover(hit.key);
       // Keep the preview while the pointer crosses the box spanning the passage and its popup.
       const passage = hovered ? rangesRef.current.get(hovered)?.getBoundingClientRect() : null;
       const popup = document.querySelector(POPUP)?.getBoundingClientRect();
@@ -339,7 +431,7 @@ export function AssistantCitationAnnotations({
   }, [viewport]);
 
   const saveComment = (annotation: Annotation, comment: string) => {
-    if (!draftTarget || annotation.draftNumber === null) return false;
+    if (!draftTarget || annotation.draftNumber === null || annotation.owner !== null) return false;
     const store = useComposerDraftStore.getState();
     const next = withDraftCitationComment(
       store.getComposerDraft(draftTarget)?.prompt ?? "",
@@ -352,7 +444,7 @@ export function AssistantCitationAnnotations({
     return true;
   };
   const remove = (annotation: Annotation) => {
-    if (!draftTarget || annotation.draftNumber === null) return;
+    if (!draftTarget || annotation.draftNumber === null || annotation.owner !== null) return;
     const store = useComposerDraftStore.getState();
     const next = withoutDraftCitation(
       store.getComposerDraft(draftTarget)?.prompt ?? "",
@@ -420,8 +512,11 @@ function AnnotationMarker({
   useEffect(() => {
     if (!isOpen) actionsRef.current?.close();
   }, [isOpen]);
-  const { citation, draftNumber, key } = annotation;
+  const { citation, draftNumber, key, owner } = annotation;
   const isDraft = draftNumber !== null;
+  // Only your own draft's citations edit; everyone else's are read-only.
+  const editable = isDraft && owner === null;
+  const hue = owner === null ? null : peerHue(owner);
   const comment = citation.comment?.trim();
   return (
     <Popover
@@ -431,7 +526,7 @@ function AnnotationMarker({
         if (!next && details.reason === "imperative-action") return;
         if (!next)
           return onOpenChange(open?.editing && details.reason === "trigger-hover" ? open : null);
-        const editing = isDraft && details.reason === "trigger-press";
+        const editing = editable && details.reason === "trigger-press";
         onOpenChange({ key, editing: editing || !!open?.editing, fromText: false });
       }}
     >
@@ -440,9 +535,13 @@ function AnnotationMarker({
         delay={80}
         closeDelay={140}
         aria-label={
-          isDraft
+          editable
             ? gt("Edit citation comment")
-            : gt("View cited assistant text: {label}", { label: assistantCitationLabel(citation) })
+            : owner !== null
+              ? gt("Cited by {name}", { name: owner })
+              : gt("View cited assistant text: {label}", {
+                  label: assistantCitationLabel(citation),
+                })
         }
         render={
           <button
@@ -450,17 +549,30 @@ function AnnotationMarker({
             data-annotation-marker={isDraft ? "draft" : "sent"}
             className={cn(
               "absolute z-1 inline-flex h-3.5 cursor-pointer items-center justify-center gap-px rounded-full font-semibold text-3xs leading-none tabular-nums ring-2 ring-background transition-[scale] duration-150 ease-out select-none focus-visible:outline-2 focus-visible:outline-ring data-active:scale-115 motion-safe:data-fresh:animate-annotation-pop [&_svg]:size-2 [&_svg]:fill-current",
-              isDraft
+              editable
                 ? "bg-primary ps-1 pe-1.25 text-primary-foreground"
-                : "bg-muted-foreground/15 px-1 text-muted-foreground",
+                : hue !== null && isDraft
+                  ? "bg-(--annotation-peer) px-1 text-white"
+                  : hue !== null
+                    ? "bg-(--annotation-peer)/20 px-1 text-(--annotation-peer)"
+                    : "bg-muted-foreground/15 px-1 text-muted-foreground",
             )}
             data-active={active || undefined}
             data-fresh={popElapsed !== null || undefined}
-            style={{ left, top, animationDelay: popElapsed ? `-${popElapsed}ms` : undefined }}
+            style={{
+              left,
+              top,
+              animationDelay: popElapsed ? `-${popElapsed}ms` : undefined,
+              ...peerStyle(hue),
+            }}
           />
         }
       >
-        <QuoteIcon aria-hidden="true" />
+        {owner === null ? (
+          <QuoteIcon aria-hidden="true" />
+        ) : (
+          <span aria-hidden="true">{initialOf(owner)}</span>
+        )}
         {draftNumber}
       </PopoverTrigger>
       <PopoverPopup
@@ -484,16 +596,32 @@ function AnnotationMarker({
           />
         ) : (
           <div className="flex items-start gap-2 text-sm">
-            <p
-              className={cn(
-                "min-w-0 flex-1 py-0.5 whitespace-pre-wrap wrap-break-word",
-                !comment && "text-muted-foreground",
-              )}
-              dir="auto"
-            >
-              {comment || gt("Add a comment")}
-            </p>
-            {isDraft ? (
+            <div className="min-w-0 flex-1 py-0.5">
+              {owner !== null ? (
+                <p
+                  className="flex items-center gap-1.5 text-muted-foreground text-xs"
+                  style={peerStyle(hue)}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-2 shrink-0 rounded-full bg-(--annotation-peer)"
+                  />
+                  {gt("Cited by {name}", { name: owner })}
+                </p>
+              ) : null}
+              {comment || editable ? (
+                <p
+                  className={cn(
+                    "whitespace-pre-wrap wrap-break-word",
+                    !comment && "text-muted-foreground",
+                  )}
+                  dir="auto"
+                >
+                  {comment || gt("Add a comment")}
+                </p>
+              ) : null}
+            </div>
+            {editable ? (
               <div className="-me-1 flex shrink-0">
                 <Button
                   variant="ghost"

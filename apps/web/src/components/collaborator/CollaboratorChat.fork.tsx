@@ -10,11 +10,14 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type CollaboratorMessageFork,
+  type CollaboratorTypistFork,
   type EnvironmentId,
   isCollaboratorGrantFork,
+  type ScopedThreadRef,
   type ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowUpIcon, Clock3Icon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
@@ -23,7 +26,7 @@ import { useComposerDraftStore, type ComposerThreadTarget } from "~/composerDraf
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
-import { useServerConfigs } from "~/state/entities";
+import { useQuietThreadShell, useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { environmentSession } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -34,7 +37,7 @@ import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { CollaboratorTypingFork } from "./CollaboratorTyping.fork";
+import { CollaboratorTypingFork, HOST_NAME, typingSubscription } from "./CollaboratorTyping.fork";
 
 const collaboratorMessages = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:messages",
@@ -62,7 +65,7 @@ function useWaitingMessages(environmentId: EnvironmentId | null) {
   const { data } = useEnvironmentQuery(
     served ? collaboratorMessages({ environmentId, input: {} }) : null,
   );
-  return data ?? NO_MESSAGES;
+  return (served && data) || NO_MESSAGES;
 }
 
 const FROZEN_BANNER: ComposerBannerStackItem = {
@@ -230,7 +233,9 @@ function WaitingMessages({
                 </p>
               )}
               <div className="flex min-w-0 max-w-[80%] flex-col rounded-2xl border border-dashed border-guest/50 px-3 py-2 text-muted-foreground text-sm">
-                <p className="whitespace-pre-wrap wrap-anywhere">{message.text}</p>
+                <p className="whitespace-pre-wrap wrap-anywhere">
+                  {assistantCitationsToPlainText(message.text)}
+                </p>
               </div>
               <div className="flex items-center gap-0.5 pe-1 text-muted-foreground text-xs">
                 <span className="me-1 flex items-center px-1 opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/queued:opacity-100">
@@ -308,10 +313,11 @@ function EnvironmentMessageToasts({ environmentId }: { readonly environmentId: E
     for (const message of messages) {
       // The thread already open shows the message where the host answers it.
       if (previous.has(message.id) || message.threadId === openThreadId) continue;
+      const text = assistantCitationsToPlainText(message.text);
       const toastId = toastManager.add({
         type: "info",
         title: `${message.name} sent a message for approval`,
-        description: message.text.length > 120 ? `${message.text.slice(0, 120)}…` : message.text,
+        description: text.length > 120 ? `${text.slice(0, 120)}…` : text,
         actionProps: {
           children: "Review",
           onClick: () => {
@@ -333,4 +339,54 @@ export function CollaboratorMessageToastsFork() {
   return environments.map(({ environmentId }) => (
     <EnvironmentMessageToasts key={environmentId} environmentId={environmentId} />
   ));
+}
+
+const NO_TYPISTS: ReadonlyArray<CollaboratorTypistFork> = [];
+
+/** Who else cites what in a shared thread, so the transcript can mark it as theirs. */
+export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) {
+  const thread = useQuietThreadShell(threadRef);
+  const configs = useServerConfigs();
+  const served =
+    threadRef !== null &&
+    configs.get(threadRef.environmentId)?.environment.capabilities.collaboratorsFork === true &&
+    thread?.collaboratorFork !== "frozen";
+  const typists =
+    useEnvironmentQuery(
+      served
+        ? typingSubscription({
+            environmentId: threadRef.environmentId,
+            input: { threadId: threadRef.threadId },
+          })
+        : null,
+    ).data?.typists ?? NO_TYPISTS;
+  const waiting = useWaitingMessages(threadRef?.environmentId ?? null);
+  const asCollaborator = thread?.collaboratorFork !== undefined;
+  return {
+    /** Who wrote an unattributed message: you as the host, else the host. */
+    hostName: asCollaborator ? HOST_NAME : null,
+    peers: typists.flatMap(({ subject, device, name, draft }) =>
+      draft?.citations?.length
+        ? [
+            {
+              key: `${subject}:${device ?? ""}`,
+              owner: name ?? HOST_NAME,
+              citations: draft.citations,
+            },
+          ]
+        : [],
+    ),
+    // A collaborator sees only their own waiting messages.
+    waiting: waiting.flatMap((message) =>
+      message.threadId === threadRef?.threadId
+        ? [
+            {
+              id: `waiting:${message.id}`,
+              text: message.text,
+              owner: asCollaborator ? null : message.name,
+            },
+          ]
+        : [],
+    ),
+  };
 }
