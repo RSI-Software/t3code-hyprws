@@ -247,7 +247,7 @@ https://github.com/user-attachments/assets/6d650a70-073f-4933-a0b5-ac50b5380da7
 
 **Each side sees whose citations are whose, inline**
 
-https://github.com/user-attachments/assets/5c835f54-e831-40f6-9700-5eccd8eff1d7
+https://github.com/user-attachments/assets/12339d3e-ba6b-4670-880f-7766472114ad
 
 ### Device approval and external agents
 
