@@ -731,6 +731,7 @@ const make = Effect.gen(function* () {
             sharedChanges((shares) =>
               [...shares.values()].some((share) => share.threadIds.has(threadId)),
             ),
+            undefined,
           ),
       };
     }
@@ -747,6 +748,7 @@ const make = Effect.gen(function* () {
           threadId,
           subject,
           sharedChanges((shares) => shares.get(subject)?.threadIds.has(threadId) === true),
+          current.get(subject)?.name,
         ),
     };
   };
