@@ -84,6 +84,8 @@ interface CollaboratorShare {
   readonly threadIds: ReadonlyMap<string, CollaboratorAccessFork>;
   /** Stopped shares: the thread's shell as it was when sharing stopped. */
   readonly frozen: ReadonlyMap<string, OrchestrationV2ThreadShell>;
+  /** Each thread's share, live or stopped, by when it was first made: who joined a thread first. */
+  readonly since: ReadonlyMap<string, number>;
 }
 
 interface ShareRow {
@@ -102,20 +104,32 @@ const decodeFrozenShell = Schema.decodeUnknownOption(FrozenShellJson);
 
 const sharesFromRows = (rows: ReadonlyArray<ShareRow>) => {
   const shares = new Map<string, CollaboratorShare>();
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     const prior = shares.get(row.subject);
     const threadIds = new Map(prior?.threadIds);
     const frozen = new Map(prior?.frozen);
+    const since = new Map(prior?.since).set(row.thread_id, index);
     if (row.frozen_shell_json === null) {
       threadIds.set(row.thread_id, isAccess(row.access) ? row.access : "approve");
     } else {
       const shell = decodeFrozenShell(row.frozen_shell_json);
       if (Option.isSome(shell)) frozen.set(row.thread_id, shell.value);
     }
-    shares.set(row.subject, { name: row.colleague_name, threadIds, frozen });
+    // The first name sticks: "alex" typed later reaches the same person, who stays "Alex".
+    shares.set(row.subject, { name: prior?.name ?? row.colleague_name, threadIds, frozen, since });
   }
   return shares;
 };
+
+/** Everyone a thread was ever shared with, in the order they joined, so each keeps a colour. */
+const peopleOf = (shares: ReadonlyMap<string, CollaboratorShare>, threadId: string) =>
+  [...shares.values()]
+    .flatMap(({ name, since }) => {
+      const at = since.get(threadId);
+      return at === undefined ? [] : [{ name, at }];
+    })
+    .sort((a, b) => a.at - b.at)
+    .map(({ name }) => name);
 
 const sameIds = (a: Iterable<string> = [], b: Iterable<string> = []) => {
   const left = new Set(a);
@@ -714,8 +728,19 @@ const make = Effect.gen(function* () {
         : Effect.fail(notShared(AuthOrchestrationOperateScope)),
   });
 
-  const sharedChanges = (shared: (shares: ReadonlyMap<string, CollaboratorShare>) => boolean) =>
-    SubscriptionRef.changes(ref).pipe(Stream.map(shared), Stream.changes);
+  const typingContext = (
+    threadId: string,
+    shared: (shares: ReadonlyMap<string, CollaboratorShare>) => boolean,
+    you: (shares: ReadonlyMap<string, CollaboratorShare>) => string | undefined,
+  ) =>
+    SubscriptionRef.changes(ref).pipe(
+      Stream.map((shares) => ({
+        shared: shared(shares),
+        people: peopleOf(shares, threadId),
+        you: you(shares),
+      })),
+      Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+    );
 
   const typingHandlers = (subject: string | null): CollaboratorTypingHandlersFork => {
     if (subject === null || !isCollaboratorSubject(subject)) {
@@ -728,8 +753,10 @@ const make = Effect.gen(function* () {
           typing.state(
             threadId,
             HOST_TYPIST.subject,
-            sharedChanges((shares) =>
-              [...shares.values()].some((share) => share.threadIds.has(threadId)),
+            typingContext(
+              threadId,
+              (shares) => [...shares.values()].some((share) => share.threadIds.has(threadId)),
+              () => undefined,
             ),
           ),
       };
@@ -746,7 +773,11 @@ const make = Effect.gen(function* () {
         typing.state(
           threadId,
           subject,
-          sharedChanges((shares) => shares.get(subject)?.threadIds.has(threadId) === true),
+          typingContext(
+            threadId,
+            (shares) => shares.get(subject)?.threadIds.has(threadId) === true,
+            (shares) => shares.get(subject)?.name,
+          ),
         ),
     };
   };
