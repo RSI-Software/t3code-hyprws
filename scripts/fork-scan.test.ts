@@ -321,7 +321,7 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
   assert.throws(() => parseArgs(["--since"]), UsageError);
 });
 
-it("fails a workflow copy whose upstream file moved past its pin, that has no pin, or that is missing", () => {
+it("fails a workflow copy whose upstream file moved past its pin, that has no pin, that is missing, or whose context is gone", () => {
   const [ci, release, budget] = MIRROR_COPIES;
   const [{ source, copies: copyDir }] = MIRROR_DIRS;
   const pinned = (path: string, sha: string) => `name: copy\n# fork-mirror: ${path}@${sha}\n`;
@@ -332,14 +332,18 @@ it("fails a workflow copy whose upstream file moved past its pin, that has no pi
     [ci, pinned(".github/workflows/ci.yml", current)],
     [release, pinned(".github/workflows/release.yml", stale)],
     [budget, "name: copy\n# Mirror upstream agent-context-budget.yml on every rebase.\n"],
-    [`${copyDir}/ui.md`, pinned(`${source}/ui.md`, current)],
-    [`${copyDir}/fork-only.md`, "---\nname: fork only\n---\n"],
+    [`${copyDir}/ui.md`, `${pinned(`${source}/ui.md`, current)}context: [docs/ui.md]\n`],
+    [
+      `${copyDir}/fork-only.md`,
+      "---\nname: fork only\ncontext: [docs/gone.md, docs/kept.md]\n---\n",
+    ],
   ]);
   const tree = (paths: ReadonlyArray<string>) =>
     paths.map((path) => `100644 blob ${"0".repeat(40)}\t${path}`).join("\n");
   const git = {
     run: (args: ReadonlyArray<string>) => {
       if (args[0] === "rev-parse") return `${target}\n`;
+      if (args[0] === "ls-tree" && args[1] === "--name-only") return "docs/ui.md\ndocs/kept.md\n";
       if (args[0] === "ls-tree" && args[1] === "HEAD")
         return tree([`${copyDir}/ui.md`, `${copyDir}/fork-only.md`]);
       if (args[0] === "ls-tree")
@@ -358,6 +362,7 @@ it("fails a workflow copy whose upstream file moved past its pin, that has no pi
       `mirror: ${release}: upstream .github/workflows/release.yml changed in 2 commit(s) since pin ${stale.slice(0, 12)}; adapt the copy or record no change, then pin ${target}\n  e6ca170 fix(release): publish prereleases after assets\n  0a1b2c3 ci: bump action`,
       `mirror: ${budget}: no \`# fork-mirror: <upstream path>@<full sha>\` header pin`,
       `mirror: ${source}/tests.md: no pinned fork copy; convert it into ${copyDir}/ pinned \`# fork-mirror: ${source}/tests.md@${target}\``,
+      `mirror: ${copyDir}/fork-only.md: context docs/gone.md is not in the tree; point it at the moved file or drop it`,
     ],
   );
 });
