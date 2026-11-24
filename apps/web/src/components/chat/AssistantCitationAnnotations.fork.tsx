@@ -22,6 +22,11 @@ import { useCollaboratorCitationsFork } from "../collaborator/CollaboratorChat.f
 import { HOST_KEY } from "../collaborator/CollaboratorTyping.fork";
 import { AssistantCitationCommentEditor } from "./AssistantCitationCommentEditor";
 import {
+  layOutMarkerLine,
+  MARKER_HEIGHT,
+  MARKER_LIFT,
+  markerPops,
+  markerWidth,
   PEER_HUES,
   threadAnnotations,
   withDraftCitationComment,
@@ -43,12 +48,6 @@ const LAYER = "[data-annotation-layer]";
 const COMPOSER_CHIP = ".composer-tiptap [data-assistant-citation-chip]";
 const POPUP = "[data-annotation-popup]";
 const TEXT_HOVER_CLOSE_MS = 180;
-/** Marker height in px; matches the marker's `h-3.5`. */
-const MARKER_SIZE = 14;
-/** How far a marker reaches into its line's text box, which pads above the capitals. */
-const MARKER_LIFT = 4;
-/** Gap between markers sharing a line. */
-const MARKER_GAP = 2;
 /** Outlasts `--animate-annotation-pop`, so a row remounting later stays still. */
 const POP_MS = 500;
 
@@ -63,9 +62,6 @@ type Marker = {
   top: number;
 };
 type OpenState = { key: string; editing: boolean; fromText: boolean };
-
-const passageId = ({ threadId, messageId, start, end }: Annotation["citation"]) =>
-  `${threadId}:${messageId}:${start}:${end}`;
 
 type Owned = Map<string, ReadonlyArray<Range>>;
 const sharedHighlights = new Map<string, Highlight>();
@@ -108,27 +104,6 @@ const ownerOf = (
 
 /** A cite's first letter, so a marker says whose it is. */
 const initialOf = (owner: string) => [...owner.trim()][0]?.toLocaleUpperCase() ?? "?";
-
-/** Rough rendered width: padding plus one slot per glyph (`❝`, an initial, digits). */
-function markerWidth({ draftNumber }: Annotation) {
-  const digits = draftNumber === null ? 0 : String(draftNumber).length;
-  return 14 + 6 * (1 + digits);
-}
-
-/** Markers on one line keep their order but never overlap, and stay inside the lane. */
-function layOutLine(line: Marker[], laneWidth: number) {
-  line.sort((a, b) => a.left - b.left);
-  let cursor = Number.NEGATIVE_INFINITY;
-  for (const marker of line) {
-    marker.left = Math.max(marker.left, cursor + MARKER_GAP);
-    cursor = marker.left + marker.width;
-  }
-  const overflow = cursor - laneWidth;
-  if (overflow > 0) {
-    const shift = Math.min(overflow, line[0]!.left);
-    for (const marker of line) marker.left -= shift;
-  }
-}
 
 const supported = () =>
   typeof CSS !== "undefined" && !!CSS.highlights && typeof Highlight !== "undefined";
@@ -205,8 +180,8 @@ export function AssistantCitationAnnotations({
   /** Keys of passages someone else cited, which hover in a neutral tone. */
   const othersRef = useRef(new Set<string>());
   const ownedRef = useRef<Owned>(new Map());
-  /** Thread keys and passage ids already seen, with the time a passage's pop ends. */
-  const seenRef = useRef(new Map<string, number>());
+  /** Per thread, when each marker's pop ends; a thread's first paint stays still. */
+  const popsRef = useRef(new Map<string, ReadonlyMap<string, number>>());
   const closeTimerRef = useRef<number | null>(null);
   // React fires the popup's pointerenter before the viewport's native pointerleave.
   const popupHoveredRef = useRef(false);
@@ -219,13 +194,12 @@ export function AssistantCitationAnnotations({
     if (!viewport || !supported()) return;
     const annotations = JSON.parse(annotationsKey) as Annotation[];
     // Only passages cited after a thread first paints pop in; reopening a thread stays still.
-    const seen = seenRef.current;
-    const baseline = threadKey !== null && !seen.has(threadKey);
-    if (threadKey !== null) seen.set(threadKey, 0);
-    for (const { citation } of annotations) {
-      const id = passageId(citation);
-      if (!seen.has(id)) seen.set(id, baseline ? 0 : performance.now() + POP_MS);
-    }
+    const pops = markerPops(
+      threadKey === null ? undefined : popsRef.current.get(threadKey),
+      annotations,
+      performance.now() + POP_MS,
+    );
+    if (threadKey !== null) popsRef.current.set(threadKey, pops.ends);
     const sourceResizes = new Map<HTMLElement, () => void>();
     const clear = () => {
       for (const name of ALL_HIGHLIGHTS) own(owned, name, []);
@@ -246,6 +220,8 @@ export function AssistantCitationAnnotations({
       const peerRanges = PEER_HIGHLIGHTS.map((): Range[] => []);
       const lines = new Map<string, { marker: Marker; laneWidth: number }[]>();
       const now = performance.now();
+      // Markers are sized in rem, so they grow with the root font size.
+      const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
       ranges.clear();
       others.clear();
       for (const annotation of annotations) {
@@ -271,11 +247,11 @@ export function AssistantCitationAnnotations({
         // Overlays cannot reflow text, so the marker sits above the line like a footnote,
         // clear of the glyphs: a passage ending mid-line keeps the next word readable.
         const left = Math.round(line.right - bounds.left + 1);
-        const top = Math.round(line.top - bounds.top - MARKER_SIZE + MARKER_LIFT);
-        const popEnd = seen.get(passageId(annotation.citation)) ?? 0;
+        const top = Math.round(line.top - bounds.top - (MARKER_HEIGHT - MARKER_LIFT) * rem);
+        const popEnd = pops.byKey.get(annotation.key) ?? 0;
         const marker: Marker = {
           annotation,
-          width: markerWidth(annotation),
+          width: markerWidth(annotation, rem),
           source,
           popElapsed: popEnd > now ? Math.round(now - (popEnd - POP_MS)) : null,
           left,
@@ -287,9 +263,10 @@ export function AssistantCitationAnnotations({
         lines.set(lineKey, [...(lines.get(lineKey) ?? []), { marker, laneWidth: bounds.width }]);
       }
       for (const line of lines.values()) {
-        layOutLine(
+        layOutMarkerLine(
           line.map(({ marker }) => marker),
           line[0]!.laneWidth,
+          rem,
         );
       }
       // Virtualized rows unmount; stop watching sources that left the DOM.
