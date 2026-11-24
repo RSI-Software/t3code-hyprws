@@ -221,11 +221,13 @@ const RunContextSelector = memo(function RunContextSelector({
   const forceNewWorktree = offersWorkspaceModes && requestedForceNewWorktree;
   const effectiveEnvMode = offersWorkspaceModes ? requestedEnvMode : "local";
   const WorkspaceIcon =
-    effectiveEnvMode === "worktree"
-      ? FolderGit2Icon
-      : activeWorktreePath && offersWorkspaceModes
-        ? FolderGitIcon
-        : FolderIcon;
+    activeWorktrunk || effectiveEnvMode === "worktrunk"
+      ? WorktrunkWorkspaceIconFork // fork-hook: worktrunk-hooks/workspace-icon
+      : effectiveEnvMode === "worktree"
+        ? FolderGit2Icon
+        : activeWorktreePath && offersWorkspaceModes
+          ? FolderGitIcon
+          : FolderIcon;
   const workspaceLabel = forceNewWorktree
     ? resolveEnvModeLabel("worktree", m)
     : envModeLocked
