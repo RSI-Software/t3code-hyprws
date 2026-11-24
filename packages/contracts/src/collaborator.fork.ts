@@ -5,6 +5,7 @@ import {
   AuthOrchestrationReadScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
+import { AssistantCitation } from "./assistantCitations.ts";
 import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { GUEST_MESSAGE_MAX_LENGTH } from "./guestShare.ts";
 
@@ -115,6 +116,10 @@ export const CollaboratorDraftFork = Schema.Struct({
       label: Schema.String.check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIP_LABEL_MAX_CHARS)),
     }),
   ).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),
+  /** Passages of this thread the draft cites, so others see them marked inline. */
+  citations: Schema.optional(
+    Schema.Array(AssistantCitation).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),
+  ),
 });
 export type CollaboratorDraftFork = typeof CollaboratorDraftFork.Type;
 

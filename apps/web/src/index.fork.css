@@ -39,6 +39,39 @@
   background-color: color-mix(in oklab, var(--primary) 26%, transparent);
 }
 
+/* In a shared thread, everyone else's live citations wear one of six hues; a name keeps its
+   hue on every client. */
+:root {
+  /* Dark enough for white marker text on either theme; no hue near the primary blue. */
+  --annotation-peer-0: oklch(0.6 0.2 5);
+  --annotation-peer-1: oklch(0.63 0.16 50);
+  --annotation-peer-2: oklch(0.62 0.14 100);
+  --annotation-peer-3: oklch(0.6 0.15 145);
+  --annotation-peer-4: oklch(0.6 0.11 190);
+  --annotation-peer-5: oklch(0.58 0.2 320);
+}
+::highlight(t3-annotation-peer-0) {
+  background-color: color-mix(in oklab, var(--annotation-peer-0) 22%, transparent);
+}
+::highlight(t3-annotation-peer-1) {
+  background-color: color-mix(in oklab, var(--annotation-peer-1) 22%, transparent);
+}
+::highlight(t3-annotation-peer-2) {
+  background-color: color-mix(in oklab, var(--annotation-peer-2) 22%, transparent);
+}
+::highlight(t3-annotation-peer-3) {
+  background-color: color-mix(in oklab, var(--annotation-peer-3) 22%, transparent);
+}
+::highlight(t3-annotation-peer-4) {
+  background-color: color-mix(in oklab, var(--annotation-peer-4) 22%, transparent);
+}
+::highlight(t3-annotation-peer-5) {
+  background-color: color-mix(in oklab, var(--annotation-peer-5) 22%, transparent);
+}
+::highlight(t3-annotation-active-peer) {
+  background-color: color-mix(in oklab, var(--foreground) 14%, transparent);
+}
+
 [data-assistant-citation-source]:has(> [data-annotation-layer]) {
   position: relative;
 }
