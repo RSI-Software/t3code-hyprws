@@ -73,8 +73,12 @@ On a candidate, **`fork:scan --mirror-pins` fails**:
 - A copy whose **upstream file changed** since its pin
 - A `hyprws-*.yml` copy with **no pin**
 - An upstream check agent with **no pinned copy**
+- A workflow **`context:` file** gone from the tip
 
 Review each commit at the tip: **adapt the copy**, or **record a one-line no-change reason** in the commit that **moves the pin** to the target's commit.
+
+A `context:` line is the fork's own, so **no pin sees** upstream moving its file.
+Before the marker, the sync **follows upstream renames** in those lines as one tip commit; a **deleted** file still fails the scan.
 
 ## Local trunk
 

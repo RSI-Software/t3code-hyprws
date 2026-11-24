@@ -24,6 +24,7 @@ import {
   type AdditiveFinding,
 } from "./lib/fork-additive-gate.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
+import { contextPaths, RSI_AGENT_WORKFLOWS } from "./lib/fork-workflow-context.ts";
 import type { SituatedDeclaration } from "./lib/fork-supersedes.ts";
 import { runCommand, SystemCommandRunner, type CwdCommandRunner } from "./lib/fork-command.ts";
 import {
@@ -533,7 +534,7 @@ export const MIRROR_COPIES = [
 // Upstream review agents rsi-agent runs as converted copies. Every source file needs a pinned
 // copy; a copy file without a pin is fork-only.
 export const MIRROR_DIRS = [
-  { source: ".macroscope/check-run-agents", copies: ".rsi-agent/workflows" },
+  { source: ".macroscope/check-run-agents", copies: RSI_AGENT_WORKFLOWS },
 ] as const;
 
 const MIRROR_PIN = /^# fork-mirror: (?<path>\S+)@(?<sha>[0-9a-f]{40})$/m;
@@ -589,7 +590,19 @@ export const readMirrorDrift = (
           `${source}: no pinned fork copy; convert it into ${dir.copies}/ pinned \`# fork-mirror: ${source}@${targetSha}\``,
       ),
   );
-  return [...drift, ...uncovered];
+  // fork-sync follows upstream renames; a delete, or a fork edit, still lands here.
+  const missingContext = treeFiles(git, head, RSI_AGENT_WORKFLOWS).flatMap((copy) => {
+    const paths = contextPaths(git.run(["show", `${head}:${copy}`]));
+    if (paths.length === 0) return [];
+    const present = new Set(git.run(["ls-tree", "--name-only", head, "--", ...paths]).split("\n"));
+    return paths
+      .filter((path) => !present.has(path))
+      .map(
+        (path) =>
+          `${copy}: context ${path} is not in the tree; point it at the moved file or drop it`,
+      );
+  });
+  return [...drift, ...uncovered, ...missingContext];
 };
 
 export const readScan = (
