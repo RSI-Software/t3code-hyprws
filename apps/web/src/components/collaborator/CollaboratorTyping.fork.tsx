@@ -25,13 +25,17 @@ import { connectionAtomRuntime } from "~/connection/runtime";
 import { randomUUID } from "~/lib/utils";
 import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
+import { peerHue } from "../chat/assistantCitationAnnotations.fork";
 import { Badge } from "../ui/badge";
 import { collaboratorDraftFork } from "./collaboratorDraft.fork";
 
-const typingSubscription = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
-  label: "environment-data:collaborator:typing",
-  tag: WS_METHODS.collaboratorSubscribeTypingFork,
-});
+export const typingSubscription = createEnvironmentRpcSubscriptionAtomFamily(
+  connectionAtomRuntime,
+  {
+    label: "environment-data:collaborator:typing",
+    tag: WS_METHODS.collaboratorSubscribeTypingFork,
+  },
+);
 
 const setTypingCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "share typing",
@@ -42,6 +46,9 @@ const setTypingCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
     key: ({ environmentId, input }) => JSON.stringify([environmentId, input.threadId]),
   },
 });
+
+/** The host as cites name them; a collaborator's copy holds no name for them. */
+export const HOST_NAME = "Host";
 
 // At most four sends a second while the draft changes, the last always arriving.
 const THROTTLE_MS = 250;
@@ -131,7 +138,8 @@ function ThreadTyping({
         pending = true;
         return;
       }
-      const draft = Date.now() - editedAt < ACTIVE_MS ? collaboratorDraftFork(source) : null;
+      const draft =
+        Date.now() - editedAt < ACTIVE_MS ? collaboratorDraftFork(source, threadId) : null;
       if (draft === null && !open) return;
       open = draft !== null;
       sending = true;
@@ -182,7 +190,15 @@ function DraftPreview({ typist }: { readonly typist: CollaboratorTypistFork }) {
   const { draft } = typist;
   return (
     <figure className="flex min-w-0 flex-col gap-1 rounded-xl border border-dashed border-border bg-background px-3 py-2">
-      <figcaption className="text-muted-foreground text-xs">
+      <figcaption className="flex items-center gap-1.5 text-muted-foreground text-xs">
+        {draft?.citations?.length ? (
+          // Their passages in the transcript wear the same hue.
+          <span
+            aria-hidden="true"
+            className="size-2 shrink-0 rounded-full"
+            style={{ background: `var(--annotation-peer-${peerHue(typist.name ?? HOST_NAME)})` }}
+          />
+        ) : null}
         {draft === undefined ? `${who} is typing…` : `${who} is writing`}
       </figcaption>
       {draft !== undefined && draft.text.trim() !== "" ? (
