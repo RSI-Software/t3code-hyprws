@@ -5,8 +5,9 @@ import {
   AuthOrchestrationReadScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
+import { AssistantCitation } from "./assistantCitations.ts";
 import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { GUEST_MESSAGE_MAX_LENGTH } from "./guestShare.ts";
+import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
 
 /** The whole grant a collaborator link pairs; the server narrows it further to shared threads. */
 export const COLLABORATOR_SCOPES = [AuthOrchestrationReadScope, AuthOrchestrationOperateScope];
@@ -85,9 +86,12 @@ export const CollaboratorMessageFork = Schema.Struct({
 });
 export type CollaboratorMessageFork = typeof CollaboratorMessageFork.Type;
 
+// As long as the host may send, less room for the attribution the agent reads with it.
+const COLLABORATOR_MESSAGE_MAX_LENGTH = PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 1_000;
+
 export const CollaboratorSubmitMessageInputFork = Schema.Struct({
   threadId: ThreadId,
-  text: TrimmedNonEmptyString.check(Schema.isMaxLength(GUEST_MESSAGE_MAX_LENGTH)),
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(COLLABORATOR_MESSAGE_MAX_LENGTH)),
 });
 export type CollaboratorSubmitMessageInputFork = typeof CollaboratorSubmitMessageInputFork.Type;
 
@@ -115,6 +119,10 @@ export const CollaboratorDraftFork = Schema.Struct({
       label: Schema.String.check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIP_LABEL_MAX_CHARS)),
     }),
   ).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),
+  /** Passages of this thread the draft cites, so others see them marked inline. */
+  citations: Schema.optional(
+    Schema.Array(AssistantCitation).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),
+  ),
 });
 export type CollaboratorDraftFork = typeof CollaboratorDraftFork.Type;
 
@@ -132,6 +140,10 @@ export type CollaboratorTypistFork = typeof CollaboratorTypistFork.Type;
 export const CollaboratorTypingStateFork = Schema.Struct({
   shared: Schema.Boolean,
   typists: Schema.Array(CollaboratorTypistFork),
+  /** A collaborator's own name, so their client knows which sent messages are theirs. */
+  you: Schema.optional(Schema.String),
+  /** Everyone the thread is shared with, in the order they joined, so every client colours them alike. */
+  people: Schema.optional(Schema.Array(Schema.String)),
 });
 export type CollaboratorTypingStateFork = typeof CollaboratorTypingStateFork.Type;
 

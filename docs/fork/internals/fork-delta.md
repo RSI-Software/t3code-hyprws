@@ -903,9 +903,11 @@ A tagged upstream release shares a single thread with another person's client an
 
 One overlay **reads citations from the draft and sent messages**; it never changes message rendering.
 Passages paint through the **CSS Custom Highlight API**, so marking adds **no DOM inside markdown**.
-Markers are **portaled into each cited source** and ride the line's top edge: the content lane clips any gutter.
+Markers are **portaled into each cited source** and sit just above the line's end: the content lane clips any gutter.
 Edits and removals **rewrite the active composer draft**, a queued message's edit included, through upstream's citation serializer.
 Repaints run **once per frame** on source mutations and resizes; there is **no continuous animation**.
+In a **shared thread**, others' live drafts carry their citations of that thread whole (`colleague-collab`), so they paint **read-only in a per-name hue**; sent ones name their writer.
+Overlapping passages: the **shortest under the pointer** wins hover, and markers on one line **never overlap**.
 
 ### Retirement condition
 
@@ -913,13 +915,14 @@ Upstream keeps cited passages marked in the transcript, with each comment readab
 
 ### Rebase scan
 
-| Path                                                                                                                                      | Why it matters                                     |
-| ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `apps/web/src/components/chat/MessagesTimeline.tsx`                                                                                       | Overlay mount beside the selection toolbar         |
-| `apps/web/src/components/chat/useQueuedRunEdit.ts`                                                                                        | Re-exports the queued-edit store for draft target  |
-| `apps/web/src/lib/assistantTextSelection.ts`, `packages/shared/src/assistantCitations.ts`                                                 | Range resolution and citation format               |
-| `apps/web/src/components/chat/AssistantCitationCommentEditor.tsx`, `apps/web/src/components/chat/AssistantCitationChip.tsx`               | Reused editor; chip attribute the numbers count    |
-| `apps/web/src/components/chat/AssistantCitationAnnotations.fork.tsx`, `apps/web/src/components/chat/assistantCitationAnnotations.fork.ts` | Fork-only; a conflict means upstream took the path |
+| Path                                                                                                                                      | Why it matters                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `apps/web/src/components/chat/MessagesTimeline.tsx`                                                                                       | Overlay mount beside the selection toolbar                          |
+| `apps/web/src/components/chat/useQueuedRunEdit.ts`                                                                                        | Re-exports the queued-edit store for draft target                   |
+| `apps/web/src/lib/assistantTextSelection.ts`, `packages/shared/src/assistantCitations.ts`                                                 | Range resolution and citation format                                |
+| `apps/web/src/components/chat/AssistantCitationCommentEditor.tsx`, `apps/web/src/components/chat/AssistantCitationChip.tsx`               | Reused editor; chip attribute the numbers count                     |
+| `apps/web/src/components/chat/AssistantCitationAnnotations.fork.tsx`, `apps/web/src/components/chat/assistantCitationAnnotations.fork.ts` | Fork-only; a conflict means upstream took the path                  |
+| `apps/web/src/components/collaborator/CollaboratorChat.fork.tsx`                                                                          | `useCollaboratorCitationsFork`: others' drafts and waiting messages |
 
 ## Adding a domain
 
