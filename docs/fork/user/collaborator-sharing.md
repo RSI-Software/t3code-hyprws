@@ -3,6 +3,7 @@
 Share a thread with a collaborator's own T3 Code app.
 They follow it live; their messages **run on your machine**, with your agents, marked with their name.
 Above the composer, each of you sees **the other's unsent draft** live, read-only; attachments and other context show by name only.
+Passages either of you cites stay **marked in the transcript** in that person's colour, with their initial; hover one to read whose it is and their comment.
 
 ## Share a thread
 
