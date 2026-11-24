@@ -70,6 +70,7 @@ import {
   shellQuote,
 } from "./lib/fork-sync-todo.ts";
 import { HOOK_RETIRED_TRAILER, splitTrailerBlock } from "./lib/fork-trailers.ts";
+import { commitUpstreamContextRenames } from "./lib/fork-workflow-context.ts";
 
 const WORKTREE_DIR = "worktree";
 /** The attention issue keeps the governed label and outcome-shaped legacy titles. */
@@ -1138,9 +1139,10 @@ export const rebaseOnto = (
 };
 
 /**
- * Close a finished rebase: carry the trunk commits since the lease, refuse a
- * tip that dropped a pull request link, and write the finished marker. A
- * carried commit that conflicts throws with the worktree left mid-pick.
+ * Close a finished rebase: carry the trunk commits since the lease, follow
+ * upstream renames in workflow context, refuse a tip that dropped a pull request
+ * link, and write the finished marker. A carried commit that conflicts throws
+ * with the worktree left mid-pick.
  */
 export const finishRebase = (
   runner: CommandRunner,
@@ -1151,7 +1153,10 @@ export const finishRebase = (
   const state = readWorktreeState(root);
   if (state === null) throw new Error(`no sync worktree state at ${worktreeStatePath(root)}`);
   const { lease } = carryTrunk(runner, root, state, trunk);
-  const tip = git(runner, worktreePath(root), ["rev-parse", "HEAD"]);
+  const worktree = worktreePath(root);
+  const base = git(runner, worktree, ["merge-base", lease, target.sha]);
+  commitUpstreamContextRenames(runner, worktree, base, target.sha);
+  const tip = git(runner, worktree, ["rev-parse", "HEAD"]);
   refuseDroppedLinks(root, target, lease, tip);
   return writeMarker(runner, root, { tip, tag: target.tag, lease, todo: null });
 };
