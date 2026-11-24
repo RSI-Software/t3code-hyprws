@@ -1,5 +1,5 @@
 ---
-# fork-mirror: .macroscope/check-run-agents/effect-service-conventions.md@bc647ed53595888efacdd8ca435967d48888a952
+# fork-mirror: .macroscope/check-run-agents/effect-service-conventions.md@67c442a17e6e5d6c9f768714820cecb5f15d4f9b
 name: Effect Service Conventions
 on: [pr-change, pr-label, check-rerun]
 paths:
@@ -9,13 +9,13 @@ paths:
     - "infra/**/*.ts"
   exclude:
     - "**/*.test.ts"
-context: [docs/internals/effect-services.md]
+context: [docs/internals/02_effect-services.md]
 needs: [checkout]
 ---
 
 # Effect service review
 
-Review changed TypeScript under `apps/`, `packages/`, and `infra/`, tests aside, for the conventions below. They apply when a pull request creates, moves, refactors, or consumes an Effect service, or adds server behavior. Authors read the same rules in `docs/internals/effect-services.md`; keep the two in step. Review only the lines the PR changed; older code in the same file that predates these conventions is not a finding. Do not demand repository-wide cleanup.
+Review changed TypeScript under `apps/`, `packages/`, and `infra/`, tests aside, for the conventions below. They apply when a pull request creates, moves, refactors, or consumes an Effect service, or adds server behavior. Authors read the same rules in `docs/internals/02_effect-services.md`; keep the two in step. Review only the lines the PR changed; older code in the same file that predates these conventions is not a finding. Do not demand repository-wide cleanup.
 
 ## Imports and module namespaces
 
