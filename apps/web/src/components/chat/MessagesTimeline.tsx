@@ -240,6 +240,11 @@ interface MessagesTimelineProps {
   onReplyToResponse?: TimelineRowSharedState["onReplyToResponse"];
   /** The composer draft whose citations stay tinted in this timeline. */
   composerDraftTarget?: ComposerThreadTarget | null;
+  onEditCitationComment?: (
+    citationStart: number,
+    sourceAnchor: AssistantCitationSourceAnchor,
+  ) => boolean;
+  onRemoveCitation?: (citationStart: number, source: string) => boolean;
   isWorking: boolean;
   /** The thread is catching up from a cached copy, whose working state may be stale. */
   syncing?: boolean;
@@ -367,6 +372,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onCiteAssistantText,
   onReplyToResponse,
   composerDraftTarget,
+  onEditCitationComment,
+  onRemoveCitation,
   isWorking,
   syncing = false,
   runlessWorkActive = false,
@@ -1483,10 +1490,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 onCite={onCiteAssistantText}
               />
             ) : null}
-            {composerDraftTarget ? (
+            {composerDraftTarget && onEditCitationComment && onRemoveCitation ? (
               <AssistantCitationHighlights
                 viewport={timelineViewportElement}
                 draftTarget={composerDraftTarget}
+                onEditComment={onEditCitationComment}
+                onRemove={onRemoveCitation}
               />
             ) : null}
             <LegendList<MessagesTimelineRow>

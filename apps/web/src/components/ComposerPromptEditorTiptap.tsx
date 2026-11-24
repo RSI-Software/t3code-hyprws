@@ -224,7 +224,8 @@ export type ComposerCitationCommentRequest = {
   value: string;
   citationStart: number;
   sourceAnchor: AssistantCitationSourceAnchor;
-  insertedSpaces: CitationInsertedSpaces;
+  /** The spaces inserted with a new citation, which Cancel removes; null keeps an existing one. */
+  insertedSpaces: CitationInsertedSpaces | null;
 };
 
 type CitationInsertedSpaces = { before: boolean; after: boolean };
@@ -232,7 +233,7 @@ type CitationInsertedSpaces = { before: boolean; after: boolean };
 type OpenCitationComment = {
   key: string;
   sourceAnchor?: AssistantCitationSourceAnchor;
-  removeOnCancel?: CitationInsertedSpaces;
+  removeOnCancel?: CitationInsertedSpaces | null;
 };
 
 const ComposerCitationCommentContext = createContext<{

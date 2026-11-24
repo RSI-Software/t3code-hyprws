@@ -162,25 +162,31 @@ it.each(["blocked", "refusedLater"] as const)(
   },
 );
 
-it("cancels a new citation while dictation makes the composer read-only", async () => {
-  const editorRef = createRef<ComposerPromptEditorHandle>();
-  await using screen = await render(<Composer question={false} editorRef={editorRef} disabled />);
+it.each([
+  ["removes a new citation", { before: false, after: true }, "See "],
+  ["keeps an existing citation", null, promptBefore],
+] as const)(
+  "Cancel %s while dictation makes the composer read-only",
+  async (_, insertedSpaces, after) => {
+    const editorRef = createRef<ComposerPromptEditorHandle>();
+    await using screen = await render(<Composer question={false} editorRef={editorRef} disabled />);
 
-  const sourceAnchor = findAssistantCitationSourceAnchor(document, citation);
-  if (!sourceAnchor) throw new Error("Citation source did not resolve");
-  await act(async () =>
-    editorRef.current?.requestCitationComment({
-      previousValue: "See ",
-      value: promptBefore,
-      citationStart: "See ".length,
-      sourceAnchor,
-      insertedSpaces: { before: false, after: true },
-    }),
-  );
-  await expect.element(page.getByLabelText("Comment on selected text")).toBeVisible();
+    const sourceAnchor = findAssistantCitationSourceAnchor(document, citation);
+    if (!sourceAnchor) throw new Error("Citation source did not resolve");
+    await act(async () =>
+      editorRef.current?.requestCitationComment({
+        previousValue: "See ",
+        value: promptBefore,
+        citationStart: "See ".length,
+        sourceAnchor,
+        insertedSpaces,
+      }),
+    );
+    await expect.element(page.getByLabelText("Comment on selected text")).toBeVisible();
 
-  await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByRole("button", { name: "Cancel" }).click();
 
-  await expect.element(page.getByLabelText("Comment on selected text")).not.toBeInTheDocument();
-  expect(screen.container.querySelector("output")?.dataset.prompt).toBe("See ");
-});
+    await expect.element(page.getByLabelText("Comment on selected text")).not.toBeInTheDocument();
+    expect(screen.container.querySelector("output")?.dataset.prompt).toBe(after);
+  },
+);

@@ -686,6 +686,13 @@ export default function ChatView(props: ChatViewProps) {
     return inserted;
   };
   const citeAssistantTextStable = useStableCallback(citeAssistantText);
+  const editCitationCommentStable = useStableCallback(
+    (start: number, sourceAnchor: AssistantCitationSourceAnchor) =>
+      composerRef.current?.editCitationComment(start, sourceAnchor) ?? false,
+  );
+  const removeCitationStable = useStableCallback(
+    (start: number, source: string) => composerRef.current?.removeCitation(start, source) ?? false,
+  );
   const replyToResponseStable = useStableCallback((response: ResponseContextRecord) => {
     const accepted = composerRef.current?.replyToResponse(response) ?? false;
     if (!accepted) {
@@ -3631,6 +3638,8 @@ export default function ChatView(props: ChatViewProps) {
                   citationRequest={citationRequest}
                   citationHistory={citationHistory}
                   onCiteAssistantText={citeAssistantTextStable}
+                  onEditCitationComment={editCitationCommentStable}
+                  onRemoveCitation={removeCitationStable}
                   composerDraftTarget={
                     // A pending question's answer, not the draft, owns the composer then.
                     activePendingUserInput &&

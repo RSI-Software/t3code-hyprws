@@ -183,6 +183,7 @@ import {
   formatInlineContextReference,
   insertInlineContextReference,
   inlineContextReferenceReplacement,
+  removePromptRange,
 } from "~/lib/composerContextReferences";
 import {
   attachmentContextRecord,
@@ -326,6 +327,10 @@ export interface ChatComposerHandle {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
+  /** Opens the comment editor of the draft citation at `start`, anchored at its passage. */
+  editCitationComment: (start: number, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  /** Removes the draft citation `source` at `start`, unless the draft changed under it. */
+  removeCitation: (start: number, source: string) => boolean;
   replyToResponse: (response: ResponseContextRecord) => boolean;
   openModelPicker: () => void;
   stepReasoningEffort: (direction: 1 | -1) => void;
@@ -2016,6 +2021,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
   });
   const { blocksSubmission: voiceInputActive, submitAfterDictation } = speechInput;
+  const composerEditorDisabled =
+    projectSelectionRequired ||
+    isChoiceOnlyPendingQuestion ||
+    activePendingIsResponding ||
+    speechInput.freezesEditor;
   // A compact footer gives the dictation capsule the whole row beside the send button.
   const dictationTakesFooter = isComposerFooterCompact && speechInput.state.phase !== "idle";
   const submissionTarget = activePendingProgress ? "pending-user-input" : "provider-turn";
@@ -3338,6 +3348,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           "cursor",
           { ensureLeadingBoundary: true, citationCommentAnchor: sourceAnchor },
         ),
+      editCitationComment: (start, sourceAnchor) => {
+        const editor = composerEditorRef.current;
+        if (composerEditorDisabled || !editor) return false;
+        editor.requestCitationComment({
+          previousValue: promptRef.current,
+          value: promptRef.current,
+          citationStart: start,
+          sourceAnchor,
+          insertedSpaces: null,
+        });
+        return true;
+      },
+      removeCitation: (start, source) => {
+        const prompt = promptRef.current;
+        if (composerEditorDisabled || prompt.slice(start, start + source.length) !== source) {
+          return false;
+        }
+        const next = removePromptRange(prompt, start, start + source.length);
+        return applyPromptReplacementStable(0, prompt.length, next.prompt, {
+          expectedText: prompt,
+          expandedCursorAfterReplace: next.cursor,
+          focusEditorAfterReplace: false,
+        });
+      },
       replyToResponse: (response) => {
         // An open question owns the composer, and its answer would not carry the reply.
         if (pendingUserInputs.length > 0 || projectSelectionRequired) return false;
@@ -3554,6 +3588,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       pendingUserInputs.length,
       projectSelectionRequired,
       speechInput.freezesEditor,
+      composerEditorDisabled,
       applyPromptReplacementStable,
       isComposerModelPickerOpen,
       openModelPickerStable,
@@ -3990,12 +4025,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         </button>
                       ) : undefined
                     }
-                    disabled={
-                      projectSelectionRequired ||
-                      isChoiceOnlyPendingQuestion ||
-                      activePendingIsResponding ||
-                      speechInput.freezesEditor
-                    }
+                    disabled={composerEditorDisabled}
                   />
                 </ComposerContextActionsContext>
                 {showMobilePendingAnswerActions ? (

@@ -36,6 +36,28 @@ export function findAssistantCitationSourceAnchor(
   return range ? { source, range, viewport } : null;
 }
 
+/** A popup anchor on the cited text's first or last line. */
+export function assistantCitationLineAnchor(
+  { source, range }: AssistantCitationSourceAnchor,
+  line: "first" | "last",
+) {
+  return {
+    contextElement: source,
+    getBoundingClientRect: () => {
+      const rects = range.getClientRects();
+      const rect =
+        rects.item(line === "first" ? 0 : rects.length - 1) ?? range.getBoundingClientRect();
+      // Code blocks and tables scroll sideways inside the message, so the cited
+      // text can end in their hidden overflow. Base UI only shifts the popup while
+      // it still touches the anchor, so clamp the anchor to the message's width.
+      const bounds = source.getBoundingClientRect();
+      const left = Math.min(Math.max(rect.left, bounds.left), bounds.right);
+      const right = Math.max(Math.min(rect.right, bounds.right), left);
+      return new DOMRect(left, rect.top, right - left, rect.height);
+    },
+  };
+}
+
 const CONTROL_SELECTOR = "button, input, textarea, select, [role=button], [contenteditable]";
 const EXCLUDED_SELECTOR = `${CONTROL_SELECTOR}, [hidden], [aria-hidden=true], script, style, template, noscript, svg`;
 const BLOCK_SELECTOR =

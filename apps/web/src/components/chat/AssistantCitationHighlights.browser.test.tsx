@@ -1,7 +1,11 @@
 import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
-import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+import {
+  serializeAssistantCitation,
+  withAssistantCitationComment,
+} from "@t3tools/shared/assistantCitations";
 import { useState } from "react";
 import { expect, it, vi } from "vite-plus/test";
+import { page } from "vite-plus/test/browser";
 
 import { act, render } from "../../../test/render";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
@@ -33,7 +37,12 @@ function Timeline({ sourceKey }: { sourceKey: string }) {
       >
         hello world
       </p>
-      <AssistantCitationHighlights viewport={viewport} draftTarget={draftTarget} />
+      <AssistantCitationHighlights
+        viewport={viewport}
+        draftTarget={draftTarget}
+        onEditComment={() => false}
+        onRemove={() => false}
+      />
     </div>
   );
 }
@@ -63,5 +72,35 @@ it("tints a draft citation, follows its source remounting, and clears when it le
   await vi.waitFor(() => expect(paintedRanges()).toHaveLength(1));
   await screen.unmount();
   expect(CSS.highlights.has(HIGHLIGHT)).toBe(false);
+  await setPrompt("");
+});
+
+/** Moves the pointer onto the end of the painted range showing `text`. */
+const hover = (ranges: ReadonlyArray<Range>, text: string) => {
+  const rect = ranges.find((range) => String(range) === text)!.getBoundingClientRect();
+  document.querySelector("[data-assistant-citation-source]")!.dispatchEvent(
+    new PointerEvent("pointermove", {
+      bubbles: true,
+      pointerType: "mouse",
+      clientX: rect.right - 2,
+      clientY: rect.top + rect.height / 2,
+    }),
+  );
+};
+
+it("previews the innermost of two overlapping citations under the pointer", async () => {
+  const whole = withAssistantCitationComment(
+    { ...citation, text: "hello world", end: 11, suffix: "" },
+    "On the line",
+  );
+  const inner = withAssistantCitationComment(citation, "On hello");
+  await setPrompt(`${serializeAssistantCitation(whole)} ${serializeAssistantCitation(inner)} `);
+  await using _screen = await render(<Timeline sourceKey="overlap" />);
+
+  await vi.waitFor(() => expect(paintedRanges()).toHaveLength(2));
+  hover(paintedRanges(), "hello");
+  await expect.element(page.getByText("On hello", { exact: true })).toBeVisible();
+  hover(paintedRanges(), "hello world");
+  await expect.element(page.getByText("On the line", { exact: true })).toBeVisible();
   await setPrompt("");
 });

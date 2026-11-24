@@ -151,7 +151,9 @@ is unavailable or has changed, the saved quote remains readable.
 
 The chip shows your comment when it has one, or a short quote preview otherwise. Use the pencil
 button to add or change the comment. To remove the citation, place the caret beside its chip and
-delete it like other inline context. Copying, reloading, and restoring a
+delete it like other inline context. In the response, hover a cited passage to read its comment,
+then use its pencil or trash button to change the comment or remove the citation. Copying,
+reloading, and restoring a
 [stashed prompt](#prompt-stash) keep each comment
 with its quote, and sending tells the agent which words were quoted and which comment you wrote.
 The quoted text and comment count toward the message limit.

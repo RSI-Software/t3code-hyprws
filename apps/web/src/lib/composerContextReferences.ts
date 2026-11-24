@@ -77,6 +77,13 @@ export function appendInlineContextReference(
   return insertInlineContextReference(prompt, prompt.length, reference).prompt;
 }
 
+/** `prompt` without `start..end` and one space beside it, so no double gap remains. */
+export function removePromptRange(prompt: string, start: number, end: number) {
+  if (prompt[end] === " ") end += 1;
+  else if (prompt[start - 1] === " ") start -= 1;
+  return { prompt: `${prompt.slice(0, start)}${prompt.slice(end)}`, cursor: start };
+}
+
 export function removeInlineContextReference(
   prompt: string,
   contextId: string,
@@ -87,12 +94,8 @@ export function removeInlineContextReference(
   if (occurrences.length === 0) return { prompt, cursor: prompt.length };
   let result = prompt;
   let cursor = prompt.length;
-  for (const occurrence of occurrences.reverse()) {
-    let { start, end } = occurrence;
-    if (result[end] === " ") end += 1;
-    else if (result[start - 1] === " ") start -= 1;
-    result = `${result.slice(0, start)}${result.slice(end)}`;
-    cursor = start;
+  for (const { start, end } of occurrences.reverse()) {
+    ({ prompt: result, cursor } = removePromptRange(result, start, end));
   }
   if (cursor >= result.length) {
     result = result.trimEnd();

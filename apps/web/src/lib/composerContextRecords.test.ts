@@ -290,6 +290,10 @@ describe("composerContextRecords", () => {
     const prompt = `prose ${formatInlineContextReference(reference)} tail`;
     expect(removeInlineContextReference(prompt, context.id).prompt).toBe(prompt);
     expect(removeInlineContextReference(prompt, reference.contextId).prompt).toBe("prose tail");
+    const afterNewline = `prose\n${formatInlineContextReference(reference)} tail`;
+    expect(removeInlineContextReference(afterNewline, reference.contextId).prompt).toBe(
+      "prose\ntail",
+    );
   });
 
   it("clamps oversized review and terminal selections so the records still encode", () => {
