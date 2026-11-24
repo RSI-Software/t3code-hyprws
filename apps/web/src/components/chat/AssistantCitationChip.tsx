@@ -58,16 +58,21 @@ const flat = (text: string) => text.replace(/\s+/g, " ");
 
 /**
  * The `❝n` badge a draft citation's composer chip shares with its marker in the transcript.
- * Without a `number`, it shows the chip's place among the composer's citation chips.
+ * Without a `number`, it shows the chip's place among the composer's citation chips; a sent
+ * citation's `null` number leaves a quieter, bare `❝`.
  */
 export function AssistantCitationBadge({
   number,
   ...props
-}: { number?: number } & Pick<ComponentProps<typeof Badge>, "render">) {
+}: { number?: number | null } & Pick<ComponentProps<typeof Badge>, "render">) {
   return (
-    <Badge size="xs" {...props}>
+    <Badge size="xs" variant={number === null ? "muted" : "default"} {...props}>
       <QuoteIcon aria-hidden="true" className="size-2 fill-current" />
-      {number ?? <span className="after:content-[counter(assistant-citation)]" />}
+      {number === undefined ? (
+        <span className="after:content-[counter(assistant-citation)]" />
+      ) : (
+        number
+      )}
     </Badge>
   );
 }

@@ -1,4 +1,5 @@
 import { injectHtmlRenderBootstrap } from "@t3tools/shared/htmlRender";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { HtmlRenderDocument } from "../files/BrowserDocumentFrame";
 import { AudioPreview } from "../files/AudioPreview";
 import { cdp, page, userEvent } from "vite-plus/test/browser";
@@ -1343,6 +1344,39 @@ const CITATION_REQUEST = {
 } satisfies NonNullable<TimelineProps["citationRequest"]>;
 
 describe("MessagesTimeline citations", () => {
+  it("keeps sent citation marks while a pending question owns the composer", async () => {
+    const answer = message("the cited answer", { role: "assistant" }, "cited");
+    // A pending question's answer, not the draft, owns the composer.
+    const props = {
+      ...baseProps(),
+      composerDraftTarget: null,
+      onEditCitationComment: () => false,
+      onRemoveCitation: () => false,
+    };
+    await using screen = await renderElement(
+      <MessagesTimeline {...props} timelineEntries={[answer]} />,
+    );
+    const source = await vi.waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        '[data-assistant-citation-source="cited"]',
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const citation = {
+      ...CITATION_REQUEST.citation,
+      environmentId: EnvironmentId.make(source.dataset.assistantCitationEnvironment!),
+      threadId: ThreadId.make(source.dataset.assistantCitationThread!),
+    };
+    const question = message(`See ${serializeAssistantCitation(citation)}`, {}, "question");
+    await screen.rerender(<MessagesTimeline {...props} timelineEntries={[question, answer]} />);
+    await vi.waitFor(() =>
+      expect([...(CSS.highlights.get("t3-assistant-citation-sent") ?? [])].map(String)).toEqual([
+        "the cited answer",
+      ]),
+    );
+  });
+
   it("offers Cite for text an agent sent with send_to_user", async () => {
     const text = "The draft the next question refers to";
     await using screen = await renderTimeline(

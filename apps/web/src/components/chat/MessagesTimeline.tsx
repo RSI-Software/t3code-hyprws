@@ -1490,10 +1490,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 onCite={onCiteAssistantText}
               />
             ) : null}
-            {composerDraftTarget && onEditCitationComment && onRemoveCitation ? (
+            {composerDraftTarget !== undefined && onEditCitationComment && onRemoveCitation ? (
               <AssistantCitationHighlights
                 viewport={timelineViewportElement}
                 draftTarget={composerDraftTarget}
+                entries={timelineEntries}
                 onEditComment={onEditCitationComment}
                 onRemove={onRemoveCitation}
               />

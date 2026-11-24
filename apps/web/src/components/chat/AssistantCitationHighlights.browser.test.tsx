@@ -9,6 +9,7 @@ import { page } from "vite-plus/test/browser";
 
 import { act, render } from "../../../test/render";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
+import type { TimelineEntry } from "../../session-logic";
 import { AssistantCitationHighlights } from "./AssistantCitationHighlights";
 
 const HIGHLIGHT = "t3-assistant-citation-draft";
@@ -25,7 +26,13 @@ const citation = {
   suffix: " world",
 };
 
-function Timeline({ sourceKey }: { sourceKey: string }) {
+function Timeline({
+  sourceKey,
+  entries = [],
+}: {
+  sourceKey: string;
+  entries?: ReadonlyArray<TimelineEntry>;
+}) {
   const [viewport, setViewport] = useState<HTMLElement | null>(null);
   return (
     <div ref={setViewport} data-assistant-citation-viewport="">
@@ -40,6 +47,7 @@ function Timeline({ sourceKey }: { sourceKey: string }) {
       <AssistantCitationHighlights
         viewport={viewport}
         draftTarget={draftTarget}
+        entries={entries}
         onEditComment={() => false}
         onRemove={() => false}
       />
@@ -118,4 +126,38 @@ it("pops the new badge when a passage the draft already cites is cited again", a
   await setPrompt(`${cite} ${cite} `);
   await vi.waitFor(() => expect(fresh()).toEqual([false, true]));
   await setPrompt("");
+});
+
+const sentEntry = (id: string, text: string): TimelineEntry => ({
+  id,
+  kind: "message",
+  createdAt: "2026-11-24T00:00:00.000Z",
+  message: {
+    id: MessageId.make(id),
+    role: "user",
+    text,
+    runId: null,
+    streaming: false,
+    createdAt: "2026-11-24T00:00:00.000Z",
+    updatedAt: "2026-11-24T00:00:00.000Z",
+  },
+});
+
+it("previews a commented sent citation through a plain one cited inside it", async () => {
+  const noted = withAssistantCitationComment(
+    { ...citation, text: "hello world", end: 11, suffix: "" },
+    "Note on the line",
+  );
+  const entries = [
+    sentEntry("sent-plain", serializeAssistantCitation(citation)),
+    sentEntry("sent-noted", serializeAssistantCitation(noted)),
+  ];
+  await using _screen = await render(<Timeline sourceKey="sent" entries={entries} />);
+
+  const sentRanges = () => [...(CSS.highlights.get("t3-assistant-citation-sent") ?? [])] as Range[];
+  await vi.waitFor(() =>
+    expect(sentRanges().map(String).toSorted()).toEqual(["hello", "hello world"]),
+  );
+  hover(sentRanges(), "hello");
+  await expect.element(page.getByText("Note on the line", { exact: true })).toBeVisible();
 });

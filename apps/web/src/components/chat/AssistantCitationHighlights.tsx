@@ -21,13 +21,20 @@ import {
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
+import type { TimelineEntry } from "../../session-logic";
+import type { ChatMessage } from "../../types";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup } from "../ui/popover";
 import { AssistantCitationBadge } from "./AssistantCitationChip";
-import { placeCitationMarkers } from "./AssistantCitationHighlights.logic";
+import {
+  citedPassages,
+  passageKey,
+  placeCitationMarkers,
+} from "./AssistantCitationHighlights.logic";
 import { observeAssistantCitationCommentSource } from "./AssistantCitationSource";
 
 const DRAFT_HIGHLIGHT_NAME = "t3-assistant-citation-draft";
+const SENT_HIGHLIGHT_NAME = "t3-assistant-citation-sent";
 const PREVIEW_CLOSE_DELAY_MS = 180;
 /** Outlasts `--animate-citation-pop`, so a marker remounting later stays still. */
 const MARKER_POP_MS = 500;
@@ -35,6 +42,8 @@ const MARKERS = "[data-citation-markers]";
 
 type Passage = {
   index: number;
+  /** Cited by a message already sent, so it is no longer the draft's to edit. */
+  sent: boolean;
   source: string;
   citation: AssistantCitation;
   anchor: AssistantCitationSourceAnchor;
@@ -55,49 +64,82 @@ const samePlace = (a: Marker, b: Marker) =>
   a.left === b.left &&
   a.top === b.top;
 
-const passageKey = ({ messageId, start, end }: AssistantCitation) => `${messageId}:${start}:${end}`;
-
-/** Swaps one owner's ranges in the shared draft highlight, registering it only while it has any. */
-function replaceDraftRanges(previous: ReadonlyArray<Range>, next: ReadonlyArray<Range>) {
-  const highlight = CSS.highlights.get(DRAFT_HIGHLIGHT_NAME) ?? new Highlight();
+/** Swaps one owner's ranges in a shared highlight, registering it only while it has any. */
+function replaceRanges(name: string, previous: ReadonlyArray<Range>, next: ReadonlyArray<Range>) {
+  const highlight = CSS.highlights.get(name) ?? new Highlight();
   for (const range of previous) highlight.delete(range);
   for (const range of next) highlight.add(range);
-  if (highlight.size > 0) CSS.highlights.set(DRAFT_HIGHLIGHT_NAME, highlight);
-  else CSS.highlights.delete(DRAFT_HIGHLIGHT_NAME);
+  if (highlight.size > 0) CSS.highlights.set(name, highlight);
+  else CSS.highlights.delete(name);
 }
+
+/** Each sent message's citation markdown, so re-renders while a turn streams skip the scan. */
+const sentCitations = new WeakMap<ChatMessage, string>();
+function sentCitationsOf(message: ChatMessage) {
+  let sources = sentCitations.get(message);
+  if (sources === undefined) {
+    sources = collectAssistantCitations(message.text)
+      .map(({ source }) => source)
+      .join(" ");
+    sentCitations.set(message, sources);
+  }
+  return sources;
+}
+
+/** A sent passage cannot change, so only its comment is worth previewing. */
+const previewable = (passage: Passage) => !passage.sent || !!passage.citation.comment;
+
+const rangesOf = (passages: ReadonlyArray<Passage>, sent: boolean) =>
+  passages.flatMap((passage) => (passage.sent === sent ? [passage.anchor.range] : []));
 
 /**
  * Tints the passages the composer draft cites and marks each with its chip's `❝n` badge.
  * Hovering one previews, edits, or removes it; clicking its marker edits its comment.
+ * Passages sent messages cite stay faintly tinted, with a bare `❝` when they carry a comment.
  */
 export function AssistantCitationHighlights({
   viewport,
   draftTarget,
+  entries,
   onEditComment,
   onRemove,
 }: {
   viewport: HTMLElement | null;
-  draftTarget: ComposerThreadTarget;
+  /** Null while a pending question owns the composer; sent citations still show. */
+  draftTarget: ComposerThreadTarget | null;
+  entries: ReadonlyArray<TimelineEntry>;
   onEditComment: (citationStart: number, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
   onRemove: (citationStart: number, source: string) => boolean;
 }) {
   const gt = useGT();
   // The citations' own markdown, so typing elsewhere in the draft does not re-render.
   const citationsKey = useComposerDraftStore((store) =>
-    collectAssistantCitations(store.getComposerDraft(draftTarget)?.prompt ?? "")
+    collectAssistantCitations(
+      draftTarget ? (store.getComposerDraft(draftTarget)?.prompt ?? "") : "",
+    )
       .map(({ source }) => source)
       .join(" "),
   );
-  const targetKey = composerTargetKey(draftTarget);
-  const [preview, setPreview] = useState<(Passage & { citationsKey: string }) | null>(null);
+  const sentKey = entries
+    .flatMap((entry) => {
+      if (entry.kind !== "message" || entry.message.role !== "user") return [];
+      const sources = sentCitationsOf(entry.message);
+      return sources ? [sources] : [];
+    })
+    .join(" ");
+  const targetKey = draftTarget ? composerTargetKey(draftTarget) : null;
+  const [preview, setPreview] = useState<
+    (Passage & { citationsKey: string; sentKey: string }) | null
+  >(null);
   const [markers, setMarkers] = useState<ReadonlyArray<Marker>>([]);
   /** When each citation's pop ends, by passage occurrence, for the draft the markers last showed. */
   const popsRef = useRef<{ targetKey: string | null; ends: Map<string, number> }>({
     targetKey: null,
     ends: new Map(),
   });
-  // A preview opened before the draft's citations changed may point at the wrong one.
-  const open = preview?.citationsKey === citationsKey ? preview : null;
+  // A preview opened before the citations changed may point at the wrong one.
+  const open =
+    preview?.citationsKey === citationsKey && preview.sentKey === sentKey ? preview : null;
   const popupRef = useRef<HTMLDivElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   // React fires the popup's pointerenter before the viewport's native pointerleave.
@@ -120,12 +162,12 @@ export function AssistantCitationHighlights({
     setPreview(null);
   });
   const onPointer = useEffectEvent((hit: Passage | null, x: number, y: number) => {
-    if (hit) {
+    if (hit && previewable(hit)) {
       // The comment editor already shows this passage's comment.
       if (document.querySelector("[data-citation-comment-editor]")) return;
       popupHoveredRef.current = false;
       cancelClose();
-      if (open?.index !== hit.index) setPreview({ ...hit, citationsKey });
+      if (open?.index !== hit.index) setPreview({ ...hit, citationsKey, sentKey });
       return;
     }
     if (!open || closeTimerRef.current !== null) return;
@@ -143,7 +185,8 @@ export function AssistantCitationHighlights({
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- paints CSS Highlight ranges over rendered markdown, repaints when cited rows mount or change, and hit-tests pointer moves against them
   useEffect(() => {
-    const citations = collectAssistantCitations(citationsKey);
+    const drafts = collectAssistantCitations(citationsKey);
+    const citations = citedPassages(drafts, collectAssistantCitations(sentKey));
     // Passages a draft already cites when it first shows stay still; later citations pop in.
     const pops = popsRef.current;
     const baseline = pops.targetKey !== targetKey;
@@ -151,7 +194,7 @@ export function AssistantCitationHighlights({
     pops.targetKey = targetKey;
     // Keyed per occurrence, so citing a passage again pops the new badge.
     const seen = new Map<string, number>();
-    const popKeys = citations.map(({ citation }) => {
+    const popKeys = drafts.map(({ citation }) => {
       const key = passageKey(citation);
       const occurrence = (seen.get(key) ?? 0) + 1;
       seen.set(key, occurrence);
@@ -180,12 +223,10 @@ export function AssistantCitationHighlights({
       frame = null;
       const next = citations.flatMap(({ citation, source }, index) => {
         const anchor = findAssistantCitationSourceAnchor(viewport, citation);
-        return anchor ? [{ index, source, citation, anchor }] : [];
+        return anchor ? [{ index, sent: index >= drafts.length, source, citation, anchor }] : [];
       });
-      replaceDraftRanges(
-        painted.map(({ anchor }) => anchor.range),
-        next.map(({ anchor }) => anchor.range),
-      );
+      replaceRanges(DRAFT_HIGHLIGHT_NAME, rangesOf(painted, false), rangesOf(next, false));
+      replaceRanges(SENT_HIGHLIGHT_NAME, rangesOf(painted, true), rangesOf(next, true));
       painted = next;
       // Markers follow their source as it reflows; stop watching sources that unmounted.
       for (const { anchor } of next) {
@@ -199,17 +240,18 @@ export function AssistantCitationHighlights({
         }
       }
       const ends = next.flatMap((passage) => {
+        if (passage.sent && !passage.citation.comment) return [];
         const { range, source } = passage.anchor;
         const line = [...range.getClientRects()].findLast(({ width }) => width > 0);
         const bounds = source.getBoundingClientRect();
-        const digits = String(passage.index + 1).length;
+        const digits = passage.sent ? 0 : String(passage.index + 1).length;
         return line ? [{ passage, source: passage.citation.messageId, line, bounds, digits }] : [];
       });
       const now = performance.now();
       const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
       const nextPlaced = placeCitationMarkers(ends, rem).map(({ left, top }, i): Marker => {
         const passage = ends[i]!.passage;
-        const popEnd = pops.ends.get(popKeys[passage.index]!) ?? 0;
+        const popEnd = pops.ends.get(popKeys[passage.index] ?? "") ?? 0;
         const popElapsed = popEnd > now ? Math.round(now - popEnd + MARKER_POP_MS) : null;
         return { passage, left, top, popElapsed };
       });
@@ -262,7 +304,10 @@ export function AssistantCitationHighlights({
       // The innermost passage wins, so one cited inside another stays reachable.
       const hit = overCited
         ? painted
-            .filter(({ anchor }) => [...anchor.range.getClientRects()].some(inside))
+            .filter(
+              (passage) =>
+                previewable(passage) && [...passage.anchor.range.getClientRects()].some(inside),
+            )
             .toSorted((a, b) => a.citation.text.length - b.citation.text.length)[0]
         : undefined;
       onPointer(hit ?? null, event.clientX, event.clientY);
@@ -284,13 +329,11 @@ export function AssistantCitationHighlights({
       viewport.removeEventListener("pointermove", onMove);
       viewport.removeEventListener("pointerleave", onLeave);
       viewport.removeEventListener("pointerdown", onDown);
-      replaceDraftRanges(
-        painted.map(({ anchor }) => anchor.range),
-        [],
-      );
+      replaceRanges(DRAFT_HIGHLIGHT_NAME, rangesOf(painted, false), []);
+      replaceRanges(SENT_HIGHLIGHT_NAME, rangesOf(painted, true), []);
       dismiss();
     };
-  }, [viewport, citationsKey, targetKey]);
+  }, [viewport, citationsKey, sentKey, targetKey]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tints the previewed passage through the shared comment highlight and closes when its source unmounts
   useEffect(() => {
@@ -304,6 +347,7 @@ export function AssistantCitationHighlights({
 
   /** The open citation's place in the current draft, unless the draft changed under it. */
   const inDraft = (passage: Passage) => {
+    if (!draftTarget) return null;
     const prompt = useComposerDraftStore.getState().getComposerDraft(draftTarget)?.prompt ?? "";
     const target = collectAssistantCitations(prompt)[passage.index];
     return target?.source === passage.source ? target : null;
@@ -345,20 +389,30 @@ export function AssistantCitationHighlights({
                 style={{ left, top, animationDelay: popElapsed ? `-${popElapsed}ms` : undefined }}
               >
                 <AssistantCitationBadge
-                  number={passage.index + 1}
+                  number={passage.sent ? null : passage.index + 1}
                   render={
                     <button
                       type="button"
                       data-citation-marker={passage.index}
-                      aria-label={gt("Citation {number}: {label}", {
-                        number: passage.index + 1,
-                        label: assistantCitationLabel(passage.citation),
-                      })}
-                      onClick={() => edit(passage)}
+                      aria-label={
+                        passage.sent
+                          ? gt("View cited assistant text: {label}", {
+                              label: assistantCitationLabel(passage.citation),
+                            })
+                          : gt("Citation {number}: {label}", {
+                              number: passage.index + 1,
+                              label: assistantCitationLabel(passage.citation),
+                            })
+                      }
+                      onClick={() =>
+                        passage.sent
+                          ? setPreview({ ...passage, citationsKey, sentKey })
+                          : edit(passage)
+                      }
                       onFocus={(event) => {
                         if (!event.currentTarget.matches(":focus-visible")) return;
                         cancelClose();
-                        setPreview({ ...passage, citationsKey });
+                        setPreview({ ...passage, citationsKey, sentKey });
                       }}
                       onBlur={() => {
                         if (open?.index === passage.index) closeSoon();
@@ -402,24 +456,26 @@ export function AssistantCitationHighlights({
             >
               {comment || gt("Add a comment")}
             </p>
-            <div className="-me-1 flex shrink-0">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={comment ? gt("Edit citation comment") : gt("Add comment to citation")}
-                onClick={() => edit(open)}
-              >
-                <PencilIcon aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={gt("Remove {name}", { name: assistantCitationLabel(open.citation) })}
-                onClick={() => remove(open)}
-              >
-                <Trash2Icon aria-hidden="true" />
-              </Button>
-            </div>
+            {open.sent ? null : (
+              <div className="-me-1 flex shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={comment ? gt("Edit citation comment") : gt("Add comment to citation")}
+                  onClick={() => edit(open)}
+                >
+                  <PencilIcon aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={gt("Remove {name}", { name: assistantCitationLabel(open.citation) })}
+                  onClick={() => remove(open)}
+                >
+                  <Trash2Icon aria-hidden="true" />
+                </Button>
+              </div>
+            )}
           </div>
         </PopoverPopup>
       ) : null}

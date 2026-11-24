@@ -1,4 +1,27 @@
+import type { AssistantCitation } from "@t3tools/contracts";
+
 type Rect = Pick<DOMRectReadOnly, "left" | "top" | "right" | "width">;
+
+export const passageKey = ({ messageId, start, end }: AssistantCitation) =>
+  `${messageId}:${start}:${end}`;
+
+/**
+ * The draft's citations, then each other passage that sent messages cite, once, as last sent.
+ * A passage the draft cites again shows as the draft's.
+ */
+export function citedPassages<T extends { citation: AssistantCitation }>(
+  drafts: ReadonlyArray<T>,
+  sent: ReadonlyArray<T>,
+): T[] {
+  const seen = new Set(drafts.map(({ citation }) => passageKey(citation)));
+  const latest = sent.toReversed().filter(({ citation }) => {
+    const key = passageKey(citation);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return [...drafts, ...latest.toReversed()];
+}
 
 /** Size of one `❝n` marker in rem, matching its badge's `h-3.5`; each digit of `n` widens it. */
 const MARKER_HEIGHT = 0.875;

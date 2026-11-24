@@ -1,6 +1,7 @@
+import type { AssistantCitation } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { placeCitationMarkers } from "./AssistantCitationHighlights.logic";
+import { citedPassages, placeCitationMarkers } from "./AssistantCitationHighlights.logic";
 
 const bounds = { left: 100, top: 50, right: 300, width: 200 };
 const lineEndingAt = (right: number, top = 70) => ({ left: 100, top, right, width: right - 100 });
@@ -50,5 +51,21 @@ describe("placeCitationMarkers", () => {
       { left: 28, top: 13 },
       { left: 0, top: 29 },
     ]);
+  });
+});
+
+describe("citedPassages", () => {
+  const cite = (start: number, comment: string) => ({
+    comment,
+    citation: { messageId: "m", start, end: start + 4 } as AssistantCitation,
+  });
+
+  it("keeps the draft's citations, then each sent passage once, as last sent", () => {
+    expect(
+      citedPassages(
+        [cite(0, "draft")],
+        [cite(10, "first"), cite(0, "sent"), cite(20, "only"), cite(10, "again")],
+      ).map(({ comment }) => comment),
+    ).toEqual(["draft", "only", "again"]);
   });
 });
