@@ -87,7 +87,12 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
     stop,
     drop,
     /** Everyone but `viewer` typing in the thread while `shared`, re-emitted only on a change. */
-    state: (threadId: string, viewer: string, shared: Stream.Stream<boolean>) =>
+    state: (
+      threadId: string,
+      viewer: string,
+      shared: Stream.Stream<boolean>,
+      you: string | undefined,
+    ) =>
       Stream.zipLatestWith(
         shared,
         SubscriptionRef.changes(ref),
@@ -100,6 +105,7 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
                   : [],
               )
             : [],
+          ...(you === undefined ? {} : { you }),
         }),
       ).pipe(Stream.changesWith(sameState)),
   };

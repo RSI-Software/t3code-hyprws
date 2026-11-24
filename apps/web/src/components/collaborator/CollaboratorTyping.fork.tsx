@@ -14,6 +14,7 @@ import {
   type ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { useGT } from "gt-react";
 import { useContext, useEffect } from "react";
 
 import {
@@ -25,9 +26,8 @@ import { connectionAtomRuntime } from "~/connection/runtime";
 import { randomUUID } from "~/lib/utils";
 import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
-import { peerHue } from "../chat/assistantCitationAnnotations.fork";
 import { Badge } from "../ui/badge";
-import { collaboratorDraftFork } from "./collaboratorDraft.fork";
+import { collaboratorDraftFork, withinActive } from "./collaboratorDraft.fork";
 
 export const typingSubscription = createEnvironmentRpcSubscriptionAtomFamily(
   connectionAtomRuntime,
@@ -47,15 +47,13 @@ const setTypingCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   },
 });
 
-/** The host as cites name them; a collaborator's copy holds no name for them. */
-export const HOST_NAME = "Host";
+/** The host as cites key them: never a collaborator's name, which needs a letter or digit. */
+export const HOST_KEY = "";
 
 // At most four sends a second while the draft changes, the last always arriving.
 const THROTTLE_MS = 250;
 // The server forgets a typist after five seconds without one, so a paused draft stays shown.
 const KEEPALIVE_MS = 2_000;
-// A draft left alone this long stops showing, so an old one on an idle device never does.
-const ACTIVE_MS = 30_000;
 
 interface TypingThread {
   readonly environmentId: EnvironmentId;
@@ -138,8 +136,7 @@ function ThreadTyping({
         pending = true;
         return;
       }
-      const draft =
-        Date.now() - editedAt < ACTIVE_MS ? collaboratorDraftFork(source, threadId) : null;
+      const draft = withinActive(collaboratorDraftFork(source, threadId), Date.now() - editedAt);
       if (draft === null && !open) return;
       open = draft !== null;
       sending = true;
@@ -170,9 +167,13 @@ function ThreadTyping({
     };
   }, [registry, environmentId, threadId, editDraftId, shared]);
 
-  return typists.length === 0 ? null : (
+  // A draft of only this thread's citations shows on the cited passages instead.
+  const writing = typists.filter(
+    ({ draft }) => draft === undefined || draft.text !== "" || draft.chips.length > 0,
+  );
+  return writing.length === 0 ? null : (
     <div className="mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-2 px-3 pb-2">
-      {typists.map((typist) => (
+      {writing.map((typist) => (
         <DraftPreview key={`${typist.subject}:${typist.device ?? ""}`} typist={typist} />
       ))}
     </div>
@@ -186,21 +187,19 @@ const kindName = (kind: string) => {
 
 /** Static text, its end kept when clamped, since the latest words matter most. */
 function DraftPreview({ typist }: { readonly typist: CollaboratorTypistFork }) {
-  const who = typist.name ?? "The host";
-  const { draft } = typist;
+  const gt = useGT();
+  const { name, draft } = typist;
+  const caption =
+    draft === undefined
+      ? name === undefined
+        ? gt("The host is typing…")
+        : gt("{name} is typing…", { name })
+      : name === undefined
+        ? gt("The host is writing")
+        : gt("{name} is writing", { name });
   return (
     <figure className="flex min-w-0 flex-col gap-1 rounded-xl border border-dashed border-border bg-background px-3 py-2">
-      <figcaption className="flex items-center gap-1.5 text-muted-foreground text-xs">
-        {draft?.citations?.length ? (
-          // Their passages in the transcript wear the same hue.
-          <span
-            aria-hidden="true"
-            className="size-2 shrink-0 rounded-full"
-            style={{ background: `var(--annotation-peer-${peerHue(typist.name ?? HOST_NAME)})` }}
-          />
-        ) : null}
-        {draft === undefined ? `${who} is typing…` : `${who} is writing`}
-      </figcaption>
+      <figcaption className="text-muted-foreground text-xs">{caption}</figcaption>
       {draft !== undefined && draft.text.trim() !== "" ? (
         <div className="flex max-h-[4lh] flex-col justify-end overflow-hidden text-foreground/80 text-sm">
           <p className="shrink-0 whitespace-pre-wrap wrap-anywhere">
