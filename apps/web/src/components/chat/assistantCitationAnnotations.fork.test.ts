@@ -82,6 +82,21 @@ describe("threadAnnotations", () => {
     ]);
   });
 
+  it("keeps your sent citation when the host drafts the same passage", () => {
+    const annotations = threadAnnotations(
+      threadRef,
+      "",
+      [{ id: "sent-1", text: second, owner: null }],
+      [],
+      [{ key: "host", owner: "", citations: [citation("Asks before it writes", 40)] }],
+      "Alex",
+    );
+    expect(annotations.map(({ key, owner }) => [key, owner])).toEqual([
+      ["peer:host:0", ""],
+      ["sent:sent-1:0", null],
+    ]);
+  });
+
   it("keeps everyone's hue when a waiting message only the host sees joins", () => {
     const annotations = threadAnnotations(
       threadRef,

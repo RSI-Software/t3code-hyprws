@@ -60,8 +60,9 @@ const citesThread = (citation: AssistantCitation, threadRef: ScopedThreadRef) =>
 const citationsIn = (text: string) =>
   text.includes("t3-citation:") ? collectAssistantCitations(text) : [];
 
+// The host's key is "", so null (you) must stay distinct from it.
 const ownedPassage = (owner: string | null, citation: AssistantCitation) =>
-  `${owner ?? ""}\u0000${passageKey(citation)}`;
+  JSON.stringify([owner, passageKey(citation)]);
 
 type Unhued = Omit<Annotation, "hue">;
 

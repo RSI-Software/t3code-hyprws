@@ -347,10 +347,10 @@ const NO_TYPISTS: ReadonlyArray<CollaboratorTypistFork> = [];
 export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) {
   const thread = useQuietThreadShell(threadRef);
   const configs = useServerConfigs();
-  // A frozen thread still subscribes: no one types there, but it says who you are.
   const served =
     threadRef !== null &&
-    configs.get(threadRef.environmentId)?.environment.capabilities.collaboratorsFork === true;
+    configs.get(threadRef.environmentId)?.environment.capabilities.collaboratorsFork === true &&
+    thread?.collaboratorFork !== "frozen";
   const typing = useEnvironmentQuery(
     served
       ? typingSubscription({
