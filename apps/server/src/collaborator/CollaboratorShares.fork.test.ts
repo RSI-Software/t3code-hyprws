@@ -4,6 +4,7 @@ import {
   COLLABORATOR_DRAFT_TEXT_MAX_CHARS,
   type CollaboratorDraftFork,
   CollaboratorSetTypingInputFork,
+  CollaboratorSubmitMessageInputFork,
   EnvironmentAuthenticatedPrincipal,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
@@ -45,6 +46,7 @@ const otherProject = ProjectId.make("p-other");
 const projectOf = { [shared]: sharedProject, [other]: otherProject } as Record<string, ProjectId>;
 const pairedSubjects = new Set<string>();
 const decodeSetTyping = Schema.decodeExit(CollaboratorSetTypingInputFork);
+const decodeSubmitMessage = Schema.decodeEffect(CollaboratorSubmitMessageInputFork);
 
 const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
 const instanceId = ProviderInstanceId.make("codex");
@@ -362,12 +364,17 @@ database("CollaboratorSharesFork", (it) => {
         );
         assert.isTrue(Exit.isFailure(direct));
         yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "first" });
-        yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "second" });
+        // Cited messages run long; one waits as long as the host could send it.
+        const long = yield* decodeSubmitMessage({
+          threadId: shared,
+          text: "x".repeat(10_000),
+        });
+        yield* sam["collaborator.submitMessageFork"](long);
         assert.deepStrictEqual(
           (yield* waiting(host)).map(({ name, text }) => ({ name, text })),
           [
             { name: "Sam", text: "first" },
-            { name: "Sam", text: "second" },
+            { name: "Sam", text: long.text },
           ],
         );
         assert.deepStrictEqual(yield* waiting(service.messageHandlers("colleague:ana")), []);
