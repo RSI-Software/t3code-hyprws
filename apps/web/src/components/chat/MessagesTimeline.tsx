@@ -5,6 +5,7 @@ import { threadErrorText } from "@t3tools/client-runtime/state/threads";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ToolCallDiffTarget } from "../../diffPanelStore";
+import type { ComposerThreadTarget } from "../../composerDraftStore";
 import { AudioPreviewUnmountContext } from "../files/AudioPreview";
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
 import { MarkdownFindContext } from "./markdownFindContext";
@@ -77,6 +78,7 @@ import {
   resolveDisclosureRevealScrollDelta,
 } from "./timelineScrollAnchoring";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
+import { AssistantCitationHighlights } from "./AssistantCitationHighlights";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { type AssistantCitationRequest } from "./AssistantCitationSource";
 import { useAssistantCitationTarget } from "./useAssistantCitationTarget";
@@ -236,6 +238,8 @@ interface MessagesTimelineProps {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   onReplyToResponse?: TimelineRowSharedState["onReplyToResponse"];
+  /** The composer draft whose citations stay tinted in this timeline. */
+  composerDraftTarget?: ComposerThreadTarget | null;
   isWorking: boolean;
   /** The thread is catching up from a cached copy, whose working state may be stale. */
   syncing?: boolean;
@@ -362,6 +366,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   citationHistory = CITED_HISTORY_LOADING,
   onCiteAssistantText,
   onReplyToResponse,
+  composerDraftTarget,
   isWorking,
   syncing = false,
   runlessWorkActive = false,
@@ -1476,6 +1481,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 viewport={timelineViewportElement}
                 threadRef={citationThreadRef}
                 onCite={onCiteAssistantText}
+              />
+            ) : null}
+            {composerDraftTarget ? (
+              <AssistantCitationHighlights
+                viewport={timelineViewportElement}
+                draftTarget={composerDraftTarget}
               />
             ) : null}
             <LegendList<MessagesTimelineRow>

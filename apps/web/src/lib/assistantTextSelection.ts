@@ -21,12 +21,10 @@ export type AssistantCitationSourceAnchor = {
 };
 
 export function findAssistantCitationSourceAnchor(
-  document: Document,
+  root: ParentNode,
   citation: AssistantCitation,
 ): AssistantCitationSourceAnchor | null {
-  const source = [
-    ...document.querySelectorAll<HTMLElement>("[data-assistant-citation-source]"),
-  ].find(
+  const source = [...root.querySelectorAll<HTMLElement>("[data-assistant-citation-source]")].find(
     (element) =>
       element.dataset.assistantCitationSource === citation.messageId &&
       element.dataset.assistantCitationEnvironment === citation.environmentId &&

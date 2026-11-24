@@ -3631,6 +3631,13 @@ export default function ChatView(props: ChatViewProps) {
                   citationRequest={citationRequest}
                   citationHistory={citationHistory}
                   onCiteAssistantText={citeAssistantTextStable}
+                  composerDraftTarget={
+                    // A pending question's answer, not the draft, owns the composer then.
+                    activePendingUserInput &&
+                    !heldApprovalRequestIds.has(activePendingUserInput.requestId)
+                      ? null
+                      : composerDraftTarget
+                  }
                   onReplyToResponse={replyToResponseStable}
                   {...(activeProject && !runsOutsideHostCheckout
                     ? { onRunShellCommand: parentPanel?.runShellCommand ?? runShellCommandStable }
