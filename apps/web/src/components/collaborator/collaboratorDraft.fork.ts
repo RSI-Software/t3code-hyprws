@@ -1,9 +1,11 @@
 // Fork-only (colleague-collab): the read-only copy of a draft a shared thread shows the others.
 // Contexts travel as a kind and label only: never diffs, terminal text, or attachment bytes.
+// Citations of this thread travel whole, so others can mark them; it shows them that text anyway.
 import {
   COLLABORATOR_DRAFT_CHIPS_MAX,
   COLLABORATOR_DRAFT_TEXT_MAX_CHARS,
   type CollaboratorDraftFork,
+  type ThreadId,
 } from "@t3tools/contracts";
 import {
   assistantCitationLabel,
@@ -43,9 +45,17 @@ type DraftSource = Pick<
 const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
 /** The draft as others see it, or null when it holds nothing to show. */
-export function collaboratorDraftFork(draft: DraftSource | null): CollaboratorDraftFork | null {
+export function collaboratorDraftFork(
+  draft: DraftSource | null,
+  threadId: ThreadId,
+): CollaboratorDraftFork | null {
   if (draft === null) return null;
   const citations = collectAssistantCitations(draft.prompt);
+  const inline = citations
+    .map(({ citation }) => citation)
+    .filter((citation) => citation.threadId === threadId)
+    .slice(0, COLLABORATOR_DRAFT_CHIPS_MAX);
+  const shown = inline.length === 0 ? {} : { citations: inline };
   let quoted = "";
   let cursor = 0;
   for (const { citation, start, end } of citations) {
@@ -73,12 +83,15 @@ export function collaboratorDraftFork(draft: DraftSource | null): CollaboratorDr
     .slice(0, COLLABORATOR_DRAFT_CHIPS_MAX)
     .map(({ kind, label }) => ({ kind, label: sanitizeComposerContextLabel(label, kind) }));
   if (text.trim() === "" && chips.length === 0) return null;
-  if (text.length <= COLLABORATOR_DRAFT_TEXT_MAX_CHARS) return { text, truncated: false, chips };
+  if (text.length <= COLLABORATOR_DRAFT_TEXT_MAX_CHARS) {
+    return { text, truncated: false, chips, ...shown };
+  }
   // The end is what the writer is working on; never start on half a surrogate pair.
   const tail = text.slice(-COLLABORATOR_DRAFT_TEXT_MAX_CHARS);
   return {
     text: isLowSurrogate(tail.charCodeAt(0)) ? tail.slice(1) : tail,
     truncated: true,
     chips,
+    ...shown,
   };
 }
