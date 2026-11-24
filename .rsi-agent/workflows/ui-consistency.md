@@ -8,7 +8,7 @@ paths:
     - "apps/web/src/**/*.css"
   exclude:
     - "apps/web/src/**/*.test.tsx"
-context: [docs/internals/web-ui.md]
+context: [docs/internals/10_web-ui.md]
 needs: [checkout]
 ---
 
