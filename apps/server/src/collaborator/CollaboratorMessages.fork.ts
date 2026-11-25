@@ -22,25 +22,52 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 
+/** The whole reply the agent gives when a shared-thread message is between people. */
+const QUIET_MARKER_SPIKE = "(listening)";
+
 /**
- * What the agent reads. It names the collaborator and says they follow the thread live, so the
- * agent answers them here instead of drafting replies for the host to pass on.
+ * Spike RSI-712: every message in a shared thread reaches the agent with its author and one
+ * rule: answer only what is for you, otherwise reply with the quiet marker alone.
  */
+const sharedThreadRule = (others: string) =>
+  `This thread is shared: ${others} read it and your replies live, and people here also talk to each other. ` +
+  `Reply only when the message is for you: it asks you (the agent) to do, check, explain or decide something, or names you. ` +
+  `When it is people talking to each other (addressed to a person by name, a question only a person can answer, thanks, agreement, small talk, plans between them), ` +
+  `do nothing: no tools, no work, and reply with exactly ${QUIET_MARKER_SPIKE} and nothing else.`;
+
+const collaboratorPromptPrefix = (name: string) =>
+  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${sharedThreadRule(`the owner and ${name}`)}]\n\n`;
+
+const ownerPromptPrefix = (owner: string, others: string) =>
+  `[${owner}, the owner of this thread, wrote the message below. ${sharedThreadRule(`${owner} and ${others}`)}]\n\n`;
+
 export const collaboratorPrompt = (name: string, text: string) =>
   `${collaboratorPromptPrefix(name)}${text}`;
 
-const collaboratorPromptPrefix = (name: string) =>
-  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${name} reads this thread and your replies live, so answer ${name} here directly, as you would the owner.]\n\n`;
+const stripPrefix = (prefix: string, text: string) =>
+  text.startsWith(prefix) ? text.slice(prefix.length) : text;
 
 /** The attributed text and the context that shows the collaborator's own words beside their name. */
 export const collaboratorAttribution = (name: string, text: string) => {
   // A queued edit starts from the already attributed text, so the prefix is not repeated.
-  const own = text.startsWith(collaboratorPromptPrefix(name))
-    ? text.slice(collaboratorPromptPrefix(name).length)
-    : text;
+  const own = stripPrefix(collaboratorPromptPrefix(name), text);
   return {
     text: collaboratorPrompt(name, own),
     context: { collaboratorFork: { name, text: own } },
+  };
+};
+
+/** Spike RSI-712: the owner's own messages in a shared thread carry their author too. */
+export const ownerAttributionSpike = (
+  owner: string,
+  others: ReadonlyArray<string>,
+  text: string,
+) => {
+  const prefix = ownerPromptPrefix(owner, others.join(" and "));
+  const own = stripPrefix(prefix, text);
+  return {
+    text: `${prefix}${own}`,
+    context: { collaboratorFork: { name: owner, text: own } },
   };
 };
 

@@ -60,7 +60,11 @@ import {
   isLoopbackHost,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
-import { collaboratorAttribution, makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
+import {
+  collaboratorAttribution,
+  makeCollaboratorMessages,
+  ownerAttributionSpike,
+} from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
 import { COLLABORATOR_SUBJECT_PREFIX, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
@@ -789,8 +793,27 @@ const make = Effect.gen(function* () {
     if (!isCollaboratorSubject(subject)) {
       return {
         ...handlers,
-        [DISPATCH]: (command, options) =>
-          dispatch(withoutCollaboratorAttribution(command), options),
+        [DISPATCH]: (command, options) => {
+          const clean = withoutCollaboratorAttribution(command);
+          if (clean.type !== "message.dispatch" && clean.type !== "queued-run.edit") {
+            return dispatch(clean, options);
+          }
+          // Spike RSI-712: in a shared thread the owner's messages name their author as well.
+          const others = [...current.values()]
+            .filter((share) => share.threadIds.has(clean.threadId))
+            .map((share) => share.name);
+          if (others.length === 0) return dispatch(clean, options);
+          const owner = process.env.T3CODE_SPIKE_OWNER_NAME ?? "The owner";
+          const attribution = ownerAttributionSpike(owner, others, clean.text);
+          return dispatch(
+            {
+              ...clean,
+              text: attribution.text,
+              context: { version: 1, records: [], ...clean.context, ...attribution.context },
+            },
+            options,
+          );
+        },
         [LAUNCH]: (input, options) => launch(launchWithoutAttribution(input), options),
       };
     }

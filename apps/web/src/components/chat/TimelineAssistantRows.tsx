@@ -37,6 +37,15 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
   const messageText =
     text || (row.message.streaming || row.suppressEmptyResponse ? "" : gt("(empty response)"));
 
+  // Spike RSI-712: the agent judged a shared-thread message to be between people.
+  if (!row.message.streaming && text.trim() === "(listening)") {
+    return (
+      <div className="min-w-0 px-1 py-0.5 text-muted-foreground text-xs italic">
+        Agent stayed quiet: people talking
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
