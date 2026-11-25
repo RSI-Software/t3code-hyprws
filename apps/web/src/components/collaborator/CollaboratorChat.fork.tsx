@@ -40,7 +40,7 @@ import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { DismissedMessageFork } from "./CollaboratorMessageOutcome.fork";
+import { DismissedMessageFork, useWaitingListLabelFork } from "./CollaboratorMessageOutcome.fork";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 
@@ -228,6 +228,7 @@ function WaitingMessages({
   const gt = useGT();
   const timestampFormat = useEnvironmentSettings(environmentId).timestampFormat;
   const resolve = useAtomCommand(resolveMessageCommand);
+  const label = useWaitingListLabelFork(messages);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const run = async (message: CollaboratorMessageFork, decision: "send" | "dismiss") => {
     setBusyIds((ids) => new Set(ids).add(message.id));
@@ -244,10 +245,7 @@ function WaitingMessages({
 
   return (
     <section
-      aria-label={gt(
-        "{count, plural, one {{count} message waiting for the host} other {{count} messages waiting for the host}}",
-        { count: messages.length },
-      )}
+      aria-label={label}
       className="relative mx-auto flex w-full max-w-(--chat-content-max-width) flex-col pb-4"
     >
       <ol className="flex flex-col items-end gap-3" aria-live="polite">

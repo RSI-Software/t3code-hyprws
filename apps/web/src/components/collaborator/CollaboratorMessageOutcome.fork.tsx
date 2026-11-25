@@ -1,15 +1,17 @@
 // Fork-only (colleague-collab): what the host did with a collaborator's message, shown to them.
-// A sent one marks the message in the transcript; a dismissed one stays until they clear it.
-import type {
-  CollaboratorMessageFork,
-  OrchestrationMessageContext,
-  ScopedThreadRef,
+// A sent one marks the message, queued or in the transcript; a dismissed one stays until cleared.
+import { useAtomValue } from "@effect/atom-react";
+import {
+  type CollaboratorMessageFork,
+  type EnvironmentId,
+  isCollaboratorGrantFork,
+  type OrchestrationMessageContext,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { T, useGT } from "gt-react";
 import { CheckIcon, CircleSlashIcon, XIcon } from "lucide-react";
 
-import { useQuietThreadShell } from "~/state/entities";
+import { environmentSession } from "~/state/session";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
@@ -70,22 +72,37 @@ export function DismissedMessageFork({
   );
 }
 
-/** Under a collaborator's message the host sent from the waiting list, on collaborators' screens. */
+/** The waiting list's name: how many still wait, or that the host dismissed them all. */
+export function useWaitingListLabelFork(messages: ReadonlyArray<CollaboratorMessageFork>) {
+  const gt = useGT();
+  const count = messages.filter((message) => message.outcome === undefined).length;
+  return count === 0
+    ? gt("Messages the host dismissed")
+    : gt(
+        "{count, plural, one {{count} message waiting for the host} other {{count} messages waiting for the host}}",
+        { count },
+      );
+}
+
+/** Beside a collaborator's message the host sent from the waiting list, on collaborators' screens. */
 export function CollaboratorSentByHostFork({
   context,
-  threadRef,
+  environmentId,
 }: {
   readonly context: OrchestrationMessageContext | undefined;
-  readonly threadRef: ScopedThreadRef | null;
+  readonly environmentId: EnvironmentId;
 }) {
   return context?.collaboratorFork?.sentByHost === true ? (
-    <SentByHost threadRef={threadRef} />
+    <SentByHost environmentId={environmentId} />
   ) : null;
 }
 
-function SentByHost({ threadRef }: { readonly threadRef: ScopedThreadRef | null }) {
+function SentByHost({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const session = useAtomValue(environmentSession.sessionStateAtom(environmentId));
   // The host sent it, so only collaborators need telling.
-  if (useQuietThreadShell(threadRef)?.collaboratorFork === undefined) return null;
+  if (session._tag !== "Success" || !isCollaboratorGrantFork(session.value.permissions)) {
+    return null;
+  }
   return (
     <p className="me-1 flex items-center gap-1 text-muted-foreground text-xs">
       <CheckIcon aria-hidden className="size-3" />

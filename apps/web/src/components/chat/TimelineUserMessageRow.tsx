@@ -1122,7 +1122,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       </div>
       <UserMessageProjectedStatus row={row} />
       {/* fork-hook: colleague-collab/sent-by-host */}
-      <CollaboratorSentByHostFork context={row.message.context} threadRef={ctx.threadRef} />
+      <CollaboratorSentByHostFork
+        context={row.message.context}
+        environmentId={ctx.activeThreadEnvironmentId}
+      />
       {/* fork-hook-end */}
       {!folded || expanded ? (
         <div
