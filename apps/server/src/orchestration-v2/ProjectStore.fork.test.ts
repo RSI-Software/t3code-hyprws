@@ -1,6 +1,8 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { ProjectId } from "@t3tools/contracts";
+import { EventId, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -41,4 +43,78 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
       }),
     );
   },
+);
+
+it.effect("keeps a team project marked across a server restart until it is unmarked", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dbPath = `${yield* fs.makeTempDirectoryScoped()}/state.sqlite`;
+    const session = <A, E>(
+      body: (projects: ProjectStore.ProjectStoreV2["Service"]) => Effect.Effect<A, E>,
+    ) =>
+      Effect.flatMap(ProjectStore.ProjectStoreV2, body).pipe(
+        Effect.provide(
+          ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerFromPath(dbPath))),
+        ),
+      );
+    const projectId = ProjectId.make("project-team");
+    const at = "2026-11-25T00:00:00.000Z";
+    let sequence = 0;
+    const event = () => ({
+      sequence: ++sequence,
+      eventId: EventId.make(`event-team-${sequence}`),
+      aggregateKind: "project" as const,
+      aggregateId: projectId,
+      occurredAt: at,
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+    });
+    const update = (fields: { readonly title?: string; readonly teamFork?: boolean }) => ({
+      ...event(),
+      type: "project.meta-updated" as const,
+      payload: { projectId, ...fields, updatedAt: at },
+    });
+    const teamMarks = (projects: ProjectStore.ProjectStoreV2["Service"]) =>
+      Effect.all([
+        projects.listShells().pipe(Effect.map((shells) => shells.map((shell) => shell.teamFork))),
+        projects.get(projectId).pipe(Effect.map((row) => Option.getOrNull(row)?.teamFork)),
+      ]);
+
+    yield* session((projects) =>
+      Effect.gen(function* () {
+        yield* projects.apply({
+          ...event(),
+          type: "project.created",
+          payload: {
+            projectId,
+            title: "Team project",
+            workspaceRoot: "/tmp/project-team",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: at,
+            updatedAt: at,
+          },
+        });
+        yield* projects.apply(update({ teamFork: true }));
+      }),
+    );
+
+    const afterRestart = yield* session((projects) =>
+      Effect.gen(function* () {
+        const marked = yield* teamMarks(projects);
+        // An update that leaves the mark out keeps it.
+        yield* projects.apply(update({ title: "Renamed team project" }));
+        const renamed = yield* teamMarks(projects);
+        yield* projects.apply(update({ teamFork: false }));
+        return { marked, renamed, unmarked: yield* teamMarks(projects) };
+      }),
+    );
+    assert.deepStrictEqual(afterRestart, {
+      marked: [[true], true],
+      renamed: [[true], true],
+      unmarked: [[undefined], undefined],
+    });
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

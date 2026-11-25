@@ -3,6 +3,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { TeamProjectFieldFork, TeamProjectUpdateFieldFork } from "./teamProject.fork.ts"; // fork-hook: colleague-collab/team-project-import
 import {
   CommandId,
   ForwardCompatibleUnion,
@@ -194,6 +195,7 @@ export const Project = Schema.Struct({
   trackedFolders: Schema.optional(ProjectTrackedFolders),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  ...TeamProjectFieldFork, // fork-hook: colleague-collab/team-project-field
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -236,6 +238,7 @@ export const ProjectUpdatePayload = Schema.Struct({
       description: "Threads and files are kept.",
     }),
   ),
+  ...TeamProjectUpdateFieldFork, // fork-hook: colleague-collab/team-project-update
 });
 export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
 

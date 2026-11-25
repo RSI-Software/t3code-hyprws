@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SqlSchema from "effect/sql/SqlSchema";
 import { ProjectRowThreadEnvModeFork } from "./ProjectStore.fork.ts"; // fork-hook: worktrunk-hooks/project-row-env-mode
+import * as TeamProjectsFork from "../collaborator/TeamProjects.fork.ts"; // fork-hook: colleague-collab/team-project-import
 
 export class ProjectStoreV2Error extends Schema.TaggedError<ProjectStoreV2Error>()(
   "ProjectStoreV2Error",
@@ -45,6 +46,7 @@ export const ProjectRow = Schema.Struct({
   trackedFolders: ProjectTrackedFolders,
   pinnedAt: Schema.NullOr(IsoDateTime),
   archivedAt: Schema.NullOr(IsoDateTime),
+  teamFork: Schema.optional(Schema.Boolean), // fork-hook: colleague-collab/team-project-row
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -78,6 +80,7 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     trackedFolders: row.trackedFolders,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
+    ...TeamProjectsFork.teamProjectFieldFork(row), // fork-hook: colleague-collab/team-project-field
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -247,6 +250,7 @@ export const make = Effect.gen(function* () {
 
   const apply: ProjectStoreV2["Service"]["apply"] = Effect.fn("ProjectStoreV2.apply")(
     function* (event) {
+      yield* TeamProjectsFork.applyTeamProjectFork(sql, event).pipe(mapError("apply")); // fork-hook: colleague-collab/team-project-apply
       if (event.type === "project.created") {
         const payload = event.payload;
         return yield* upsertRow({
@@ -314,6 +318,7 @@ export const make = Effect.gen(function* () {
         options?.projectIds === undefined ? undefined : { projectIds: options.projectIds },
       ).pipe(Effect.map((rows) => rows.map(toShell)));
     }),
+    ...TeamProjectsFork.teamProjectReadsFork({ sql, get, list, toShell, mapError }), // fork-hook: colleague-collab/team-project-reads
   });
 });
 
