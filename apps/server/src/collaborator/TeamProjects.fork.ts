@@ -11,20 +11,26 @@ import * as SqlClient from "effect/sql/SqlClient";
 export const teamProjectFieldFork = (row: { readonly teamFork?: boolean | undefined }) =>
   row.teamFork === true ? { teamFork: true } : {};
 
-/** Projects the mark; runs inside the event's commit transaction, so it replays with it. */
-export const applyTeamProjectFork = (sql: SqlClient.SqlClient, event: ApplicationProjectEvent) => {
+/**
+ * Projects the mark; runs inside the event's commit transaction, so it replays with it.
+ * Untraced: it runs per event inside `ProjectStoreV2.apply`'s span.
+ */
+export const applyTeamProjectFork = Effect.fnUntraced(function* (
+  sql: SqlClient.SqlClient,
+  event: ApplicationProjectEvent,
+) {
   const projectId = event.payload.projectId;
   const mark = event.type === "project.meta-updated" ? event.payload.teamFork : undefined;
   if (event.type === "project.deleted" || mark === false) {
-    return sql`DELETE FROM fork_team_projects WHERE project_id = ${projectId}`.pipe(Effect.asVoid);
+    yield* sql`DELETE FROM fork_team_projects WHERE project_id = ${projectId}`;
+  } else if (mark === true) {
+    yield* sql`
+      INSERT INTO fork_team_projects (project_id, marked_at)
+      VALUES (${projectId}, ${event.occurredAt})
+      ON CONFLICT (project_id) DO NOTHING
+    `;
   }
-  if (mark !== true) return Effect.void;
-  return sql`
-    INSERT INTO fork_team_projects (project_id, marked_at)
-    VALUES (${projectId}, ${event.occurredAt})
-    ON CONFLICT (project_id) DO NOTHING
-  `.pipe(Effect.asVoid);
-};
+});
 
 /**
  * Upstream's project reads with the mark attached. Spread last into the store, so it replaces
