@@ -1406,7 +1406,10 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
         withToolSpans(
           withClientInput(
             withToolVisibility(
-              withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+              withAdvertisedSchemas(
+                toolkit,
+                McpServer.registerToolkit(decodeAsAdvertised(toolkit)),
+              ),
             ),
           ),
         ),
