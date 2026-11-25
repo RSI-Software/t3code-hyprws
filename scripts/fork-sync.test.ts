@@ -10,6 +10,7 @@ import type { FoldCommit } from "./fork-fold.ts";
 import {
   attentionIssueBody,
   blockingShaMarker,
+  candidateCi,
   checkFailureDetail,
   closeBlocks,
   failureMarker,
@@ -171,6 +172,12 @@ interface CiFake {
   readonly known?: ReadonlyArray<string>;
   /** A candidate push starts no run. */
   readonly silent?: boolean;
+  /** Each red job's failed log; set, the run also carries hyprws CI's red `CI` summary job. */
+  readonly log?: string;
+  /** The run's attempt before any rerun. */
+  readonly attempt?: number;
+  /** The conclusion a `gh run rerun --failed` attempt ends in. */
+  readonly rerun?: string;
 }
 
 const exec = (
@@ -182,31 +189,43 @@ const exec = (
 ): Recording => {
   const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
   const candidates = new Set(handlers.ci?.known ?? []);
-  const conclusion = handlers.ci?.conclusion ?? "success";
+  const log = handlers.ci?.log;
+  let conclusion = handlers.ci?.conclusion ?? "success";
+  let attempt = handlers.ci?.attempt ?? 1;
   let pending = handlers.ci?.pending ?? 0;
+  // Right after a rerun, GitHub still lists the replaced attempt as completed.
+  let replaced: string | null = null;
   const fakeCi = (args: ReadonlyArray<string>): CommandResult => {
+    if (args[1] === "rerun") {
+      replaced = conclusion;
+      conclusion = handlers.ci?.rerun ?? conclusion;
+      attempt += 1;
+      return ok();
+    }
+    if (args.includes("--log-failed"))
+      return ok(args[args.indexOf("--job") + 1] === "3" ? "test_server: failure" : (log ?? ""));
     if (args[1] === "view")
       return ok(
         JSON.stringify({
           jobs: [
             { name: "Check", conclusion: "success", url: `${RUN_URL}/job/1`, status: "completed" },
             { name: "Test Server 2", conclusion, url: `${RUN_URL}/job/2`, status: "completed" },
+            ...(log === undefined
+              ? []
+              : [{ name: "CI", conclusion, url: `${RUN_URL}/job/3`, status: "completed" }]),
           ],
         }),
       );
     if (!candidates.has(args[args.indexOf("--commit") + 1] ?? "")) return ok("[]");
     const done = pending <= 0;
     pending -= 1;
-    return ok(
-      JSON.stringify([
-        {
-          databaseId: 7,
-          status: done ? "completed" : "in_progress",
-          conclusion: done ? conclusion : "",
-          url: RUN_URL,
-        },
-      ]),
-    );
+    const run = { databaseId: 7, attempt, status: "completed", conclusion, url: RUN_URL };
+    if (replaced !== null) {
+      const stale = { ...run, attempt: attempt - 1, conclusion: replaced };
+      replaced = null;
+      return ok(JSON.stringify([stale]));
+    }
+    return ok(JSON.stringify([done ? run : { ...run, status: "in_progress", conclusion: "" }]));
   };
   return {
     calls,
@@ -660,6 +679,33 @@ it("leaves the trunk alone and names the red jobs when hyprws CI is red on the c
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
     },
   );
+});
+
+const FLAKE_LOG =
+  "Error: [vitest] Browser connection was closed while running tests. Was the page closed unexpectedly?";
+
+it.each([
+  { case: "a first attempt red only on a flake", log: FLAKE_LOG, attempt: 1, reruns: 1 },
+  { case: "a real failure", log: "FAIL src/thread.test.ts > keeps order", attempt: 1, reruns: 0 },
+  { case: "a second attempt red on a flake", log: FLAKE_LOG, attempt: 2, reruns: 0 },
+])("reruns $case $reruns time(s) and reports the attempt it waited out", (row) => {
+  const sha = "a".repeat(40);
+  const recording = exec({
+    ci: { known: [sha], conclusion: "failure", rerun: "success", ...row },
+  });
+  const { value } = capture(() => candidateCi(recording.runner, NodeOS.tmpdir(), sha));
+  const reruns = recording.calls.filter(({ args }) => args[1] === "rerun");
+  assert.strictEqual(reruns.length, row.reruns);
+  assert.strictEqual(value.conclusion, row.reruns === 0 ? "failure" : "success");
+  if (row.reruns === 1)
+    assert.deepStrictEqual(reruns[0]?.args, [
+      "run",
+      "rerun",
+      "7",
+      "--failed",
+      "--repo",
+      "RSI-Software/t3code-hyprws",
+    ]);
 });
 
 it("refuses the candidate push when the local fork:ci battery is red", () => {
