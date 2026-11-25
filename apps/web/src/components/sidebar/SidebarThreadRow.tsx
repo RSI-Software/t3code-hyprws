@@ -133,6 +133,7 @@ import { InlineButton } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { ThreadArtifactBadgeFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
 import { ThreadHoverCardArtifactsFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-hover-card-artifacts-import
+import { SHARED_THREAD_CARD_CLASS_FORK, SharedByFork } from "../collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
 import { Menu, MenuItem, MenuItemDetail, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
@@ -608,6 +609,7 @@ type SidebarThreadRowProps = {
   grouped?: boolean | undefined; // fork-hook: thread-ordering/group-member-prop
   groupParent?: boolean | undefined; // fork-hook: thread-ordering/group-parent-prop
   groupCompact?: boolean | undefined; // fork-hook: thread-ordering/group-compact-prop
+  sharedByFork?: string | null | undefined; // fork-hook: colleague-collab/shared-card-prop
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's environment and PR line under it.
@@ -1069,6 +1071,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
     props.sortable?.isDragging &&
       "bg-sidebar bg-linear-to-b from-sidebar-row-active to-sidebar-row-active text-sidebar-foreground opacity-100 shadow-lg",
+    props.sharedByFork !== undefined && SHARED_THREAD_CARD_CLASS_FORK, // fork-hook: colleague-collab/shared-card
   );
   const sortable = props.sortable;
   const sortableRootProps = sortable
@@ -1296,13 +1299,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   // Only the trailing icons would remain, so the row moves them to the title line instead.
   const metaLineEmpty =
     props.environmentLabel === null &&
+    props.sharedByFork === undefined && // fork-hook: colleague-collab/shared-card
     prBadge === null &&
     issueBadge === null &&
     artifactBadgeFork === null && // fork-hook: thread-artifacts/thread-artifact-badge
     diff === null &&
     runningTerminalIds.length === 0;
+  const sharedByLeadFork =
+    props.sharedByFork === undefined ? null : <SharedByFork name={props.sharedByFork} />; // fork-hook: colleague-collab/shared-card
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
+      {sharedByLeadFork /* fork-hook: colleague-collab/shared-card */}
       {props.environmentLabel !== null ? (
         <>
           <EnvironmentMachineIcon
