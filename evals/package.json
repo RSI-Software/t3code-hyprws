@@ -13,7 +13,8 @@
     "test-signal": "node --env-file-if-exists=../.env test-signal/run.ts",
     "workflow-authoring": "node --env-file-if-exists=../.env workflow-authoring/run.ts",
     "typecheck": "effect-tsgo tsrs --noEmit",
-    "test": "vp test run --config ../vite.config.ts --dir ."
+    "test": "vp test run --config ../vite.config.ts --dir .",
+    "shared-thread-quiet": "node --env-file-if-exists=../.env shared-thread-quiet/run.ts"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
