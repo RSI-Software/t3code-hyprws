@@ -330,6 +330,10 @@ it.effect("an accepted invite saves each side as the other's colleague, fenced p
         subject: "colleague:jo",
       });
       assert.deepStrictEqual(shellThreads(yield* Queue.take(items)), ["sam-2"]);
+      assert.deepStrictEqual(
+        (yield* sam.colleagues.list).map((colleague) => colleague.threadIds),
+        [[ThreadId.make("sam-2")]],
+      );
       assert.isFalse(sam.links.some((link) => link.subject === "colleague:jo"));
 
       // The host's app attaches Sam's environment with a one-time code Sam's server mints.

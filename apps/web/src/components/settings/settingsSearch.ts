@@ -1,6 +1,7 @@
 import { HOSTED_APP_CHANNEL } from "~/branding";
 import { isElectron } from "~/env";
 import { externalWorkspaceSymlinksSearchItemsFork } from "./settingsSearch.fork"; // fork-hook: upstream-fixes/settings-search-external-symlinks-import
+import { colleaguesSearchItemsFork } from "./settingsSearch.fork"; // fork-hook: colleague-collab/settings-search-import
 import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/utils";
 import { STATIC_KEYBINDING_COMMANDS, type KeybindingCommand } from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -1414,6 +1415,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "GitHub repository link destination",
     to: "/settings/source-control",
   },
+  ...colleaguesSearchItemsFork, // fork-hook: colleague-collab/settings-search-items
   {
     id: "network-access",
     title: msg("Network access"),
