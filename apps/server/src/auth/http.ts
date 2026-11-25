@@ -41,6 +41,10 @@ import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/trac
 import { deriveAuthClientMetadata } from "./utils.ts";
 import { checkRequestDpopProof } from "./dpop.ts";
 import { requestUrl } from "../requestUrl.ts";
+import {
+  isCollaboratorHttpRefusedFork,
+  isCollaboratorSubject,
+} from "../collaborator/collaboratorSubject.fork.ts"; // fork-hook: colleague-collab/http-refuse-import
 
 const CREDENTIAL_RESPONSE_HEADERS = {
   "cache-control": "no-store",
@@ -186,6 +190,8 @@ export const authenticateMediaRequest =
     if (!session.scopes.includes(requiredScope)) {
       return yield* failEnvironmentScopeRequired(requiredScope);
     }
+    if (isCollaboratorSubject(session.subject))
+      return yield* failEnvironmentScopeRequired(requiredScope); // fork-hook: colleague-collab/media-refuse
     return session;
   });
 
@@ -270,6 +276,8 @@ export const layerAuthenticatedAuth = Layer.effect(
           ),
         );
         const endTime = yield* Clock.currentTimeNanos;
+        if (isCollaboratorHttpRefusedFork(session.subject, request.url))
+          return yield* failEnvironmentScopeRequired("orchestration:read"); // fork-hook: colleague-collab/http-refuse
         const handler = httpEffect.pipe(
           Effect.provideService(EnvironmentAuthenticatedPrincipal, {
             ...session,

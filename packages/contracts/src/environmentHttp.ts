@@ -312,6 +312,7 @@ export type EnvironmentHttpCommonError = typeof EnvironmentHttpCommonError.Type;
 
 const EnvironmentAuthenticationErrors = [
   EnvironmentAuthInvalidError,
+  EnvironmentScopeRequiredError, // fork-hook: colleague-collab/http-endpoint-refuse
   EnvironmentInternalError,
 ] as const;
 
