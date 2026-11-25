@@ -35,9 +35,9 @@ export function openInNewWindowMenuItems(
 
 /** Fork: share the thread with a collaborator's app through a pairing link (colleague-collab). */
 export function collaboratorShareMenuItems(
-  state: Pick<ThreadActionMenuState, "canOperate">,
+  state: Pick<ThreadActionMenuState, "canShareWithCollaboratorFork">,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
-  return state.canOperate
+  return state.canShareWithCollaboratorFork === true
     ? [{ id: "share-collaborator" as const, label: "Share with collaborator…", icon: "user-plus" }]
     : [];
 }

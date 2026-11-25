@@ -38,14 +38,12 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ACCESS, setAccessCommand, threadSharesQuery } from "./collaboratorAccess.fork";
-import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
+import {
+  collaboratorShareDialogThreadAtom,
+  shareThreadWithCollaboratorCommand,
+} from "./collaboratorShareDialogState.fork";
 
 const isCollaboratorName = Schema.is(CollaboratorNameFork);
-
-const shareThreadWithCollaboratorCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
-  label: "share thread with collaborator",
-  tag: WS_METHODS.collaboratorShareThreadFork,
-});
 
 const unshareThreadCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "stop sharing thread with collaborator",
