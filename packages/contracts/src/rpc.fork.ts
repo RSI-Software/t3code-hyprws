@@ -133,6 +133,8 @@ import {
   CollaboratorResolveMessageInputFork,
   CollaboratorSetAccessInputFork,
   CollaboratorSetTypingInputFork,
+  CollaboratorSideChatInputFork,
+  CollaboratorSideChatStateFork,
   CollaboratorSubmitMessageInputFork,
   CollaboratorShareErrorFork,
   CollaboratorShareThreadInputFork,
@@ -156,6 +158,8 @@ export const collaboratorRpcFork = {
     collaboratorResolveMessageFork: "collaborator.resolveMessageFork",
     collaboratorSetTypingFork: "collaborator.setTypingFork",
     collaboratorSubscribeTypingFork: "collaborator.subscribeTypingFork",
+    collaboratorSubscribeSideChatFork: "collaborator.subscribeSideChatFork",
+    collaboratorSideChatFork: "collaborator.sideChatFork",
   } as const,
   rpcs: [
     Rpc.make("collaborator.shareThreadFork", {
@@ -205,6 +209,17 @@ export const collaboratorRpcFork = {
       success: CollaboratorTypingStateFork,
       error: EnvironmentAuthorizationError,
       stream: true,
+    }),
+    // SPIKE RSI-713: the people-only side chat beside a shared thread.
+    Rpc.make("collaborator.subscribeSideChatFork", {
+      payload: Schema.Struct({ threadId: ThreadId }),
+      success: CollaboratorSideChatStateFork,
+      error: EnvironmentAuthorizationError,
+      stream: true,
+    }),
+    Rpc.make("collaborator.sideChatFork", {
+      payload: CollaboratorSideChatInputFork,
+      error: Schema.Union([CollaboratorMessageErrorFork, EnvironmentAuthorizationError]),
     }),
   ] as const,
 };

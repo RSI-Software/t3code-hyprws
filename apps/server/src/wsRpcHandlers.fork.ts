@@ -45,5 +45,9 @@ export const makeWsRpcHandlersFork = Effect.gen(function* () {
       collaborators.typingHandlers(null)["collaborator.setTypingFork"](input),
     "collaborator.subscribeTypingFork": (input) =>
       collaborators.typingHandlers(null)["collaborator.subscribeTypingFork"](input),
+    "collaborator.subscribeSideChatFork": (input) =>
+      collaborators.typingHandlers(null)["collaborator.subscribeSideChatFork"](input),
+    "collaborator.sideChatFork": (input) =>
+      collaborators.typingHandlers(null)["collaborator.sideChatFork"](input),
   });
 });

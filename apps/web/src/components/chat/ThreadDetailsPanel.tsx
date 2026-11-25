@@ -29,7 +29,8 @@ import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadRepositorySections } from "./ThreadRepositorySections";
 import { ThreadServersPanel } from "./ThreadServersPanel";
-import { ThreadCollaboratorsPanelFork } from "../collaborator/ThreadCollaboratorsPanel.fork"; // fork-hook: colleague-collab/details-panel-import
+import { ThreadCollaboratorsPanelFork } from "../collaborator/ThreadCollaboratorsPanel.fork";
+import { CollaboratorSideChatFork } from "../collaborator/CollaboratorSideChat.fork"; // fork-hook: colleague-collab/details-panel-import
 import {
   ThreadDetailsContext,
   ThreadDetailsUsage,
@@ -311,6 +312,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               {/* fork-hook: colleague-collab/details-panel */}
               <ThreadCollaboratorsPanelFork
                 show={density === "full" && !props.draftId && visible.collaborators}
+                environmentId={props.environmentId}
+                threadId={props.threadId}
+              />
+              <CollaboratorSideChatFork
+                show={density === "full" && !props.draftId}
                 environmentId={props.environmentId}
                 threadId={props.threadId}
               />

@@ -13,6 +13,13 @@ import {
   type CollaboratorResolveMessageInputFork,
   type CollaboratorSetAccessInputFork,
   type CollaboratorSetTypingInputFork,
+  type CollaboratorSideChatInputFork,
+  type CollaboratorSideChatStateFork,
+  CollaboratorMessageDeliveryErrorFork,
+  CollaboratorMessageMissingErrorFork,
+  CommandId,
+  MessageId,
+  ThreadId,
   CollaboratorShareErrorFork,
   type CollaboratorSubmitMessageInputFork,
   type CollaboratorShareThreadInputFork,
@@ -62,6 +69,7 @@ import {
 } from "../startupAccess.ts";
 import { collaboratorAttribution, makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
+import { makeCollaboratorSideChat } from "./CollaboratorSideChat.fork.ts";
 import { COLLABORATOR_SUBJECT_PREFIX, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
 
@@ -220,6 +228,8 @@ const {
   collaboratorResolveMessageFork: RESOLVE,
   collaboratorSetTypingFork: SET_TYPING,
   collaboratorSubscribeTypingFork: TYPING,
+  collaboratorSubscribeSideChatFork: SIDE_CHAT_STATE,
+  collaboratorSideChatFork: SIDE_CHAT,
 } = WS_METHODS;
 
 type MessageError = CollaboratorMessageErrorFork | EnvironmentAuthorizationError;
@@ -246,6 +256,10 @@ interface CollaboratorTypingHandlersFork {
   readonly [TYPING]: (input: {
     readonly threadId: string;
   }) => Stream.Stream<CollaboratorTypingStateFork, EnvironmentAuthorizationError>;
+  readonly [SIDE_CHAT_STATE]: (input: {
+    readonly threadId: string;
+  }) => Stream.Stream<CollaboratorSideChatStateFork, EnvironmentAuthorizationError>;
+  readonly [SIDE_CHAT]: (input: CollaboratorSideChatInputFork) => Effect.Effect<void, MessageError>;
 }
 
 // `options: never` accepts each upstream handler whatever its RPC options type.
@@ -374,6 +388,8 @@ const COLLABORATOR_THREAD_RPCS: ReadonlySet<string> = new Set([
   RESOLVE,
   SET_TYPING,
   TYPING,
+  SIDE_CHAT_STATE,
+  SIDE_CHAT,
   ORCHESTRATION_V2_WS_METHODS.getTurnDiff,
   ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff,
   ORCHESTRATION_V2_WS_METHODS.getTurnItem,
@@ -471,6 +487,7 @@ const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const messages = yield* makeCollaboratorMessages;
   const typing = yield* makeCollaboratorTyping;
+  const sideChat = yield* makeCollaboratorSideChat;
   // The local tunnel's public hostname, then the origin the sharing client reached, then a guess.
   const pairingBaseUrl = Effect.fn("CollaboratorSharesFork.pairingBaseUrl")(function* (
     linkBaseUrl: string | undefined,
@@ -742,9 +759,73 @@ const make = Effect.gen(function* () {
       Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
     );
 
+  // SPIKE RSI-713: sending a line across dispatches it as its author's message.
+  const sendLineAcross = Effect.fn("CollaboratorSharesFork.sendLineAcross")(function* (
+    threadId: string,
+    lineId: string,
+    by: string,
+  ) {
+    const undelivered = (cause: unknown) =>
+      new CollaboratorMessageDeliveryErrorFork({ threadId: ThreadId.make(threadId), cause });
+    const line = yield* sideChat.find(threadId, lineId);
+    if (line === undefined) {
+      return yield* new CollaboratorMessageMissingErrorFork({ messageId: lineId });
+    }
+    if (line.sentBy !== undefined) return;
+    const attribution =
+      line.name === undefined ? undefined : collaboratorAttribution(line.name, line.text);
+    yield* threads
+      .dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`side-line:${line.id}`),
+        threadId: ThreadId.make(threadId),
+        messageId: MessageId.make(`side-line:${line.id}`),
+        text: attribution?.text ?? line.text,
+        context: { version: 1, records: [], ...attribution?.context },
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+        createdBy: "user",
+        creationSource: "server",
+      })
+      .pipe(Effect.mapError(undelivered));
+    yield* sideChat.markSent(line.id, by);
+  });
+
+  const sideChatState = (
+    threadId: string,
+    context: Stream.Stream<{ shared: boolean; you: string | undefined; canSend: boolean }>,
+  ) =>
+    Stream.zipLatestWith(
+      context,
+      sideChat.lines(threadId),
+      (ctx, lines): CollaboratorSideChatStateFork => ({
+        shared: ctx.shared,
+        canSend: ctx.canSend,
+        lines: ctx.shared ? lines : [],
+        ...(ctx.you === undefined ? {} : { you: ctx.you }),
+      }),
+    );
+
   const typingHandlers = (subject: string | null): CollaboratorTypingHandlersFork => {
     if (subject === null || !isCollaboratorSubject(subject)) {
       return {
+        [SIDE_CHAT_STATE]: ({ threadId }) =>
+          sideChatState(
+            threadId,
+            SubscriptionRef.changes(ref).pipe(
+              Stream.map((shares) => ({
+                shared: [...shares.values()].some((share) => share.threadIds.has(threadId)),
+                you: undefined,
+                canSend: true,
+              })),
+            ),
+          ),
+        [SIDE_CHAT]: ({ threadId, say, send }) =>
+          say !== undefined
+            ? sideChat.say(threadId, undefined, say)
+            : send !== undefined
+              ? sendLineAcross(threadId, send, "Host")
+              : Effect.void,
         [SET_TYPING]: ({ threadId, typing: on, ...writing }) => {
           const typist = { ...HOST_TYPIST, ...writing };
           return on ? typing.start(threadId, typist) : typing.stop(threadId, typist);
@@ -762,6 +843,41 @@ const make = Effect.gen(function* () {
       };
     }
     return {
+      [SIDE_CHAT_STATE]: ({ threadId }) =>
+        sideChatState(
+          threadId,
+          SubscriptionRef.changes(ref).pipe(
+            Stream.map((shares) => ({
+              shared: shares.get(subject)?.threadIds.has(threadId) === true,
+              you: shares.get(subject)?.name,
+              canSend: shares.get(subject)?.threadIds.get(threadId) === "send",
+            })),
+          ),
+        ),
+      [SIDE_CHAT]: ({ threadId, say, send }) => {
+        const share = current.get(subject);
+        const access = share?.threadIds.get(threadId);
+        if (share === undefined || access === undefined) {
+          return Effect.fail(notShared(AuthOrchestrationOperateScope));
+        }
+        if (say !== undefined) return sideChat.say(threadId, share.name, say);
+        if (send === undefined) return Effect.void;
+        if (access === "send") return sendLineAcross(threadId, send, share.name);
+        // `approve`: only their own line, and it waits for the host like any other message.
+        return Effect.gen(function* () {
+          const line = yield* sideChat.find(threadId, send);
+          if (line === undefined || line.name !== share.name) return yield* needsApproval;
+          yield* messages.exclusive(
+            messages.submit({
+              subject,
+              name: share.name,
+              threadId: ThreadId.make(threadId),
+              text: line.text,
+            }),
+          );
+          yield* sideChat.markSent(line.id, `${share.name}, for approval`);
+        });
+      },
       [SET_TYPING]: ({ threadId, typing: on, ...writing }) => {
         if (!on) return typing.stop(threadId, { subject, ...writing });
         const share = current.get(subject);

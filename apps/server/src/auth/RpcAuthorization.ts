@@ -207,6 +207,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.collaboratorResolveMessageFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/messages-rpc-auth
   [WS_METHODS.collaboratorSetTypingFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/typing-rpc-auth
   [WS_METHODS.collaboratorSubscribeTypingFork]: AuthOrchestrationReadScope, // fork-hook: colleague-collab/typing-rpc-auth
+  [WS_METHODS.collaboratorSubscribeSideChatFork]: AuthOrchestrationReadScope, // fork-hook: colleague-collab/typing-rpc-auth
+  [WS_METHODS.collaboratorSideChatFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/typing-rpc-auth
   [WS_METHODS.assetsCreateUrl]: AuthOrchestrationReadScope,
   [WS_METHODS.assetsPersistChatAttachments]: AuthOrchestrationOperateScope,
   [WS_METHODS.attachmentsCreateUploadUrl]: AuthOrchestrationOperateScope,

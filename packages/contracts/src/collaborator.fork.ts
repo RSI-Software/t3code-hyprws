@@ -157,6 +157,36 @@ export const CollaboratorSetTypingInputFork = Schema.Struct({
 });
 export type CollaboratorSetTypingInputFork = typeof CollaboratorSetTypingInputFork.Type;
 
+/** SPIKE RSI-713: a line in a shared thread's people-only side chat; the agent never reads it. */
+export const CollaboratorSideLineFork = Schema.Struct({
+  id: Schema.String,
+  /** Absent for the host. */
+  name: Schema.optional(Schema.String),
+  text: Schema.String,
+  at: IsoDateTime,
+  /** Set once someone sent the line across to the agent. */
+  sentBy: Schema.optional(Schema.String),
+});
+export type CollaboratorSideLineFork = typeof CollaboratorSideLineFork.Type;
+
+export const CollaboratorSideChatStateFork = Schema.Struct({
+  shared: Schema.Boolean,
+  /** This session's own name; absent for the host. */
+  you: Schema.optional(Schema.String),
+  /** Whether this session may send a line across without the host's approval. */
+  canSend: Schema.Boolean,
+  lines: Schema.Array(CollaboratorSideLineFork),
+});
+export type CollaboratorSideChatStateFork = typeof CollaboratorSideChatStateFork.Type;
+
+/** `say` adds a line; `send` turns an existing line into an authored message for the agent. */
+export const CollaboratorSideChatInputFork = Schema.Struct({
+  threadId: ThreadId,
+  say: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2_000))),
+  send: Schema.optional(Schema.String),
+});
+export type CollaboratorSideChatInputFork = typeof CollaboratorSideChatInputFork.Type;
+
 /** Who wrote a user message the host's agent got from a collaborator. Only the server sets it. */
 export const CollaboratorAttributionFork = Schema.Struct({
   name: Schema.String,
