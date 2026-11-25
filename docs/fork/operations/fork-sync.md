@@ -53,10 +53,12 @@ The land run pushes the trunk directly, so **`sync/candidate` runs `hyprws CI`**
 2. A new sha **passes `vp run fork:ci`** first
 3. It **force-pushes** to `sync/candidate`
 4. The driver **waits out the whole run**
-5. Only **that green sha** reaches the trunk
+5. A **known flake** reruns its failed jobs **once**
+6. Only **that green sha** reaches the trunk
 
 `sync/candidate` has **no ruleset**; waiting out the run makes **every red job show**.
-A run that **never starts or never finishes** inside its deadline is red; `candidateCi` in `scripts/fork-sync.ts` owns the deadlines.
+A run that **never starts or never finishes** inside its deadline is red; `candidateCi` in `scripts/fork-sync.ts` owns the deadlines and the **flake signatures**.
+A **second attempt** never reruns, and a red **reused run** gets the same one rerun.
 On red, **`hyprws` stays** and `ci.jobs` names each red job.
 `fork:ci` **skips stale-delete** on a candidate: every commit is a replay.
 A `hyprws` push of a sha **already green on `sync/candidate`** skips every `hyprws CI` job.
@@ -253,7 +255,7 @@ The **Sync job summary** carries the rendered report; **conflict tables** live i
 
 ### Bot token
 
-Create a **fine-grained token** owned by the automation actor, scoped to this repository, with read-and-write **Contents** and **Workflows**.
+Create a **fine-grained token** owned by the automation actor, scoped to this repository, with read-and-write **Contents**, **Workflows**, and **Actions** (the flake rerun).
 Store it as the **`HYPRWS_MIRROR_TOKEN` secret** of the `hyprws-sync` environment, which **only `hyprws` can deploy** to.
 **Only its `sync/candidate` push starts `hyprws CI`**; a `GITHUB_TOKEN` push starts no workflow.
 A `sync/resolution` push **runs only trunk files**, so a resolver never reaches the token.
@@ -322,7 +324,7 @@ T3 Connect **stays dark** unless every `T3CODE_RELAY_URL` and `T3CODE_CLERK_*` *
 - **Never `--force`** the trunk or `main`
 - An **open issue**: resolve its stop
 - A **red candidate**: fix at the tip in a session
-- A **flake**: `gh run rerun --failed`, then rerun
+- Other flakes: **`gh run rerun --failed`**, rerun
 - A **failed stable release**: fix and rerun
 - **Never move** a published tag
 
