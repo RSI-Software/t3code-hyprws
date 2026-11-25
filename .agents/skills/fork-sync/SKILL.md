@@ -243,7 +243,7 @@ The attention issue names each red job instead of a seam.
 - **Lost hooks:** restore per [Tip work](#tip-work)
 - **Known flake:** the land run reran it once
 - **Other flake:** `gh run rerun --failed`; rerun sync
-- **Never started:** check the mirror token
+- **Never started:** check the sync app key
 - **Never:** weaken a check
 
 ## Job
