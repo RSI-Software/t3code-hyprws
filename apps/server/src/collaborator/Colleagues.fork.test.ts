@@ -1,0 +1,335 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import { assert, it } from "@effect/vitest";
+import {
+  COLLABORATOR_SCOPES,
+  COLLEAGUE_FORGET_ROUTE_FORK,
+  COLLEAGUE_PAIR_CLIENT_ROUTE_FORK,
+  type ColleagueErrorFork,
+  EnvironmentId,
+  type OrchestrationV2ShellStreamItem,
+  type OrchestrationV2ThreadShell,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+import { HttpClient, HttpClientResponse } from "effect/http";
+
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ServerConfig from "../config.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import { ensureForkSchema } from "../persistence/ForkSchema.ts";
+import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
+import * as Colleagues from "./Colleagues.fork.ts";
+
+const now = DateTime.makeUnsafe("2026-11-25T00:00:00.000Z");
+const instanceId = ProviderInstanceId.make("codex");
+const threadShell = (id: string): OrchestrationV2ThreadShell => ({
+  id: ThreadId.make(id),
+  projectId: ProjectId.make(`p-${id}`),
+  title: `Thread ${id}`,
+  providerInstanceId: instanceId,
+  modelSelection: { instanceId, model: "gpt-5.4" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  branch: null,
+  worktreePath: null,
+  activeProviderThreadId: null,
+  lineage: { rootThreadId: ThreadId.make(id), parentThreadId: null, relationshipToParent: null },
+  forkedFrom: null,
+  createdBy: "user",
+  creationSource: "web",
+  latestRunId: null,
+  activeRunId: null,
+  status: "idle",
+  pendingRuntimeRequest: null,
+  latestVisibleMessage: null,
+  latestUserMessageAt: null,
+  hasActionableProposedPlan: false,
+  itemCount: 0,
+  visibleItemCount: 0,
+  createdAt: now,
+  updatedAt: now,
+  archivedAt: null,
+  settledOverride: null,
+  settledAt: null,
+  lastVisitedAt: null,
+  deletedAt: null,
+});
+
+/** One in-process T3 server: its auth state, and the services under test. */
+interface Server {
+  readonly origin: string;
+  readonly environmentId: EnvironmentId;
+  readonly sessions: Map<string, { readonly sessionId: string; readonly subject: string }>;
+  readonly links: Array<{ readonly id: string; readonly subject: string; scopes: unknown }>;
+  readonly secrets: Map<string, Uint8Array>;
+  readonly colleagues: Colleagues.ColleaguesFork["Service"];
+  readonly shares: CollaboratorShares.CollaboratorSharesFork["Service"];
+}
+
+/** The servers that answer, by origin; deleting one takes it off the network. */
+const network = new Map<string, Server>();
+
+const json = (request: Parameters<typeof HttpClientResponse.fromWeb>[0], response: Response) =>
+  Effect.succeed(HttpClientResponse.fromWeb(request, response));
+
+// Delivers a colleague call to the server at its origin, as its HTTP route would.
+const networkClient = HttpClient.make((request) => {
+  const url = new URL(request.url);
+  const server = network.get(url.origin);
+  if (server === undefined) return json(request, new Response(null, { status: 404 }));
+  const token = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
+  const session = server.sessions.get(token);
+  if (session === undefined) return json(request, new Response(null, { status: 401 }));
+  const answer: Effect.Effect<object | undefined, ColleagueErrorFork> =
+    url.pathname === COLLEAGUE_PAIR_CLIENT_ROUTE_FORK
+      ? server.colleagues.issueClientPairing(session.subject)
+      : url.pathname === COLLEAGUE_FORGET_ROUTE_FORK
+        ? server.colleagues.forget(session.subject).pipe(Effect.as({}))
+        : Effect.undefined;
+  return answer.pipe(
+    Effect.map((body) =>
+      body === undefined ? new Response(null, { status: 404 }) : Response.json(body),
+    ),
+    Effect.orElseSucceed(() => new Response(null, { status: 403 })),
+    Effect.flatMap((response) => json(request, response)),
+  );
+});
+
+const makeServer = Effect.fn("makeServer")(function* (name: string, port: number) {
+  const environmentId = EnvironmentId.make(`env-${name}`);
+  const sessions: Server["sessions"] = new Map();
+  const links: Server["links"] = [];
+  const secrets: Server["secrets"] = new Map();
+  let issued = 0;
+  const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+    issueSession: (input) =>
+      Effect.sync(() => {
+        const token = `${name}-token-${++issued}`;
+        sessions.set(token, { sessionId: `${name}-session-${issued}`, subject: input!.subject! });
+        return { token } as never;
+      }),
+    listSessions: () => Effect.succeed([...sessions.values()] as never),
+    revokeSession: (sessionId) =>
+      Effect.sync(() => {
+        for (const [token, session] of sessions) {
+          if (session.sessionId === sessionId) sessions.delete(token);
+        }
+        return true;
+      }),
+    createPairingLink: (input) =>
+      Effect.sync(() => {
+        links.push({
+          id: `${name}-link-${++issued}`,
+          subject: input!.subject!,
+          scopes: input!.scopes,
+        });
+        return { credential: `${name}-pairing-${issued}`, expiresAt: now } as never;
+      }),
+    listPairingLinks: () => Effect.succeed(links as never),
+    revokePairingLink: (id) =>
+      Effect.sync(() => {
+        links.splice(
+          links.findIndex((link) => link.id === id),
+          1,
+        );
+        return true;
+      }),
+  });
+  const secretStore = Layer.mock(ServerSecretStore.ServerSecretStore)({
+    get: (key) => Effect.succeed(Option.fromNullishOr(secrets.get(key))),
+    set: (key, value) => Effect.sync(() => void secrets.set(key, value)),
+    remove: (key) => Effect.sync(() => void secrets.delete(key)),
+  });
+  const environment = Layer.mock(ServerEnvironment.ServerEnvironment)({
+    getDescriptor: Effect.succeed({ environmentId, label: name } as never),
+  });
+  const config = Layer.succeed(ServerConfig.ServerConfig, {
+    host: "127.0.0.1",
+    port,
+    privateNetworkOnly: false,
+    devUrl: undefined,
+  } as never as ServerConfig.ServerConfig["Service"]);
+  const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
+    getThreadShell: (threadId) => Effect.succeed(threadShell(threadId)),
+  });
+  const database = yield* Layer.build(NodeSqliteClient.layer({ filename: ":memory:" }));
+  yield* ensureForkSchema().pipe(Effect.provide(database));
+  const context = yield* Layer.build(
+    Colleagues.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeedContext(database),
+          NodeCrypto.layer,
+          auth,
+          secretStore,
+          environment,
+          config,
+          threads,
+          Layer.succeed(HttpClient.HttpClient, networkClient),
+        ),
+      ),
+    ),
+  );
+  const server: Server = {
+    origin: `http://127.0.0.1:${port}`,
+    environmentId,
+    sessions,
+    links,
+    secrets,
+    colleagues: Context.get(context, Colleagues.ColleaguesFork),
+    shares: Context.get(context, CollaboratorShares.CollaboratorSharesFork),
+  };
+  network.set(server.origin, server);
+  return server;
+});
+
+const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subject }) => subject);
+
+/**
+ * The host shares a thread with Sam through a link; Sam accepts it in their own app, which runs the
+ * three accept steps against their own server and the host's.
+ */
+const acceptedInvite = Effect.gen(function* () {
+  network.clear();
+  const host = yield* makeServer("host", 3801);
+  const sam = yield* makeServer("sam", 3802);
+  yield* host.shares.share({ threadId: ThreadId.make("host-thread"), collaboratorName: "Sam" });
+  // Sam's app paired with the link: a collaborator session on the host.
+  host.sessions.set("sam-app", { sessionId: "sam-app", subject: "colleague:sam" });
+
+  const samGrant = yield* sam.colleagues.invite({ environmentId: host.environmentId, name: "Jo" });
+  const hostGrant = yield* host.colleagues.save("colleague:sam", { grant: samGrant });
+  yield* sam.colleagues.connect({ subject: samGrant.subject, name: "Jo", grant: hostGrant });
+  return { host, sam };
+});
+
+const grantFrom = (server: Server) => ({
+  environmentId: server.environmentId,
+  url: server.origin,
+  subject: "colleague:x",
+  token: "unused" as never,
+});
+
+const shellThreads = (item: OrchestrationV2ShellStreamItem) =>
+  item.kind === "snapshot" ? item.snapshot.threads.map((thread) => thread.id) : [];
+
+it.effect("an accepted invite saves each side as the other's colleague, fenced per thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+
+      const [samOnHost] = yield* host.colleagues.list;
+      assert.deepInclude(samOnHost, {
+        subject: "colleague:sam",
+        name: "Sam",
+        environmentId: sam.environmentId,
+        url: sam.origin,
+      });
+      const [hostOnSam] = yield* sam.colleagues.list;
+      assert.deepInclude(hostOnSam, {
+        subject: "colleague:jo",
+        name: "Jo",
+        environmentId: host.environmentId,
+        url: host.origin,
+      });
+      // Each server holds a grant from the other, as the colleague's subject there.
+      assert.include(subjectsOf(host), "colleague:sam");
+      assert.include(subjectsOf(sam), "colleague:jo");
+
+      // Sam shares back with no link: the host's grant on Sam's server sees nothing until then.
+      const narrowed = sam.shares.wrapHandlers("colleague:jo", {
+        "orchestration.dispatchCommand": () => Effect.void,
+        "orchestration.launchThread": () => Effect.void,
+        "orchestration.subscribeShell": () =>
+          Stream.make({
+            kind: "snapshot",
+            snapshot: {
+              threads: ["sam-1", "sam-2"].map(threadShell),
+              archivedThreads: [],
+              projects: [],
+            },
+          } as never as OrchestrationV2ShellStreamItem),
+        "orchestration.subscribeThread": () => Stream.empty,
+      });
+      const items = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+      yield* narrowed["orchestration.subscribeShell"]({}, undefined as never).pipe(
+        Stream.runForEach((item) => Queue.offer(items, item)),
+        Effect.forkScoped,
+      );
+      assert.deepStrictEqual(shellThreads(yield* Queue.take(items)), []);
+      yield* sam.colleagues.shareThread({
+        threadId: ThreadId.make("sam-2"),
+        subject: "colleague:jo",
+      });
+      assert.deepStrictEqual(shellThreads(yield* Queue.take(items)), ["sam-2"]);
+      assert.isFalse(sam.links.some((link) => link.subject === "colleague:jo"));
+
+      // The host's app attaches Sam's environment with a one-time code Sam's server mints.
+      const pairing = yield* host.colleagues.pairClient("colleague:sam");
+      assert.strictEqual(pairing.environmentId, sam.environmentId);
+      assert.strictEqual(pairing.url, sam.origin);
+      assert.deepStrictEqual(sam.links.at(-1), {
+        id: sam.links.at(-1)!.id,
+        subject: "colleague:jo",
+        scopes: COLLABORATOR_SCOPES,
+      });
+
+      // Only a collaborator the host shared with saves back; only a saved colleague gets codes.
+      const owner = yield* Effect.exit(host.colleagues.save("owner", { grant: grantFrom(sam) }));
+      assert.isTrue(Exit.isFailure(owner));
+      const stranger = yield* Effect.exit(sam.colleagues.issueClientPairing("colleague:eve"));
+      assert.isTrue(Exit.isFailure(stranger));
+    }),
+  ),
+);
+
+it.effect("removing a colleague ends their access on both sides", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      yield* sam.colleagues.shareThread({
+        threadId: ThreadId.make("sam-1"),
+        subject: "colleague:jo",
+      });
+
+      assert.deepStrictEqual(yield* host.colleagues.remove("colleague:sam"), { endedThere: true });
+      // Every session Sam held on the host, app and server, and every share, ends.
+      assert.notInclude(subjectsOf(host), "colleague:sam");
+      assert.isFalse(host.shares.isShared("colleague:sam", "host-thread"));
+      assert.deepStrictEqual(yield* host.colleagues.list, []);
+      assert.strictEqual(host.secrets.size, 0);
+      // Sam's server dropped the host the same way.
+      assert.notInclude(subjectsOf(sam), "colleague:jo");
+      assert.isFalse(sam.shares.isShared("colleague:jo", "sam-1"));
+      assert.deepStrictEqual(yield* sam.colleagues.list, []);
+      assert.strictEqual(sam.secrets.size, 0);
+    }),
+  ),
+);
+
+it.effect("an unreachable colleague is still removed here, and says so", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      network.delete(sam.origin);
+
+      const pairing = yield* Effect.flip(host.colleagues.pairClient("colleague:sam"));
+      assert.strictEqual(pairing.reason, "unreachable");
+      assert.deepStrictEqual(yield* host.colleagues.remove("colleague:sam"), { endedThere: false });
+      assert.deepStrictEqual(yield* host.colleagues.list, []);
+      assert.notInclude(subjectsOf(host), "colleague:sam");
+    }),
+  ),
+);

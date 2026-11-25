@@ -2045,7 +2045,7 @@ export const layerWsRpc = (
         return yield* mutateProjectWithClone(projectService, projectCloneTracker, mutation);
       });
 
-      const handlersFork = yield* makeWsRpcHandlersFork; // fork-hook: upstream-fixes/ws-rpc-handlers-make
+      const handlersFork = yield* makeWsRpcHandlersFork(currentSession.subject); // fork-hook: upstream-fixes/ws-rpc-handlers-make
       const handlers = ServerWsRpcGroup.of({
         [WS_METHODS.issuesList]: (input) => issues.list(input),
         [WS_METHODS.issuesDetail]: (input) => issues.detail(input),

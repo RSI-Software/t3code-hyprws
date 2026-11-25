@@ -3,7 +3,7 @@
 import * as Duration from "effect/Duration";
 
 // Persisted in paired sessions, so it keeps the feature's original name.
-export const COLLABORATOR_SUBJECT_PREFIX = "colleague:";
+const COLLABORATOR_SUBJECT_PREFIX = "colleague:";
 
 export const isCollaboratorSubject = (subject: string) =>
   subject.startsWith(COLLABORATOR_SUBJECT_PREFIX);
@@ -18,6 +18,14 @@ const COLLABORATOR_HTTP_PATHS = [
 export const isCollaboratorHttpRefusedFork = (subject: string, url: string) =>
   isCollaboratorSubject(subject) &&
   !COLLABORATOR_HTTP_PATHS.some((path) => path.test(new URL(url, "http://host").pathname));
+
+// Case and punctuation fold on purpose, so "Sam" and "sam " reach the same paired collaborator.
+export const collaboratorSubject = (name: string) =>
+  `${COLLABORATOR_SUBJECT_PREFIX}${name
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
+    .replace(/^-|-$/g, "")}`;
 
 /** A collaborator keeps access until the host unshares or revokes; the store needs some expiry. */
 const COLLABORATOR_SESSION_TTL = Duration.days(36_500);

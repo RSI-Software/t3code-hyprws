@@ -83,6 +83,16 @@ const FORK_TABLES = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (subject, thread_id)
   )`,
+  // Saved colleagues (colleague-collab): their server's grant for this one lives in the secret
+  // store under `secret_name`; their shares stay in `fork_colleague_shares` under `subject`.
+  `CREATE TABLE IF NOT EXISTS fork_colleagues (
+    subject TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    environment_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret_name TEXT NOT NULL,
+    saved_at TEXT NOT NULL
+  )`,
   // Collaborator messages waiting for the host to send or dismiss them (colleague-collab).
   `CREATE TABLE IF NOT EXISTS fork_collaborator_messages (
     id TEXT PRIMARY KEY,
