@@ -421,13 +421,20 @@ it.effect("a new colleague never takes over a one-time guest's shares under thei
   Effect.scoped(
     Effect.gen(function* () {
       const { host, sam } = yield* servers;
-      // Before accepting, Sam shared a thread by link with a guest also called Jo.
+      // Before accepting, Sam shared by link with a guest also called Jo, and with one holding
+      // the suffixed subject a new colleague would fall back to.
       yield* sam.shares.share({ threadId: ThreadId.make("sam-guest"), collaboratorName: "Jo" });
+      yield* sam.shares.share({
+        threadId: ThreadId.make("sam-guest-2"),
+        collaboratorName: "Jo env-host",
+      });
 
       const hostOnSam = yield* accept(host, sam);
-      assert.notStrictEqual(hostOnSam.subject, "colleague:jo");
+      assert.notInclude(["colleague:jo", "colleague:jo-env-host"], hostOnSam.subject);
       assert.isFalse(sam.shares.isShared(hostOnSam.subject, "sam-guest"));
+      assert.isFalse(sam.shares.isShared(hostOnSam.subject, "sam-guest-2"));
       assert.isTrue(sam.shares.isShared("colleague:jo", "sam-guest"));
+      assert.isTrue(sam.shares.isShared("colleague:jo-env-host", "sam-guest-2"));
     }),
   ),
 );
@@ -542,25 +549,6 @@ it.effect("a pairing code never carries more than the colleague's grant", () =>
         sam.colleagues.issueClientPairing({ subject: "colleague:jo", scopes: [] }),
       );
       assert.deepInclude(scopeless, { _tag: "ColleagueRefusedErrorFork", rule: "no-scope" });
-    }),
-  ),
-);
-
-it.effect("a new colleague never takes a suffixed subject a guest already holds", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { host, sam } = yield* servers;
-      // Guests hold both the name's subject and the suffixed one a new colleague would fall back to.
-      yield* sam.shares.share({ threadId: ThreadId.make("sam-guest"), collaboratorName: "Jo" });
-      yield* sam.shares.share({
-        threadId: ThreadId.make("sam-guest-2"),
-        collaboratorName: "Jo env-host",
-      });
-
-      const hostOnSam = yield* accept(host, sam);
-      assert.notInclude(["colleague:jo", "colleague:jo-env-host"], hostOnSam.subject);
-      assert.isFalse(sam.shares.isShared(hostOnSam.subject, "sam-guest-2"));
-      assert.isTrue(sam.shares.isShared("colleague:jo-env-host", "sam-guest-2"));
     }),
   ),
 );
