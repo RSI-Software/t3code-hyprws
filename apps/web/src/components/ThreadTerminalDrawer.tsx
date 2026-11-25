@@ -1106,10 +1106,11 @@ function TerminalSessionViewport({
           input: {
             threadId,
             terminalId,
+            attachmentId, // fork-hook: zmux-estate/terminal-attachment-write
             data,
             ...(kind === undefined ? {} : { [kind]: true }),
             ...options,
-          },
+          }, // fork-hook: zmux-estate/terminal-attachment-write
         });
       const sendTerminalInput = (
         data: string,
