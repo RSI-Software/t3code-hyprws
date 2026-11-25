@@ -8,6 +8,7 @@ import { hasQueuedTurnStart } from "@t3tools/client-runtime/state/thread-settled
 import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "../i18n/messages";
+import { colleagueShareMenuIdFork } from "./collaborator/colleagueShare.logic.fork.ts";
 import type { ThreadActionMenuId, ThreadActionMenuState } from "./threadActionMenu.logic.ts";
 
 /**
@@ -36,20 +37,48 @@ export function openInNewWindowMenuItems(
     : [];
 }
 
-/** Fork: share the thread with a collaborator's app through a pairing link (colleague-collab). */
+/** Fork (colleague-collab): the "Share with" submenu and its colleague entries. */
+export type ColleagueShareMenuIdFork = "share-with" | `share-colleague:${string}`;
+
+/**
+ * Fork: share the thread with a collaborator's app (colleague-collab). With saved colleagues it is
+ * a "Share with" submenu: a click shares with one, or stops for one already shared (checked), with
+ * no link; someone new still gets a link from the dialog.
+ */
 export function collaboratorShareMenuItems(
-  state: Pick<ThreadActionMenuState, "canShareWithCollaboratorFork">,
+  state: Pick<ThreadActionMenuState, "canShareWithCollaboratorFork" | "colleaguesFork">,
   resolve: MessageResolver = m,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
-  return state.canShareWithCollaboratorFork === true
-    ? [
+  if (state.canShareWithCollaboratorFork !== true) return [];
+  const colleagues = state.colleaguesFork ?? [];
+  if (colleagues.length === 0) {
+    return [
+      {
+        id: "share-collaborator",
+        label: resolve(msg("Share with collaborator…")),
+        icon: "user-plus",
+      },
+    ];
+  }
+  return [
+    {
+      id: "share-with",
+      label: resolve(msg("Share with", { $context: "submenu of people to share the thread with" })),
+      icon: "user-plus",
+      children: [
+        ...colleagues.map((colleague) => ({
+          id: colleagueShareMenuIdFork(colleague.subject),
+          label: colleague.name,
+          checked: colleague.shared,
+        })),
         {
-          id: "share-collaborator" as const,
-          label: resolve(msg("Share with collaborator…")),
-          icon: "user-plus",
+          id: "share-collaborator",
+          label: resolve(msg("Someone new…", { $context: "share the thread with a new person" })),
+          separatorBefore: true,
         },
-      ]
-    : [];
+      ],
+    },
+  ];
 }
 
 export interface ForkableThreadProviderState {
