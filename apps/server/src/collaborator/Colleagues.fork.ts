@@ -185,7 +185,10 @@ const make = Effect.gen(function* () {
 
   const selfId = environment.getDescriptor.pipe(Effect.map((self) => self.environmentId));
   // The grant `invite` issued per sharer environment, until `connect` saves the row recording it.
-  const invited = new Map<string, { readonly subject: string; readonly sessionId: string }>();
+  const invited = new Map<
+    string,
+    { readonly subject: string; readonly name: string; readonly sessionId: string }
+  >();
   const revoke = (sessionId: string | null | undefined) =>
     sessionId ? auth.revokeSession(AuthSessionId.make(sessionId)).pipe(Effect.ignore) : Effect.void;
 
@@ -285,7 +288,7 @@ const make = Effect.gen(function* () {
         (yield* freshSubject(input.name, input.environmentId));
       const { grant, sessionId } = yield* issueGrant(subject, input.name, input.linkBaseUrl);
       yield* revoke(pending?.sessionId);
-      invited.set(input.environmentId, { subject, sessionId });
+      invited.set(input.environmentId, { subject, name: input.name, sessionId });
       return grant;
     },
   );
@@ -421,11 +424,13 @@ const make = Effect.gen(function* () {
   const issueClientPairing: ColleaguesFork["Service"]["issueClientPairing"] = Effect.fn(
     "ColleaguesFork.issueClientPairing",
   )(function* (subject) {
-    const row = yield* rowOf(subject);
+    // The sharer's app attaches as soon as its server saved us, which can beat our `connect`.
+    const pending = [...invited.values()].find((invite) => invite.subject === subject);
+    const name = pending?.name ?? (yield* rowOf(subject)).name;
     const issued = yield* auth
       .createPairingLink({
         subject,
-        label: `Colleague ${row.name}`,
+        label: `Colleague ${name}`,
         scopes: COLLABORATOR_SCOPES,
         ttl: CLIENT_PAIRING_TTL,
       })

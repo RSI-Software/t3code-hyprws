@@ -18,7 +18,7 @@ To share another thread with someone you shared with before, pick their name und
 
 ## Save each other as colleagues
 
-Open the link in **your own T3 Code app**: from the desktop app, or pasted into **Settings → Connections → Add backend**.
+Open the link in **your own T3 Code app**: from the desktop app, or pasted into **Settings → Environments → Add environment**.
 You each save the other as a **colleague**, and both apps say so: **Saved Jordan as a colleague**.
 
 - Threads they share with you later **appear live**, with no new link

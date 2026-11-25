@@ -376,3 +376,19 @@ it.effect("a new colleague never takes over a one-time guest's shares under thei
     }),
   ),
 );
+
+it.effect("the sharer's app can attach the colleague before the accept's last step", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* servers;
+      const samGrant = yield* sam.colleagues.invite({
+        environmentId: host.environmentId,
+        name: "Jo",
+      });
+      yield* host.colleagues.save("colleague:sam", { grant: samGrant });
+
+      const pairing = yield* host.colleagues.pairClient("colleague:sam");
+      assert.strictEqual(pairing.environmentId, sam.environmentId);
+    }),
+  ),
+);
