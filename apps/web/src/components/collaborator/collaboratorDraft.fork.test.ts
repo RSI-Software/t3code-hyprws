@@ -113,18 +113,19 @@ describe("collaboratorDraftFork", () => {
     ).toBeNull();
   });
 
+  const german = ((message: string) => `de:${decodeMsg(message)}`) as MessageResolver;
+  const range = { ...comment, id: "c2", rangeLabel: "+12 to +15" };
+  const inline = formatComposerContextReference({
+    kind: "review-comment",
+    contextId: reviewCommentContextId(range.id),
+    label: reviewCommentContextLabel(range),
+  });
+
   it("shows the generated parts of chip labels in the viewer's language", () => {
-    const german = ((message: string) => `de:${decodeMsg(message)}`) as MessageResolver;
-    const range = { ...comment, id: "c2", rangeLabel: "+12 to +15" };
-    const inline = formatComposerContextReference({
-      kind: "review-comment",
-      contextId: reviewCommentContextId(range.id),
-      label: reviewCommentContextLabel(range),
-    });
     const draft = collaboratorDraftFork(
       {
         ...empty,
-        prompt: `Look at ${inline}`,
+        prompt: `  Look at ${inline}, not my app.ts L12 to L15`,
         reviewComments: [range, { ...comment, id: "c3", rangeLabel: "-3" }, comment],
         previewAnnotations: [
           { id: "p1", comment: "", pageTitle: "" },
@@ -140,16 +141,23 @@ describe("collaboratorDraftFork", () => {
       "de:Preview annotation",
       "Make it blue",
     ]);
-    expect(draft && draftTextFork(draft, german)).toBe("Look at app.ts de:L12 to L15");
+    // Only the reference is generated; the same words typed by its author stay as written.
+    expect(draft && draftTextFork(draft, german)).toBe(
+      "Look at app.ts de:L12 to L15, not my app.ts L12 to L15",
+    );
   });
 
   it("keeps the end of a draft past the cap", () => {
     const draft = collaboratorDraftFork(
-      { ...empty, prompt: `start ${"x".repeat(COLLABORATOR_DRAFT_TEXT_MAX_CHARS)} end` },
+      {
+        ...empty,
+        prompt: `${inline} ${"x".repeat(COLLABORATOR_DRAFT_TEXT_MAX_CHARS)} ${inline} end`,
+        reviewComments: [range],
+      },
       threadId,
     );
     expect(draft?.truncated).toBe(true);
     expect(draft?.text).toHaveLength(COLLABORATOR_DRAFT_TEXT_MAX_CHARS);
-    expect(draft?.text.endsWith(" end")).toBe(true);
+    expect(draft && draftTextFork(draft, german).endsWith(" app.ts de:L12 to L15 end")).toBe(true);
   });
 });
