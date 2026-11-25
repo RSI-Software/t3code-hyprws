@@ -1,6 +1,8 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  AuthOrchestrationReadScope,
+  type AuthEnvironmentScope,
   AuthSessionId,
   COLLABORATOR_SCOPES,
   COLLEAGUE_FORGET_ROUTE_FORK,
@@ -16,6 +18,7 @@ import {
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -75,7 +78,14 @@ const threadShell = (id: string): OrchestrationV2ThreadShell => ({
 interface Server {
   readonly origin: string;
   readonly environmentId: EnvironmentId;
-  readonly sessions: Map<string, { readonly sessionId: string; readonly subject: string }>;
+  readonly sessions: Map<
+    string,
+    {
+      readonly sessionId: string;
+      readonly subject: string;
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope> | undefined;
+    }
+  >;
   readonly links: Array<{
     readonly id: string;
     readonly subject: string;
@@ -83,6 +93,8 @@ interface Server {
     readonly scopes: unknown;
   }>;
   readonly secrets: Map<string, Uint8Array>;
+  /** Runs before each pairing code is recorded; a test holds it to interleave another call. */
+  pairingGate: Effect.Effect<void>;
   /** Revokes a session as Settings → Connections does, announcing it. */
   readonly revoke: (sessionId: string) => Effect.Effect<void>;
   readonly colleagues: Colleagues.ColleaguesFork["Service"];
@@ -105,7 +117,10 @@ const networkClient = HttpClient.make((request) => {
   if (session === undefined) return json(request, new Response(null, { status: 401 }));
   const answer: Effect.Effect<object | undefined, ColleagueErrorFork> =
     url.pathname === COLLEAGUE_PAIR_CLIENT_ROUTE_FORK
-      ? server.colleagues.issueClientPairing(session.subject)
+      ? server.colleagues.issueClientPairing({
+          subject: session.subject,
+          scopes: session.scopes ?? COLLABORATOR_SCOPES,
+        })
       : url.pathname === COLLEAGUE_FORGET_ROUTE_FORK
         ? server.colleagues.forget(session.subject).pipe(Effect.as({}))
         : Effect.undefined;
@@ -140,21 +155,23 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
       Effect.sync(() => {
         const token = `${name}-token-${++issued}`;
         const sessionId = `${name}-session-${issued}`;
-        sessions.set(token, { sessionId, subject: input!.subject! });
+        sessions.set(token, { sessionId, subject: input!.subject!, scopes: input!.scopes });
         return { token, sessionId } as never;
       }),
     listSessions: () => Effect.succeed([...sessions.values()] as never),
     revokeSession: (sessionId) => dropSession(sessionId).pipe(Effect.as(true)),
     createPairingLink: (input) =>
-      Effect.sync(() => {
-        links.push({
-          id: `${name}-link-${++issued}`,
-          subject: input!.subject!,
-          label: input!.label,
-          scopes: input!.scopes,
-        });
-        return { credential: `${name}-pairing-${issued}`, expiresAt: now } as never;
-      }),
+      Effect.suspend(() => server.pairingGate).pipe(
+        Effect.map(() => {
+          links.push({
+            id: `${name}-link-${++issued}`,
+            subject: input!.subject!,
+            label: input!.label,
+            scopes: input!.scopes,
+          });
+          return { credential: `${name}-pairing-${issued}`, expiresAt: now } as never;
+        }),
+      ),
     listPairingLinks: () => Effect.succeed(links as never),
     revokePairingLink: (id) =>
       Effect.sync(() => {
@@ -212,6 +229,7 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
     sessions,
     links,
     secrets,
+    pairingGate: Effect.void,
     revoke: (sessionId) => dropSession(sessionId),
     colleagues: Context.get(context, Colleagues.ColleaguesFork),
     shares: Context.get(context, CollaboratorShares.CollaboratorSharesFork),
@@ -222,6 +240,8 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
 
 /** Sam's app, paired with the host's link: the session its accept steps call the host with. */
 const samApp = { subject: "colleague:sam", sessionId: AuthSessionId.make("sam-app") };
+
+const asColleague = (subject: string) => ({ subject, scopes: COLLABORATOR_SCOPES });
 
 const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subject }) => subject);
 
@@ -331,7 +351,9 @@ it.effect("an accepted invite saves each side as the other's colleague, fenced p
         ),
       );
       assert.isTrue(Exit.isFailure(owner));
-      const stranger = yield* Effect.exit(sam.colleagues.issueClientPairing("colleague:eve"));
+      const stranger = yield* Effect.exit(
+        sam.colleagues.issueClientPairing(asColleague("colleague:eve")),
+      );
       assert.isTrue(Exit.isFailure(stranger));
     }),
   ),
@@ -368,7 +390,7 @@ it.effect("an unreachable colleague is still removed here, and says so", () =>
       network.delete(sam.origin);
 
       const pairing = yield* Effect.flip(host.colleagues.pairClient("colleague:sam"));
-      assert.strictEqual(pairing.reason, "unreachable");
+      assert.strictEqual(pairing._tag, "ColleagueRemoteErrorFork");
       assert.deepStrictEqual(yield* host.colleagues.remove("colleague:sam"), { endedThere: false });
       assert.deepStrictEqual(yield* host.colleagues.list, []);
       assert.notInclude(subjectsOf(host), "colleague:sam");
@@ -422,9 +444,6 @@ it.effect("the sharer's app can attach the colleague before the accept's last st
 
       const pairing = yield* host.colleagues.pairClient("colleague:sam");
       assert.strictEqual(pairing.environmentId, sam.environmentId);
-      // Asking again retires the unused code.
-      yield* host.colleagues.pairClient("colleague:sam");
-      assert.strictEqual(sam.links.filter((link) => link.subject === samGrant.subject).length, 1);
     }),
   ),
 );
@@ -466,7 +485,9 @@ it.effect("a collaborator whose session is revoked loses the colleague grant the
       yield* Fiber.join(forgotten);
       assert.notInclude(subjectsOf(host), "colleague:sam");
       assert.isFalse(host.shares.isShared("colleague:sam", "host-thread"));
-      const refused = yield* Effect.exit(host.colleagues.issueClientPairing("colleague:sam"));
+      const refused = yield* Effect.exit(
+        host.colleagues.issueClientPairing(asColleague("colleague:sam")),
+      );
       assert.isTrue(Exit.isFailure(refused));
       assert.isFalse(host.links.some((link) => link.subject === "colleague:sam"));
       assert.isTrue(Exit.isFailure(yield* Effect.exit(sam.colleagues.pairClient("colleague:jo"))));
@@ -482,10 +503,91 @@ it.effect("a pairing request is refused once the session that saved the colleagu
       // Gone without an announcement, as a session that lapsed while this server was down.
       host.sessions.delete("sam-app");
 
-      const refused = yield* Effect.exit(host.colleagues.issueClientPairing("colleague:sam"));
+      const refused = yield* Effect.exit(
+        host.colleagues.issueClientPairing(asColleague("colleague:sam")),
+      );
       assert.isTrue(Exit.isFailure(refused));
       assert.notInclude(subjectsOf(host), "colleague:sam");
       assert.deepStrictEqual(yield* host.colleagues.list, []);
+    }),
+  ),
+);
+
+it.effect("each client's pairing code survives another client's request", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+
+      const first = yield* host.colleagues.pairClient("colleague:sam");
+      const second = yield* host.colleagues.pairClient("colleague:sam");
+      assert.notStrictEqual(first.credential, second.credential);
+      assert.strictEqual(sam.links.filter((link) => link.subject === "colleague:jo").length, 2);
+    }),
+  ),
+);
+
+it.effect("a pairing code never carries more than the colleague's grant", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      // The host's grant on Sam's server, narrowed to reading.
+      for (const [token, session] of sam.sessions) {
+        if (session.subject !== "colleague:jo") continue;
+        sam.sessions.set(token, { ...session, scopes: [AuthOrchestrationReadScope] });
+      }
+
+      yield* host.colleagues.pairClient("colleague:sam");
+      assert.deepStrictEqual(sam.links.at(-1)?.scopes, [AuthOrchestrationReadScope]);
+      const scopeless = yield* Effect.flip(
+        sam.colleagues.issueClientPairing({ subject: "colleague:jo", scopes: [] }),
+      );
+      assert.deepInclude(scopeless, { _tag: "ColleagueRefusedErrorFork", rule: "no-scope" });
+    }),
+  ),
+);
+
+it.effect("a new colleague never takes a suffixed subject a guest already holds", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* servers;
+      // Guests hold both the name's subject and the suffixed one a new colleague would fall back to.
+      yield* sam.shares.share({ threadId: ThreadId.make("sam-guest"), collaboratorName: "Jo" });
+      yield* sam.shares.share({
+        threadId: ThreadId.make("sam-guest-2"),
+        collaboratorName: "Jo env-host",
+      });
+
+      const hostOnSam = yield* accept(host, sam);
+      assert.notInclude(["colleague:jo", "colleague:jo-env-host"], hostOnSam.subject);
+      assert.isFalse(sam.shares.isShared(hostOnSam.subject, "sam-guest-2"));
+      assert.isTrue(sam.shares.isShared("colleague:jo-env-host", "sam-guest-2"));
+    }),
+  ),
+);
+
+it.effect("a colleague forgotten mid-request keeps no pairing code", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { sam } = yield* acceptedInvite;
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      sam.pairingGate = Deferred.succeed(entered, undefined).pipe(
+        Effect.andThen(Deferred.await(release)),
+      );
+
+      const issuing = yield* sam.colleagues
+        .issueClientPairing(asColleague("colleague:jo"))
+        .pipe(Effect.exit, Effect.forkScoped);
+      yield* Deferred.await(entered);
+      const forgetting = yield* sam.colleagues
+        .forget("colleague:jo")
+        .pipe(Effect.forkScoped({ startImmediately: true }));
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(issuing);
+      yield* Fiber.join(forgetting);
+
+      assert.deepStrictEqual(yield* sam.colleagues.list, []);
+      assert.isFalse(sam.links.some((link) => link.subject === "colleague:jo"));
     }),
   ),
 );

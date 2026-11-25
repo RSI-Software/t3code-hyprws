@@ -25,6 +25,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { environmentServerConfigsAtom } from "~/state/server";
 import { readPreparedConnection } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { waitForAtomValue } from "~/state/waitForAtomValue";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
 const colleaguesFamily = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
@@ -64,6 +65,9 @@ const connectCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   tag: WS_METHODS.colleagueConnectFork,
 });
 
+// The sharer's server config arrives after pairing; past this, an older server is left alone.
+const SHARER_CONFIG_TIMEOUT_MS = 15_000;
+
 const linkBase = (environmentId: EnvironmentId) => {
   const linkBaseUrl = readPreparedConnection(environmentId)?.httpBaseUrl;
   return linkBaseUrl === undefined ? {} : { linkBaseUrl };
@@ -81,8 +85,16 @@ export function useSaveColleagueFork() {
   const connect = useAtomCommand(connectCommand, quiet);
   return async (sharer: EnvironmentId) => {
     const own = readPrimaryEnvironmentId();
+    if (own === null || own === sharer) return;
+    if (!colleaguesServedFork(appAtomRegistry.get(environmentServerConfigsAtom), own)) return;
+    const sharerKnown = await waitForAtomValue({
+      registry: appAtomRegistry,
+      atom: environmentServerConfigsAtom,
+      predicate: (configs) => configs.has(sharer),
+      timeoutMs: SHARER_CONFIG_TIMEOUT_MS,
+    });
     const configs = appAtomRegistry.get(environmentServerConfigsAtom);
-    if (own === null || own === sharer || !colleaguesServedFork(configs, own)) return;
+    if (!sharerKnown || !colleaguesServedFork(configs, sharer)) return;
     const name = readEnvironment(sharer)?.label ?? sharer;
     const invited = await invite({
       environmentId: own,
@@ -114,8 +126,9 @@ export function useSaveColleagueFork() {
   };
 }
 
-// One attempt per saved colleague per page load; a re-save (new savedAt) tries again.
-const attempted = new Set<string>();
+// The colleague list each attach was tried with; a newer list (a change, or a resubscribe after a
+// reconnect) retries one that failed, and a re-save (new savedAt) is a new attach.
+const attempted = new Map<string, ReadonlyArray<ColleagueFork>>();
 
 function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
   const gt = useGT();
@@ -129,10 +142,10 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
   const missing = (data ?? []).filter(
     (colleague) =>
       !known.has(colleague.environmentId) &&
-      !attempted.has(`${colleague.subject}:${colleague.savedAt}`),
+      attempted.get(`${colleague.subject}:${colleague.savedAt}`) !== data,
   );
-  const attach = async (colleague: ColleagueFork) => {
-    attempted.add(`${colleague.subject}:${colleague.savedAt}`);
+  const attach = async (colleague: ColleagueFork, list: ReadonlyArray<ColleagueFork>) => {
+    attempted.set(`${colleague.subject}:${colleague.savedAt}`, list);
     const pairing = await pairClient({
       environmentId: props.environmentId,
       input: { subject: colleague.subject },
@@ -157,7 +170,7 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
       });
     }
     seen.current = new Set(saves);
-    for (const colleague of missing) void attach(colleague);
+    for (const colleague of missing) void attach(colleague, data);
   });
   return null;
 }

@@ -346,14 +346,90 @@ export const ColleagueShareThreadInputFork = Schema.Struct({
 });
 export type ColleagueShareThreadInputFork = typeof ColleagueShareThreadInputFork.Type;
 
-export class ColleagueErrorFork extends Schema.TaggedError<ColleagueErrorFork>()(
-  "ColleagueErrorFork",
+export class ColleagueMissingErrorFork extends Schema.TaggedError<ColleagueMissingErrorFork>()(
+  "ColleagueMissingErrorFork",
+  { subject: Schema.String },
+) {
+  override get message(): string {
+    return "That colleague is not saved here.";
+  }
+}
+
+export class ColleagueStorageErrorFork extends Schema.TaggedError<ColleagueStorageErrorFork>()(
+  "ColleagueStorageErrorFork",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not read or save colleagues.";
+  }
+}
+
+/** A request this server will not act on; `origin` is the address's scheme and host only. */
+export class ColleagueRefusedErrorFork extends Schema.TaggedError<ColleagueRefusedErrorFork>()(
+  "ColleagueRefusedErrorFork",
   {
-    reason: Schema.Literals(["missing", "invalid", "unreachable", "refused", "storage"]),
-    message: Schema.String,
+    rule: Schema.Literals([
+      "own-environment",
+      "own-grant",
+      "not-collaborator",
+      "no-live-share",
+      "saved-as-another",
+      "not-http",
+      "public-http",
+      "no-scope",
+    ]),
+    origin: Schema.optional(Schema.String),
+  },
+) {
+  override get message(): string {
+    return this.rule === "public-http" && this.origin !== undefined
+      ? `${this.origin} is public plain http.`
+      : COLLEAGUE_REFUSALS[this.rule];
+  }
+}
+
+const COLLEAGUE_REFUSALS: Record<ColleagueRefusedErrorFork["rule"], string> = {
+  "own-environment": "That is this environment.",
+  "own-grant": "That grant is from this environment.",
+  "not-collaborator": "That subject is not a collaborator's.",
+  "no-live-share": "Only a collaborator with a shared thread saves its sharer.",
+  "saved-as-another": "That environment is saved here as another colleague.",
+  "not-http": "Their address is not an http or https address.",
+  "public-http": "Their address is public plain http.",
+  "no-scope": "That grant cannot attach a client.",
+};
+
+/** The colleague's server failed a call: silent, refused this side's grant, or answered wrong. */
+export class ColleagueRemoteErrorFork extends Schema.TaggedError<ColleagueRemoteErrorFork>()(
+  "ColleagueRemoteErrorFork",
+  {
+    colleague: Schema.String,
+    outcome: Schema.Literals(["silent", "refused", "failed", "unknown-shape"]),
+    status: Schema.optional(Schema.Number),
     cause: Schema.optional(Schema.Defect()),
   },
-) {}
+) {
+  override get message(): string {
+    switch (this.outcome) {
+      case "silent":
+        return `${this.colleague}'s server did not answer.`;
+      case "refused":
+        return `${this.colleague}'s server no longer accepts this one.`;
+      case "failed":
+        return `${this.colleague}'s server answered ${this.status}.`;
+      case "unknown-shape":
+        return `${this.colleague}'s server answered in an unknown shape.`;
+    }
+  }
+}
+
+export const ColleagueErrorFork = Schema.Union([
+  ColleagueMissingErrorFork,
+  ColleagueStorageErrorFork,
+  ColleagueRefusedErrorFork,
+  ColleagueRemoteErrorFork,
+]);
+export type ColleagueErrorFork = typeof ColleagueErrorFork.Type;
 
 /** Server-to-server routes a colleague's server calls with its grant here. */
 export const COLLEAGUE_PAIR_CLIENT_ROUTE_FORK = "/api/fork/colleague/pair-client";
