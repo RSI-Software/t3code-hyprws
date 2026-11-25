@@ -40,7 +40,7 @@ Open **Share with collaborator** on the thread, then **Stop sharing** beside the
 Their waiting messages are dropped, and their copy **freezes**, marked **Disconnected from host**.
 Sharing again brings it back to live.
 
-To **cut all access**, revoke their session in **Settings → Connections**.
+To **cut all access**, revoke their session in **Settings → Connections**; a saved colleague is forgotten too.
 
 ## What they can reach
 

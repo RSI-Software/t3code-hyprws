@@ -92,7 +92,8 @@ const FORK_TABLES = [
     url TEXT NOT NULL,
     secret_name TEXT NOT NULL,
     saved_at TEXT NOT NULL,
-    grant_session_id TEXT
+    grant_session_id TEXT,
+    saved_by_session_id TEXT
   )`,
   // Collaborator messages waiting for the host to send or dismiss them (colleague-collab).
   `CREATE TABLE IF NOT EXISTS fork_collaborator_messages (

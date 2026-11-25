@@ -36,6 +36,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -46,6 +47,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as SessionStore from "../auth/SessionStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
 import {
@@ -55,6 +57,7 @@ import {
 } from "./collaboratorSubject.fork.ts";
 
 const CLIENT_PAIRING_TTL = Duration.minutes(5);
+const CLIENT_PAIRING_LABEL = "Colleague ";
 const REMOTE_TIMEOUT = Duration.seconds(10);
 
 interface ColleagueRow {
@@ -66,6 +69,8 @@ interface ColleagueRow {
   readonly saved_at: string;
   /** The session this server issued as the colleague's grant here; null if never known. */
   readonly grant_session_id: string | null;
+  /** The collaborator session that saved them here through `save`; null for `connect`. */
+  readonly saved_by_session_id: string | null;
 }
 
 const toColleague = (row: ColleagueRow): ColleagueFork => ({
@@ -115,9 +120,9 @@ export class ColleaguesFork extends Context.Service<
     readonly invite: (
       input: ColleagueInviteInputFork,
     ) => Effect.Effect<ColleagueGrantFork, ColleagueErrorFork>;
-    /** Accept step 2, called by the collaborator `subject`: keeps their grant, answers with ours. */
+    /** Accept step 2, called by a collaborator's session: keeps their grant, answers with ours. */
     readonly save: (
-      subject: string,
+      caller: { readonly subject: string; readonly sessionId: AuthSessionId },
       input: ColleagueSaveInputFork,
     ) => Effect.Effect<ColleagueGrantFork, ColleagueErrorFork>;
     /** Accept step 3, owner: keeps the sharer's grant under step 1's subject. */
@@ -157,13 +162,15 @@ const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const shares = yield* CollaboratorShares.CollaboratorSharesFork;
+  const sessionChanges = (yield* SessionStore.SessionStore).streamChanges;
   // Only the origin checked may receive a grant: a redirect could forward it anywhere.
   const httpClient = HttpClient.transform(yield* HttpClient.HttpClient, (response) =>
     Effect.provideService(response, FetchHttpClient.RequestInit, { redirect: "manual" }),
   );
 
   const readRows = sql<ColleagueRow>`
-    SELECT subject, name, environment_id, url, secret_name, saved_at, grant_session_id
+    SELECT subject, name, environment_id, url, secret_name, saved_at, grant_session_id,
+      saved_by_session_id
     FROM fork_colleagues
     ORDER BY saved_at, subject
   `;
@@ -183,6 +190,8 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  // Saves, removals and the lapse sweep take turns, so a sweep never judges a half-saved row.
+  const exclusive = (yield* Semaphore.make(1)).withPermits(1);
   const selfId = environment.getDescriptor.pipe(Effect.map((self) => self.environmentId));
   // The grant `invite` issued per sharer environment, until `connect` saves the row recording it.
   const invited = new Map<
@@ -224,9 +233,14 @@ const make = Effect.gen(function* () {
     name: string,
     grant: ColleagueGrantFork,
     grantSessionId: string | null,
+    savedBy: string | null,
   ) {
     if (grant.environmentId === (yield* selfId)) {
       return yield* fail("invalid", "That grant is from this environment.")();
+    }
+    const rows = yield* SubscriptionRef.get(ref);
+    if (rows.some((row) => row.environment_id === grant.environmentId && row.subject !== subject)) {
+      return yield* fail("refused", "That environment is saved here as another colleague.")();
     }
     const url = yield* grantOrigin(grant.url);
     const secretName = `colleague-${Hex.encode(yield* random.randomBytes(16).pipe(Effect.orDie))}`;
@@ -234,20 +248,20 @@ const make = Effect.gen(function* () {
       .set(secretName, new TextEncoder().encode(Redacted.value(grant.token)))
       .pipe(Effect.mapError(storageError));
     const savedAt = DateTime.formatIso(yield* DateTime.now);
-    // One row per environment: saving it again under another subject replaces the old row.
     const replaced = yield* sql
       .withTransaction(
         Effect.gen(function* () {
           const replaced = yield* sql<Pick<ColleagueRow, "secret_name" | "grant_session_id">>`
             DELETE FROM fork_colleagues
-            WHERE subject = ${subject} OR environment_id = ${grant.environmentId}
+            WHERE subject = ${subject}
             RETURNING secret_name, grant_session_id
           `;
           yield* sql`
             INSERT INTO fork_colleagues
-              (subject, name, environment_id, url, secret_name, saved_at, grant_session_id)
+              (subject, name, environment_id, url, secret_name, saved_at, grant_session_id,
+                saved_by_session_id)
             VALUES (${subject}, ${name}, ${grant.environmentId}, ${url}, ${secretName}, ${savedAt},
-              ${grantSessionId})
+              ${grantSessionId}, ${savedBy})
           `;
           return replaced;
         }),
@@ -271,6 +285,7 @@ const make = Effect.gen(function* () {
       secret_name: secretName,
       saved_at: savedAt,
       grant_session_id: grantSessionId,
+      saved_by_session_id: savedBy,
     });
   });
 
@@ -313,22 +328,23 @@ const make = Effect.gen(function* () {
     return taken ? `${named}-${environmentId.slice(0, 8).toLowerCase()}` : named;
   });
 
-  const save: ColleaguesFork["Service"]["save"] = Effect.fn("ColleaguesFork.save")(
-    function* (subject, input) {
-      const name = isCollaboratorSubject(subject) ? shares.nameOf(subject) : undefined;
-      if (name === undefined) {
-        return yield* fail(
-          "refused",
-          "Only a collaborator with a shared thread saves its sharer.",
-        )();
-      }
-      const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl);
-      yield* store(subject, name, input.grant, sessionId).pipe(
-        Effect.onError(() => revoke(sessionId)),
-      );
-      return grant;
-    },
-  );
+  const save: ColleaguesFork["Service"]["save"] = Effect.fn("ColleaguesFork.save")(function* (
+    { subject, sessionId: caller },
+    input,
+  ) {
+    const name =
+      isCollaboratorSubject(subject) && shares.sharesLive(subject)
+        ? shares.nameOf(subject)
+        : undefined;
+    if (name === undefined) {
+      return yield* fail("refused", "Only a collaborator with a shared thread saves its sharer.")();
+    }
+    const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl);
+    yield* store(subject, name, input.grant, sessionId, caller).pipe(
+      Effect.onError(() => revoke(sessionId)),
+    );
+    return grant;
+  }, exclusive);
 
   const connect: ColleaguesFork["Service"]["connect"] = Effect.fn("ColleaguesFork.connect")(
     function* (input) {
@@ -337,10 +353,11 @@ const make = Effect.gen(function* () {
       }
       const pending = invited.get(input.grant.environmentId);
       const sessionId = pending?.subject === input.subject ? pending.sessionId : null;
-      const colleague = yield* store(input.subject, input.name, input.grant, sessionId);
+      const colleague = yield* store(input.subject, input.name, input.grant, sessionId, null);
       invited.delete(input.grant.environmentId);
       return colleague;
     },
+    exclusive,
   );
 
   const tokenOf = (row: ColleagueRow) =>
@@ -416,21 +433,55 @@ const make = Effect.gen(function* () {
         Effect.as(true),
         Effect.orElseSucceed(() => false),
       );
-      yield* forgetHere(row);
+      yield* exclusive(forgetHere(row));
       return { endedThere };
     },
+  );
+
+  /**
+   * Revoking the grant given here, or the collaborator session that saved them, forgets the
+   * colleague: every session, link and share their subject holds here ends with the row.
+   */
+  const sweepLapsed = exclusive(
+    Effect.gen(function* () {
+      const live = new Set(
+        (yield* auth.listSessions().pipe(Effect.mapError(storageError))).map(
+          (session) => session.sessionId as string,
+        ),
+      );
+      const rows = yield* readRows.pipe(Effect.mapError(storageError));
+      const lapsed = rows.filter((row) =>
+        [row.grant_session_id, row.saved_by_session_id].some((id) => id !== null && !live.has(id)),
+      );
+      yield* Effect.forEach(lapsed, forgetHere);
+    }),
+  );
+  yield* sessionChanges.pipe(
+    Stream.filter((change) => change.type === "clientRemoved"),
+    Stream.runForEach(() => sweepLapsed.pipe(Effect.ignore)),
+    Effect.forkScoped({ startImmediately: true }),
   );
 
   const issueClientPairing: ColleaguesFork["Service"]["issueClientPairing"] = Effect.fn(
     "ColleaguesFork.issueClientPairing",
   )(function* (subject) {
+    // Also run here: a session can end without an announcement, as when it lapses while down.
+    yield* sweepLapsed;
     // The sharer's app attaches as soon as its server saved us, which can beat our `connect`.
     const pending = [...invited.values()].find((invite) => invite.subject === subject);
     const name = pending?.name ?? (yield* rowOf(subject)).name;
+    // One unused code per colleague: a new attach retires the last, but never a share link.
+    const links = yield* auth.listPairingLinks().pipe(Effect.mapError(storageError));
+    yield* Effect.forEach(
+      links.filter(
+        (link) => link.subject === subject && link.label?.startsWith(CLIENT_PAIRING_LABEL),
+      ),
+      (link) => auth.revokePairingLink(link.id).pipe(Effect.ignore),
+    );
     const issued = yield* auth
       .createPairingLink({
         subject,
-        label: `Colleague ${name}`,
+        label: `${CLIENT_PAIRING_LABEL}${name}`,
         scopes: COLLABORATOR_SCOPES,
         ttl: CLIENT_PAIRING_TTL,
       })
@@ -442,7 +493,7 @@ const make = Effect.gen(function* () {
   });
 
   const forget: ColleaguesFork["Service"]["forget"] = (subject) =>
-    rowOf(subject).pipe(Effect.flatMap(forgetHere));
+    rowOf(subject).pipe(Effect.flatMap((row) => exclusive(forgetHere(row))));
 
   const shareThread: ColleaguesFork["Service"]["shareThread"] = Effect.fn(
     "ColleaguesFork.shareThread",

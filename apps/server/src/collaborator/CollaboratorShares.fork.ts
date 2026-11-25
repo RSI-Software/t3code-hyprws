@@ -425,6 +425,8 @@ export class CollaboratorSharesFork extends Context.Service<
     readonly unshareAll: (subject: string) => Effect.Effect<void, CollaboratorUnshareErrorFork>;
     /** The collaborator's name, from their first share; undefined when nothing was shared. */
     readonly nameOf: (subject: string) => string | undefined;
+    /** Whether any thread is shared live with the subject. */
+    readonly sharesLive: (subject: string) => boolean;
     /** The origin other machines reach this server on, as for a share link. */
     readonly publicBaseUrl: (
       linkBaseUrl: string | undefined,
@@ -895,6 +897,7 @@ const make = Effect.gen(function* () {
     shareWith,
     unshareAll,
     nameOf: (subject) => current.get(subject)?.name,
+    sharesLive: (subject) => (current.get(subject)?.threadIds.size ?? 0) > 0,
     publicBaseUrl: pairingBaseUrl,
     threadShares,
     unshare,

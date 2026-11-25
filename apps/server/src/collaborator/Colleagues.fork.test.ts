@@ -1,6 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  AuthSessionId,
   COLLABORATOR_SCOPES,
   COLLEAGUE_FORGET_ROUTE_FORK,
   COLLEAGUE_PAIR_CLIENT_ROUTE_FORK,
@@ -17,13 +18,16 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as SessionStore from "../auth/SessionStore.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -72,8 +76,15 @@ interface Server {
   readonly origin: string;
   readonly environmentId: EnvironmentId;
   readonly sessions: Map<string, { readonly sessionId: string; readonly subject: string }>;
-  readonly links: Array<{ readonly id: string; readonly subject: string; scopes: unknown }>;
+  readonly links: Array<{
+    readonly id: string;
+    readonly subject: string;
+    readonly label: string | undefined;
+    readonly scopes: unknown;
+  }>;
   readonly secrets: Map<string, Uint8Array>;
+  /** Revokes a session as Settings → Connections does, announcing it. */
+  readonly revoke: (sessionId: string) => Effect.Effect<void>;
   readonly colleagues: Colleagues.ColleaguesFork["Service"];
   readonly shares: CollaboratorShares.CollaboratorSharesFork["Service"];
 }
@@ -113,6 +124,17 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
   const links: Server["links"] = [];
   const secrets: Server["secrets"] = new Map();
   let issued = 0;
+  const removed = yield* Queue.unbounded<SessionStore.SessionCredentialChange>();
+  const dropSession = (sessionId: string) =>
+    Effect.sync(() => {
+      for (const [token, session] of sessions) {
+        if (session.sessionId === sessionId) sessions.delete(token);
+      }
+    }).pipe(
+      Effect.andThen(
+        Queue.offer(removed, { type: "clientRemoved", sessionId: AuthSessionId.make(sessionId) }),
+      ),
+    );
   const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
     issueSession: (input) =>
       Effect.sync(() => {
@@ -122,18 +144,13 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
         return { token, sessionId } as never;
       }),
     listSessions: () => Effect.succeed([...sessions.values()] as never),
-    revokeSession: (sessionId) =>
-      Effect.sync(() => {
-        for (const [token, session] of sessions) {
-          if (session.sessionId === sessionId) sessions.delete(token);
-        }
-        return true;
-      }),
+    revokeSession: (sessionId) => dropSession(sessionId).pipe(Effect.as(true)),
     createPairingLink: (input) =>
       Effect.sync(() => {
         links.push({
           id: `${name}-link-${++issued}`,
           subject: input!.subject!,
+          label: input!.label,
           scopes: input!.scopes,
         });
         return { credential: `${name}-pairing-${issued}`, expiresAt: now } as never;
@@ -147,6 +164,11 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
         );
         return true;
       }),
+  });
+  const sessionStore = Layer.mock(SessionStore.SessionStore)({
+    cookieName: "unused",
+    legacyCookieName: undefined,
+    streamChanges: Stream.fromQueue(removed),
   });
   const secretStore = Layer.mock(ServerSecretStore.ServerSecretStore)({
     get: (key) => Effect.succeed(Option.fromNullishOr(secrets.get(key))),
@@ -174,6 +196,7 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
           Layer.succeedContext(database),
           NodeCrypto.layer,
           auth,
+          sessionStore,
           secretStore,
           environment,
           config,
@@ -189,12 +212,16 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
     sessions,
     links,
     secrets,
+    revoke: (sessionId) => dropSession(sessionId),
     colleagues: Context.get(context, Colleagues.ColleaguesFork),
     shares: Context.get(context, CollaboratorShares.CollaboratorSharesFork),
   };
   network.set(server.origin, server);
   return server;
 });
+
+/** Sam's app, paired with the host's link: the session its accept steps call the host with. */
+const samApp = { subject: "colleague:sam", sessionId: AuthSessionId.make("sam-app") };
 
 const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subject }) => subject);
 
@@ -204,7 +231,7 @@ const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subj
  */
 const accept = Effect.fn("accept")(function* (host: Server, sam: Server) {
   const samGrant = yield* sam.colleagues.invite({ environmentId: host.environmentId, name: "Jo" });
-  const hostGrant = yield* host.colleagues.save("colleague:sam", { grant: samGrant });
+  const hostGrant = yield* host.colleagues.save(samApp, { grant: samGrant });
   return yield* sam.colleagues.connect({ subject: samGrant.subject, name: "Jo", grant: hostGrant });
 });
 
@@ -228,7 +255,7 @@ const grantFrom = (server: Server) => ({
   environmentId: server.environmentId,
   url: server.origin,
   subject: "colleague:x",
-  token: "unused" as never,
+  token: Redacted.make("unused"),
 });
 
 const shellThreads = (item: OrchestrationV2ShellStreamItem) =>
@@ -292,11 +319,17 @@ it.effect("an accepted invite saves each side as the other's colleague, fenced p
       assert.deepStrictEqual(sam.links.at(-1), {
         id: sam.links.at(-1)!.id,
         subject: "colleague:jo",
+        label: "Colleague Jo",
         scopes: COLLABORATOR_SCOPES,
       });
 
       // Only a collaborator the host shared with saves back; only a saved colleague gets codes.
-      const owner = yield* Effect.exit(host.colleagues.save("owner", { grant: grantFrom(sam) }));
+      const owner = yield* Effect.exit(
+        host.colleagues.save(
+          { subject: "owner", sessionId: AuthSessionId.make("owner-app") },
+          { grant: grantFrom(sam) },
+        ),
+      );
       assert.isTrue(Exit.isFailure(owner));
       const stranger = yield* Effect.exit(sam.colleagues.issueClientPairing("colleague:eve"));
       assert.isTrue(Exit.isFailure(stranger));
@@ -385,10 +418,74 @@ it.effect("the sharer's app can attach the colleague before the accept's last st
         environmentId: host.environmentId,
         name: "Jo",
       });
-      yield* host.colleagues.save("colleague:sam", { grant: samGrant });
+      yield* host.colleagues.save(samApp, { grant: samGrant });
 
       const pairing = yield* host.colleagues.pairClient("colleague:sam");
       assert.strictEqual(pairing.environmentId, sam.environmentId);
+      // Asking again retires the unused code.
+      yield* host.colleagues.pairClient("colleague:sam");
+      assert.strictEqual(sam.links.filter((link) => link.subject === samGrant.subject).length, 1);
+    }),
+  ),
+);
+
+it.effect("a collaborator cannot save over another colleague's environment", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      yield* host.shares.share({ threadId: ThreadId.make("eve-thread"), collaboratorName: "Eve" });
+      host.sessions.set("eve-app", { sessionId: "eve-app", subject: "colleague:eve" });
+
+      const evicted = yield* Effect.exit(
+        host.colleagues.save(
+          { subject: "colleague:eve", sessionId: AuthSessionId.make("eve-app") },
+          { grant: { ...grantFrom(sam), url: "http://127.0.0.1:3899" } },
+        ),
+      );
+      assert.isTrue(Exit.isFailure(evicted));
+      assert.deepStrictEqual(
+        (yield* host.colleagues.list).map(({ subject, url }) => ({ subject, url })),
+        [{ subject: "colleague:sam", url: sam.origin }],
+      );
+      assert.include(subjectsOf(host), "colleague:sam");
+    }),
+  ),
+);
+
+it.effect("a collaborator whose session is revoked loses the colleague grant they saved", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      const forgotten = yield* host.colleagues.changes.pipe(
+        Stream.filter((rows) => rows.length === 0),
+        Stream.runHead,
+        Effect.forkScoped,
+      );
+
+      yield* host.revoke("sam-app");
+      yield* Fiber.join(forgotten);
+      assert.notInclude(subjectsOf(host), "colleague:sam");
+      assert.isFalse(host.shares.isShared("colleague:sam", "host-thread"));
+      const refused = yield* Effect.exit(host.colleagues.issueClientPairing("colleague:sam"));
+      assert.isTrue(Exit.isFailure(refused));
+      assert.isFalse(host.links.some((link) => link.subject === "colleague:sam"));
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(sam.colleagues.pairClient("colleague:jo"))));
+    }),
+  ),
+);
+
+it.effect("a pairing request is refused once the session that saved the colleague is gone", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* servers;
+      yield* host.colleagues.save(samApp, { grant: grantFrom(sam) });
+      // Gone without an announcement, as a session that lapsed while this server was down.
+      host.sessions.delete("sam-app");
+
+      const refused = yield* Effect.exit(host.colleagues.issueClientPairing("colleague:sam"));
+      assert.isTrue(Exit.isFailure(refused));
+      assert.notInclude(subjectsOf(host), "colleague:sam");
+      assert.deepStrictEqual(yield* host.colleagues.list, []);
     }),
   ),
 );

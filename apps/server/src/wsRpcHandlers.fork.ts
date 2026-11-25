@@ -3,7 +3,7 @@
 // under TypeScript's instantiation limit, so the fork's handlers ride the same table.
 import * as Effect from "effect/Effect";
 import { RpcGroup } from "effect/rpc";
-import { RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
+import { type AuthSessionId, RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
 
 import * as CollaboratorShares from "./collaborator/CollaboratorShares.fork.ts";
 import * as Colleagues from "./collaborator/Colleagues.fork.ts";
@@ -18,9 +18,10 @@ const WsRpcGroupFork = RpcGroup.make(...wsRpcsFork)
   .middleware(RpcScopeAuthorization)
   .middleware(RpcInstrumentation);
 
-export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function* (
-  subject: string,
-) {
+export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function* (session: {
+  readonly subject: string;
+  readonly sessionId: AuthSessionId;
+}) {
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
@@ -50,7 +51,7 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
     "collaborator.subscribeTypingFork": (input) =>
       collaborators.typingHandlers(null)["collaborator.subscribeTypingFork"](input),
     "colleague.inviteFork": (input) => colleagues.invite(input),
-    "colleague.saveFork": (input) => colleagues.save(subject, input),
+    "colleague.saveFork": (input) => colleagues.save(session, input),
     "colleague.connectFork": (input) => colleagues.connect(input),
     "colleague.subscribeFork": () => colleagues.changes,
     "colleague.removeFork": (input) => colleagues.remove(input.subject),

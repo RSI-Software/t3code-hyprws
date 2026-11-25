@@ -849,6 +849,8 @@ Accepting runs **three client calls**: `colleague.inviteFork` (own server), `col
 A colleague's server **mints one-time pairing codes** for its own subject over `/api/fork/colleague/pair-client`: the same subject and scopes, so it **never widens** the grant, though it lacks `access:write`.
 Removing **revokes the subject's sessions** and links, unshares, and asks the other server to do the same over `/api/fork/colleague/forget`.
 Each row records the grant this server issued, so **saving again revokes** the one it replaces; a new colleague's subject takes an **environment suffix** when a guest or colleague already uses the name's.
+An environment saved under one subject **refuses a save** under another, so no collaborator evicts another colleague.
+A colleague **lapses**, removed here as above, once the grant this server issued or the collaborator session that saved them is revoked; `SessionStore` removals trigger the check, and pair-client runs it again.
 
 ### Retirement condition
 
