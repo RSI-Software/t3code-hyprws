@@ -1,19 +1,17 @@
 // Fork-only (colleague-collab): which thread has the collaborator share dialog open, and who may open it.
-import { createEnvironmentRpcCommand } from "@t3tools/client-runtime/state/runtime";
-import { type EnvironmentId, type ScopedThreadRef, WS_METHODS } from "@t3tools/contracts";
+import {
+  COLLABORATOR_SHARE_SCOPES,
+  type EnvironmentId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
-import { connectionAtomRuntime } from "~/connection/runtime";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { readEnvironmentScope } from "~/state/session";
 
-export const shareThreadWithCollaboratorCommand = createEnvironmentRpcCommand(
-  connectionAtomRuntime,
-  { label: "share thread with collaborator", tag: WS_METHODS.collaboratorShareThreadFork },
-);
-
-/** The menus offer sharing only where the server would accept it. */
+/** The menus offer sharing only where the server would accept it: the share RPC's own scopes. */
 export const canShareWithCollaboratorFork = (environmentId: EnvironmentId) =>
-  appAtomRegistry.get(shareThreadWithCollaboratorCommand.permissionAtom(environmentId));
+  COLLABORATOR_SHARE_SCOPES.every((scope) => readEnvironmentScope(environmentId, scope));
 
 export const collaboratorShareDialogThreadAtom = Atom.make<ScopedThreadRef | null>(null).pipe(
   Atom.keepAlive,
