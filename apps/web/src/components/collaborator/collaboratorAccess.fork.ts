@@ -1,13 +1,21 @@
 // Fork-only (colleague-collab): who a thread is shared with, and their access. The share dialog and
 // the thread details card read the same query, which an access change refreshes.
+import { useAtomValue } from "@effect/atom-react";
 import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
 } from "@t3tools/client-runtime/state/runtime";
-import { type CollaboratorAccessFork, WS_METHODS } from "@t3tools/contracts";
+import {
+  type CollaboratorAccessFork,
+  type EnvironmentId,
+  isCollaboratorGrantFork,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
+import { serverEnvironment } from "~/state/server";
+import { environmentSession } from "~/state/session";
 
 export const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:thread-shares",
@@ -35,3 +43,15 @@ export const collaboratorRowControlsFork = (thread: { readonly collaboratorFork?
   thread.collaboratorFork === undefined
     ? {}
     : { settlementSupported: false, snoozeSupported: false, pinningSupported: false };
+
+const useHostSessionFork = (environmentId: EnvironmentId) =>
+  useAtomValue(
+    environmentSession.sessionStateValueAtom(environmentId),
+    (session) => session !== null && !isCollaboratorGrantFork(session.permissions),
+  );
+
+/** Automations stay the host's: a collaborator session, or one still loading, never asks for them. */
+export const useHostScheduledTasksFork = (environmentId: EnvironmentId, needed = true) =>
+  useHostSessionFork(environmentId) && needed
+    ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} })
+    : null;
