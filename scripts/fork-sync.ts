@@ -1320,9 +1320,14 @@ const CI_START_SECONDS = 5 * 60;
 const CI_TIMEOUT_SECONDS = 60 * 60;
 /** One GitHub read inside the wait; a hung read must not outlast the deadlines. */
 const CI_READ_TIMEOUT_MS = 60_000;
+/** Failed-log text of a known hyprws CI flake; a run red only on these is rerun once. */
+const CI_FLAKE_SIGNATURES = ["Browser connection was closed while running tests"];
+/** hyprws CI's summary job, red whenever another job is. */
+const CI_SUMMARY_JOB = "CI";
 
 interface CiRun {
   readonly databaseId: number;
+  readonly attempt: number;
   readonly status: string;
   readonly conclusion: string;
   readonly url: string;
@@ -1351,7 +1356,7 @@ const latestCiRun = (runner: CommandRunner, root: string, sha: string): CiRun | 
           "--limit",
           "1",
           "--json",
-          "databaseId,status,conclusion,url",
+          "databaseId,attempt,status,conclusion,url",
         ],
         { cwd: root, timeout: CI_READ_TIMEOUT_MS },
       ),
@@ -1370,6 +1375,40 @@ const runJobs = (runner: CommandRunner, root: string, run: CiRun): ReadonlyArray
       ),
     ) as { readonly jobs: ReadonlyArray<CiJob> }
   ).jobs.map(({ name, conclusion, url }) => ({ name, conclusion, url }));
+
+/**
+ * Rerun the failed jobs of a first-attempt red `run` when every red job's log
+ * shows a known flake; true when the rerun started. A later attempt stays red.
+ */
+const rerunFlake = (
+  runner: CommandRunner,
+  root: string,
+  run: CiRun,
+  jobs: ReadonlyArray<CiJob>,
+): boolean => {
+  if (run.conclusion === "success" || run.attempt !== 1) return false;
+  const gh = (args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) =>
+    runner.run("gh", [...args, "--repo", FORK_REPOSITORY], {
+      cwd: root,
+      timeout: CI_READ_TIMEOUT_MS,
+      ...(env === undefined ? {} : { env }),
+    });
+  const red = redJobs(jobs).filter((job) => job.name !== CI_SUMMARY_JOB);
+  const flaked =
+    red.length > 0 &&
+    red.every((job) => {
+      const log = gh(["run", "view", "--job", job.url.split("/").at(-1) ?? "", "--log-failed"]);
+      return log.status === 0 && CI_FLAKE_SIGNATURES.some((flake) => log.stdout.includes(flake));
+    });
+  if (!flaked) return false;
+  process.stdout.write(`sync: rerunning the flaked jobs of ${run.url}\n`);
+  // The job's own token stays read-only, since rebased code inherits it; the mirror PAT reruns.
+  const pat = process.env.HYPRWS_PUSH_TOKEN;
+  const env = pat === undefined ? undefined : { ...process.env, GH_TOKEN: pat };
+  const rerun = gh(["run", "rerun", String(run.databaseId), "--failed"], env);
+  if (rerun.status !== 0) process.stdout.write(`sync: rerun refused: ${rerun.stderr.trim()}\n`);
+  return rerun.status === 0;
+};
 
 /**
  * Run `vp run fork:ci` on the sync worktree's tip `sha`: the refusal as a
@@ -1402,6 +1441,7 @@ const localForkCi = (runner: CommandRunner, root: string, sha: string): string |
  * hyprws CI's verdict on `sha`. A sha with a run reuses it; any other runs the local
  * `vp run fork:ci` first, so a refusal costs minutes instead of a CI round, then force-pushes to
  * the candidate branch. Polls until the run completes; one that never starts or ends is not green.
+ * A run red only on a known flake is rerun once, and the poll waits out that attempt.
  */
 export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
   let latest = latestCiRun(runner, root, sha);
@@ -1417,15 +1457,17 @@ export const candidateCi = (runner: CommandRunner, root: string, sha: string): C
     git(runner, root, ["push", "--force", "origin", `${sha}:${ref}`]);
   }
   const started = performance.now();
+  // The attempt a flake rerun replaced; GitHub may report it completed a while longer.
+  let replaced = 0;
   for (let waited = 0; ; waited += CI_POLL_SECONDS) {
     // Waits out the whole run: the report must name every red job, or each
     // fix round finds only the next one.
-    if (latest?.status === "completed")
-      return {
-        run: latest.url,
-        conclusion: latest.conclusion,
-        jobs: runJobs(runner, root, latest),
-      };
+    if (latest?.status === "completed" && latest.attempt > replaced) {
+      const jobs = runJobs(runner, root, latest);
+      if (!rerunFlake(runner, root, latest, jobs))
+        return { run: latest.url, conclusion: latest.conclusion, jobs };
+      replaced = latest.attempt;
+    }
     // Wall time counts slow GitHub reads; the sleep count bounds a faked sleep.
     const elapsed = Math.max(waited, (performance.now() - started) / 1000);
     if (elapsed >= (latest === null ? CI_START_SECONDS : CI_TIMEOUT_SECONDS))
@@ -1447,8 +1489,8 @@ const ciMark = (conclusion: string): string =>
   conclusion === "success" ? "✅" : conclusion === "skipped" ? "⏭️" : "❌";
 
 /** The jobs that kept the candidate from green. */
-const redJobs = (ci: CandidateCi): ReadonlyArray<CiJob> =>
-  ci.jobs.filter((job) => job.conclusion !== "success" && job.conclusion !== "skipped");
+const redJobs = (jobs: ReadonlyArray<CiJob>): ReadonlyArray<CiJob> =>
+  jobs.filter((job) => job.conclusion !== "success" && job.conclusion !== "skipped");
 
 export const blockingShaOf = (conflicts: ReadonlyArray<ConflictRow>): string | null =>
   conflicts.find((row) => row.via === "manual")?.upstreamCommit ??
@@ -1524,13 +1566,15 @@ export const attentionIssueBody = (report: ForkSyncReport, previous?: string): s
       "```",
       report.error ?? "unknown error",
       "```",
-      ...(report.ci === null || redJobs(report.ci).length === 0
+      ...(report.ci === null || redJobs(report.ci.jobs).length === 0
         ? []
         : [
             "",
             "| Job | Conclusion |",
             "| --- | --- |",
-            ...redJobs(report.ci).map((job) => `| [${job.name}](${job.url}) | ${job.conclusion} |`),
+            ...redJobs(report.ci.jobs).map(
+              (job) => `| [${job.name}](${job.url}) | ${job.conclusion} |`,
+            ),
           ]),
       ...(report.target.tag === ""
         ? []
@@ -1984,7 +2028,7 @@ export const renderReport = (report: ForkSyncReport): string => {
       : [
           "",
           `CI: ${ciMark(report.ci.conclusion)} ${report.ci.conclusion}${report.ci.run === "" ? "" : ` — ${report.ci.run}`}`,
-          ...redJobs(report.ci).map(
+          ...redJobs(report.ci.jobs).map(
             (job) => `- ${ciMark(job.conclusion)} ${job.name} — ${job.url}`,
           ),
         ];
@@ -2433,7 +2477,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     status?.({ kind: "ci", candidate: newSha });
     const ci = candidateCi(runner, root, newSha);
     if (ci.conclusion !== "success") {
-      const red = redJobs(ci).map((job) => job.name);
+      const red = redJobs(ci.jobs).map((job) => job.name);
       return fail({
         conflicts: [...rebase.recorded],
         ci,
