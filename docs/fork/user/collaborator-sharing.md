@@ -16,6 +16,15 @@ The link opens in their desktop app or browser; unopened, it **expires after 24 
 Once they open it, their access **does not expire**; it lasts until you stop sharing or remove their device.
 To share another thread with someone you shared with before, pick their name under **Shared before**; no new link is needed.
 
+## Save each other as colleagues
+
+Open the link in **your own T3 Code app**: from the desktop app, or pasted into **Settings → Connections → Add backend**.
+You each save the other as a **colleague**, and both apps say so: **Saved Jordan as a colleague**.
+
+- Threads they share with you later **appear live**, with no new link
+- A colleague sees **nothing of yours** until you share a thread
+- In a browser with no T3 Code of its own, you stay a **one-time guest**
+
 ## Approve their messages
 
 By default each collaborator **Needs approval**: their messages **wait for you** at the end of the thread, with **Send** and **Dismiss**.
