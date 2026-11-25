@@ -4064,7 +4064,7 @@ export default function ChatView(props: ChatViewProps) {
                                 onRemoveEditingQueuedAttachment={
                                   queuedRunEdit.removeEditingAttachment
                                 }
-                                {...collaboratorFork.composer(composerBannerItems)} // fork-hook: colleague-collab/chat-composer
+                                {...collaboratorFork.composer(composerBannerItems, onComposerSendStable)} // fork-hook: colleague-collab/chat-composer
                                 onRestoreEditingQueuedAttachment={
                                   queuedRunEdit.restoreEditingAttachment
                                 }

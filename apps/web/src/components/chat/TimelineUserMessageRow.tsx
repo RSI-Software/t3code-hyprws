@@ -13,6 +13,8 @@ import {
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
+import { peopleLinesFork } from "@t3tools/client-runtime/user-message"; // spike RSI-711
+import { PeopleLinesFork } from "../collaborator/CollaboratorChat.fork"; // spike RSI-711
 import { Link } from "@tanstack/react-router";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironment } from "../../state/environments";
@@ -900,11 +902,21 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       </div>
     </div>
   );
+  const carriedPeopleLines = peopleLinesFork(row.message.context); // spike RSI-711
   return (
     <div
       className="group @container flex flex-col items-end gap-1"
       data-user-message-attribution={folded ? "agent" : undefined}
     >
+      {carriedPeopleLines ? (
+        <div className="w-full">
+          <PeopleLinesFork
+            lines={carriedPeopleLines.lines}
+            environmentId={ctx.activeThreadEnvironmentId}
+            threadId={ctx.threadRef?.threadId ?? null}
+          />
+        </div>
+      ) : null}
       {userMessage.attribution === "t3code" ? (
         <p
           className="me-1 text-2xs text-muted-foreground/70"

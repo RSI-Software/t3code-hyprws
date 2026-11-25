@@ -17,6 +17,7 @@ import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { imageMimeType } from "@t3tools/shared/image";
 import { videoMimeType } from "@t3tools/shared/video";
 import { collaboratorPresentationFork } from "./userMessage.fork.ts"; // fork-hook: colleague-collab/user-message-attribution-import
+export { peopleLinesFork } from "./userMessage.fork.ts"; // spike RSI-711
 import { msg } from "gt-i18n";
 
 /** The working row while T3 Code's own compaction runs. */

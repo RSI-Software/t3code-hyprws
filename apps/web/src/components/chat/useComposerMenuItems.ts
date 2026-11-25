@@ -49,6 +49,7 @@ import {
   rankPullRequestMatches,
 } from "../pullRequest/pullRequestList.logic";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
+import { useThreadSharedFork } from "../collaborator/CollaboratorChat.fork"; // spike RSI-711
 import { matchComposerModelItems } from "./composerModelMentions";
 import type { ModelEsque } from "./providerIconUtils";
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -125,6 +126,7 @@ export function useComposerMenuItems({
   const settledPullRequestTextQuery =
     pullRequestTextQuery === debouncedPullRequestTextQuery ? pullRequestTextQuery : null;
   const isPathTrigger = composerTriggerKind === "path";
+  const sharedFork = useThreadSharedFork(environmentId, activeThreadId).shared; // spike RSI-711
   const environmentThreadShells = useVisibleThreadShells(isPathTrigger);
   // Mounts older settled threads matching the mention, here and on linked machines, which shells
   // may leave out.
@@ -212,6 +214,17 @@ export function useComposerMenuItems({
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       return [
+        // spike RSI-711: in a shared thread, only `@agent` lines reach the agent.
+        ...(sharedFork && "agent".startsWith(composerTrigger.query.toLowerCase())
+          ? [
+              {
+                id: "agent-mention",
+                type: "agent-mention" as const,
+                label: "agent",
+                description: "Send this message to the agent",
+              },
+            ]
+          : []),
         ...matchComposerThreadItems(
           {
             shells: environmentThreadShells,

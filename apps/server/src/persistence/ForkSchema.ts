@@ -90,6 +90,14 @@ const FORK_TABLES = [
     text TEXT NOT NULL,
     submitted_at TEXT NOT NULL
   )`,
+  // Spike RSI-711: lines between people in a shared thread, held until an @agent message.
+  `CREATE TABLE IF NOT EXISTS fork_people_lines (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
 ] as const;
 
 /**

@@ -83,6 +83,8 @@ export const CollaboratorMessageFork = Schema.Struct({
   name: Schema.String,
   text: Schema.String,
   submittedAt: IsoDateTime,
+  /** Spike RSI-711: a line between people only, never dispatched. `name` "" is the host. */
+  kind: Schema.optional(Schema.Literal("people")),
 });
 export type CollaboratorMessageFork = typeof CollaboratorMessageFork.Type;
 
@@ -92,6 +94,8 @@ const COLLABORATOR_MESSAGE_MAX_LENGTH = PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 1_0
 export const CollaboratorSubmitMessageInputFork = Schema.Struct({
   threadId: ThreadId,
   text: TrimmedNonEmptyString.check(Schema.isMaxLength(COLLABORATOR_MESSAGE_MAX_LENGTH)),
+  /** Spike RSI-711: post a people-only line instead of a message for the agent. */
+  peopleOnly: Schema.optional(Schema.Boolean),
 });
 export type CollaboratorSubmitMessageInputFork = typeof CollaboratorSubmitMessageInputFork.Type;
 
@@ -164,6 +168,16 @@ export const CollaboratorAttributionFork = Schema.Struct({
   text: Schema.String,
 });
 export type CollaboratorAttributionFork = typeof CollaboratorAttributionFork.Type;
+
+/** Spike RSI-711: the people-only lines an `@agent` message carried to the agent as context. */
+export const PeopleLinesContextFork = Schema.Struct({
+  /** What the sender typed; the message text carries the lines too, for the agent. */
+  text: Schema.String,
+  lines: Schema.Array(
+    Schema.Struct({ name: Schema.String, text: Schema.String, at: Schema.String }),
+  ),
+});
+export type PeopleLinesContextFork = typeof PeopleLinesContextFork.Type;
 
 export class CollaboratorThreadMissingErrorFork extends Schema.TaggedError<CollaboratorThreadMissingErrorFork>()(
   "CollaboratorThreadMissingErrorFork",

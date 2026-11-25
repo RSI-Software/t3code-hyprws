@@ -20,10 +20,22 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowUpIcon, Clock3Icon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  BotIcon,
+  Clock3Icon,
+  HourglassIcon,
+  UnplugIcon,
+  UsersIcon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
-import { useComposerDraftStore, type ComposerThreadTarget } from "~/composerDraftStore";
+import {
+  type ComposerThreadTarget,
+  useComposerDraftStore,
+  useComposerThreadDraft,
+} from "~/composerDraftStore";
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
@@ -87,6 +99,43 @@ const APPROVAL_BANNER: ComposerBannerStackItem = {
   description: "Each message waits for the host to send it to the agent.",
 };
 
+/** Spike RSI-711: a message reaches the agent only when it says `@agent`. */
+export const AGENT_MENTION_FORK = /(^|\s)@agent\b/i;
+
+/** Spike RSI-711: whether anyone else sees this thread, so `@agent` decides what reaches the agent. */
+export function useThreadSharedFork(
+  environmentId: EnvironmentId | null,
+  threadId: ThreadId | null,
+) {
+  const configs = useServerConfigs();
+  const served =
+    environmentId !== null &&
+    threadId !== null &&
+    configs.get(environmentId)?.environment.capabilities.collaboratorsFork === true;
+  const state = useEnvironmentQuery(
+    served ? typingSubscription({ environmentId, input: { threadId } }) : null,
+  ).data;
+  return { shared: state?.shared === true, people: [HOST_KEY, ...(state?.people ?? [])] };
+}
+
+const PEOPLE_BANNER: ComposerBannerStackItem = {
+  id: "people-only",
+  variant: "info",
+  group: "environment",
+  icon: <UsersIcon />,
+  title: "Only people in this thread see this",
+  description: "Write @agent to send it to the agent.",
+};
+
+const AGENT_BANNER: ComposerBannerStackItem = {
+  id: "people-only",
+  variant: "info",
+  group: "environment",
+  icon: <BotIcon />,
+  title: "This goes to the agent",
+  description: "It reads the people-only lines since its last turn as context.",
+};
+
 interface CollaboratorChatThread {
   readonly environmentId: EnvironmentId;
   readonly id: ThreadId;
@@ -127,6 +176,30 @@ export function useCollaboratorChatFork(
   const submit = useAtomCommand(submitMessageCommand);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const access = thread?.collaboratorFork;
+  const { shared } = useThreadSharedFork(thread?.environmentId ?? null, thread?.id ?? null);
+  const draftPrompt = useComposerThreadDraft(draftTarget).prompt;
+  const agentBound = AGENT_MENTION_FORK.test(draftPrompt);
+
+  const postPeopleLine = (event?: { preventDefault: () => void }) => {
+    event?.preventDefault();
+    const text = prompt();
+    if (thread == null || text.length === 0) return;
+    void submit({
+      environmentId: thread.environmentId,
+      input: { threadId: thread.id, text, peopleOnly: true },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        toastManager.add({
+          type: "error",
+          title: "Could not post the line",
+          description: formatEnvironmentQueryError(result.cause),
+        });
+      }
+      if (result._tag !== "Success" || prompt() !== text) return;
+      clearComposerContent(draftTarget);
+      composerRef.current?.resetCursorState();
+    });
+  };
 
   const submitForApproval = (event?: { preventDefault: () => void }) => {
     event?.preventDefault();
@@ -161,7 +234,23 @@ export function useCollaboratorChatFork(
   return {
     typing:
       thread == null ? null : <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />,
-    composer: (bannerItems: ReadonlyArray<ComposerBannerStackItem>) => {
+    composer: (
+      bannerItems: ReadonlyArray<ComposerBannerStackItem>,
+      defaultSend?: (event?: { preventDefault: () => void }, ...rest: never[]) => void,
+    ) => {
+      if (shared && access !== "frozen") {
+        const sendToAgent = access === "approve" ? submitForApproval : defaultSend;
+        return {
+          onSend: (event?: { preventDefault: () => void }) =>
+            AGENT_MENTION_FORK.test(prompt()) ? sendToAgent?.(event) : postPeopleLine(event),
+          ...(access === "approve" ? { canInterrupt: false } : {}),
+          bannerItems: [
+            agentBound ? AGENT_BANNER : PEOPLE_BANNER,
+            ...(access === "approve" && agentBound ? [APPROVAL_BANNER] : []),
+            ...bannerItems,
+          ],
+        };
+      }
       if (access === "frozen") {
         return {
           canOperateThread: false,
@@ -186,15 +275,82 @@ export function useCollaboratorChatFork(
             footer: (
               <>
                 {footer}
-                <WaitingMessages
+                <PeopleLinesFork
+                  lines={waiting.flatMap((message) =>
+                    message.kind === "people"
+                      ? [{ name: message.name, text: message.text, at: message.submittedAt }]
+                      : [],
+                  )}
                   environmentId={thread.environmentId}
-                  messages={waiting}
-                  asAuthor={access !== undefined}
+                  threadId={thread.id}
+                  live
                 />
+                {waiting.some((message) => message.kind !== "people") ? (
+                  <WaitingMessages
+                    environmentId={thread.environmentId}
+                    messages={waiting.filter((message) => message.kind !== "people")}
+                    asAuthor={access !== undefined}
+                  />
+                ) : null}
               </>
             ),
           },
   };
+}
+
+/**
+ * Spike RSI-711: lines between people, never sent to the agent. Left-aligned, no bubble, each
+ * speaker in their colour, so they read as talk beside the agent's work, not prompts.
+ */
+export function PeopleLinesFork({
+  lines,
+  environmentId,
+  threadId,
+  live = false,
+}: {
+  readonly lines: ReadonlyArray<{
+    readonly name: string;
+    readonly text: string;
+    readonly at: string;
+  }>;
+  readonly environmentId: EnvironmentId | null;
+  readonly threadId: ThreadId | null;
+  /** Still waiting for an `@agent` message; folded lines sit above the one that carried them. */
+  readonly live?: boolean;
+}) {
+  const { people } = useThreadSharedFork(environmentId, threadId);
+  if (lines.length === 0) return null;
+  return (
+    <section
+      aria-label="People-only lines"
+      className={`relative mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-1 ${live ? "pb-4" : "pb-1"}`}
+    >
+      <p className="flex items-center gap-1 text-2xs text-muted-foreground/80">
+        <UsersIcon aria-hidden className="size-3" />
+        {live
+          ? "Between people · the agent reads these at the next @agent"
+          : "Between people · sent to the agent as context"}
+      </p>
+      <ol className="flex flex-col gap-1 border-s-2 border-border ps-3">
+        {lines.map((line, index) => {
+          const hue = people.indexOf(line.name);
+          return (
+            <li key={`${line.at}:${index}`} className="text-sm leading-snug">
+              <span
+                className="me-1.5 font-medium"
+                style={hue >= 0 ? { color: `var(--annotation-peer-${hue % 6})` } : undefined}
+              >
+                {line.name === "" ? "Host" : line.name}
+              </span>
+              <span className="whitespace-pre-wrap wrap-anywhere text-foreground/90">
+                {line.text}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
 }
 
 /** Waiting messages wear the queued-message look: a dashed bubble, then a row of quiet controls. */
@@ -321,6 +477,7 @@ function EnvironmentMessageToasts({ environmentId }: { readonly environmentId: E
     for (const message of messages) {
       // The thread already open shows the message where the host answers it.
       if (previous.has(message.id) || message.threadId === openThreadId) continue;
+      if (message.kind === "people") continue;
       const text = assistantCitationsToPlainText(message.text);
       const toastId = toastManager.add({
         type: "info",
@@ -390,7 +547,7 @@ export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) 
     ),
     // A collaborator sees only their own waiting messages.
     waiting: waiting.flatMap((message) =>
-      message.threadId === threadRef?.threadId
+      message.threadId === threadRef?.threadId && message.kind !== "people"
         ? [
             {
               id: `waiting:${message.id}`,

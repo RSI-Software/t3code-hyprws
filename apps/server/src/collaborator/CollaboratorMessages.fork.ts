@@ -53,6 +53,33 @@ interface MessageRow {
   readonly submitted_at: string;
 }
 
+/** Spike RSI-711: a message reaches the agent only when it says `@agent`. */
+export const AGENT_MENTION = /(^|\s)@agent\b/i;
+
+/** Spike RSI-711: the block the agent reads before an `@agent` message, naming each speaker. */
+const peopleLinesPrompt = (lines: ReadonlyArray<{ name: string; text: string }>) =>
+  `[Since your last message, the people in this thread said the lines below to each other, not to you. Use them as context; act only on the message after them.]\n${lines
+    .map((line) => `${line.name === "" ? "Owner" : line.name}: ${line.text}`)
+    .join("\n")}\n[End of people-only lines.]\n\n`;
+
+interface PeopleRow {
+  readonly id: string;
+  readonly thread_id: string;
+  readonly author_name: string;
+  readonly text: string;
+  readonly created_at: string;
+}
+
+const fromPeopleRow = (row: PeopleRow): CollaboratorMessageFork => ({
+  id: row.id,
+  threadId: ThreadId.make(row.thread_id),
+  subject: "people",
+  name: row.author_name,
+  text: row.text,
+  submittedAt: row.created_at,
+  kind: "people",
+});
+
 const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
   id: row.id,
   threadId: ThreadId.make(row.thread_id),
@@ -70,10 +97,18 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   // between an unshare's purge and its freeze.
   const lock = (yield* Semaphore.make(1)).withPermits(1);
 
+  const readPeople = sql<PeopleRow>`
+    SELECT id, thread_id, author_name, text, created_at FROM fork_people_lines ORDER BY created_at
+  `;
   const read = sql<MessageRow>`
     SELECT id, thread_id, subject, collaborator_name, text, submitted_at
     FROM fork_collaborator_messages ORDER BY submitted_at
-  `.pipe(Effect.map((rows) => rows.map(fromRow)));
+  `.pipe(
+    Effect.map((rows) => rows.map(fromRow)),
+    Effect.flatMap((waiting) =>
+      readPeople.pipe(Effect.map((people) => [...people.map(fromPeopleRow), ...waiting])),
+    ),
+  );
   const ref = yield* SubscriptionRef.make(yield* read.pipe(Effect.orDie));
   const reload = read.pipe(Effect.flatMap((next) => SubscriptionRef.set(ref, next)));
 
@@ -100,6 +135,57 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
   });
 
+  /** Spike RSI-711: a line between people; `name` "" is the host. */
+  const postPeopleLine = Effect.fn("CollaboratorMessagesFork.postPeopleLine")(function* (input: {
+    readonly name: string;
+    readonly threadId: ThreadId;
+    readonly text: string;
+  }) {
+    const undelivered = (cause: unknown) =>
+      new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
+    const id = yield* random.uuidV4().pipe(Effect.mapError(undelivered));
+    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    yield* sql`
+      INSERT INTO fork_people_lines (id, thread_id, author_name, text, created_at)
+      VALUES (${id}, ${input.threadId}, ${input.name}, ${input.text}, ${createdAt})
+    `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
+  });
+
+  /**
+   * Spike RSI-711: folds the thread's people-only lines into an `@agent` message, so the agent
+   * reads them as context and the timeline shows them above it. The lines leave the live list.
+   */
+  const foldPeopleLines = <
+    C extends { readonly text: string; readonly context?: OrchestrationMessageContext | undefined },
+  >(
+    threadId: string,
+    command: C,
+  ) =>
+    Effect.gen(function* () {
+      const lines = (yield* SubscriptionRef.get(ref)).filter(
+        (message) => message.kind === "people" && message.threadId === threadId,
+      );
+      if (lines.length === 0) return command;
+      yield* sql`DELETE FROM fork_people_lines WHERE thread_id = ${threadId}`.pipe(
+        Effect.andThen(reload),
+        Effect.orDie,
+      );
+      const own = command.context?.collaboratorFork?.text ?? command.text;
+      return {
+        ...command,
+        text: `${peopleLinesPrompt(lines)}${command.text}`,
+        context: {
+          version: 1 as const,
+          records: [],
+          ...command.context,
+          peopleLinesFork: {
+            text: own,
+            lines: lines.map(({ name, text, submittedAt }) => ({ name, text, at: submittedAt })),
+          },
+        },
+      };
+    });
+
   /** `subject` null is the host, who may send; a collaborator may only withdraw their own. */
   const resolve = Effect.fn("CollaboratorMessagesFork.resolve")(function* (
     input: CollaboratorResolveMessageInputFork,
@@ -118,11 +204,10 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     }
     if (input.decision === "send" && subject === null) {
       const attribution = collaboratorAttribution(message.name, message.text);
-      const context: OrchestrationMessageContext = {
-        version: 1,
-        records: [],
-        ...attribution.context,
-      };
+      const folded = yield* foldPeopleLines(message.threadId, {
+        text: attribution.text,
+        context: { version: 1, records: [], ...attribution.context } as OrchestrationMessageContext,
+      });
       // Ids from the message, so a retry after a failed delete replays instead of sending twice.
       yield* threads
         .dispatch({
@@ -130,8 +215,8 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
           commandId: CommandId.make(`collaborator-message:${message.id}`),
           threadId: message.threadId,
           messageId: MessageId.make(`collaborator-message:${message.id}`),
-          text: attribution.text,
-          context,
+          text: folded.text,
+          ...(folded.context === undefined ? {} : { context: folded.context }),
           attachments: [],
           dispatchMode: { type: "queue_after_active" },
           createdBy: "user",
@@ -157,6 +242,8 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     submit,
     resolve,
     drop,
+    postPeopleLine,
+    foldPeopleLines,
     /** The waiting messages a session may see, re-emitted whenever any changes. */
     visible: (
       visibleTo: (message: CollaboratorMessageFork) => boolean,

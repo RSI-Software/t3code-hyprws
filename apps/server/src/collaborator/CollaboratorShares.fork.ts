@@ -60,7 +60,11 @@ import {
   isLoopbackHost,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
-import { collaboratorAttribution, makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
+import {
+  AGENT_MENTION,
+  collaboratorAttribution,
+  makeCollaboratorMessages,
+} from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
 import { COLLABORATOR_SUBJECT_PREFIX, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
@@ -561,6 +565,15 @@ const make = Effect.gen(function* () {
 
   const isShared = (subject: string, threadId: string) =>
     current.get(subject)?.threadIds.has(threadId) === true;
+  // Spike RSI-711: someone else can see the thread, so `@agent` decides what reaches the agent.
+  const sharedWithAnyone = (threadId: string) =>
+    [...current.values()].some((share) => share.threadIds.has(threadId));
+  const foldIfAgentBound = <C extends OrchestrationV2Command>(command: C): Effect.Effect<C> =>
+    command.type === "message.dispatch" &&
+    AGENT_MENTION.test(command.text) &&
+    sharedWithAnyone(command.threadId)
+      ? (messages.foldPeopleLines(command.threadId, command) as Effect.Effect<C>)
+      : Effect.succeed(command);
 
   const threadShares: CollaboratorSharesFork["Service"]["threadShares"] = (threadId) =>
     Effect.sync(() => {
@@ -699,8 +712,15 @@ const make = Effect.gen(function* () {
     subject === null || !isCollaboratorSubject(subject)
       ? {
           [MESSAGES]: () =>
-            messages.visible((message) => isShared(message.subject, message.threadId)),
-          [SUBMIT]: () => Effect.fail(notCollaborator),
+            messages.visible(
+              (message) =>
+                (message.kind === "people" && sharedWithAnyone(message.threadId)) ||
+                isShared(message.subject, message.threadId),
+            ),
+          [SUBMIT]: (input) =>
+            input.peopleOnly === true && sharedWithAnyone(input.threadId)
+              ? messages.postPeopleLine({ name: "", threadId: input.threadId, text: input.text })
+              : Effect.fail(notCollaborator),
           [RESOLVE]: (input) => messages.resolve(input, null),
         }
       : collaboratorMessageHandlers(subject);
@@ -708,13 +728,24 @@ const make = Effect.gen(function* () {
   const collaboratorMessageHandlers = (subject: string): CollaboratorMessageHandlersFork => ({
     [MESSAGES]: () =>
       messages.visible(
-        (message) => message.subject === subject && isShared(subject, message.threadId),
+        (message) =>
+          (message.subject === subject || message.kind === "people") &&
+          isShared(subject, message.threadId),
       ),
     // Checked inside `exclusive`, so an unshare in flight finishes first.
     [SUBMIT]: (input) =>
       messages.exclusive(
         Effect.suspend((): Effect.Effect<void, MessageError> => {
           const share = current.get(subject);
+          if (input.peopleOnly === true) {
+            return share !== undefined && share.threadIds.has(input.threadId)
+              ? messages.postPeopleLine({
+                  name: share.name,
+                  threadId: input.threadId,
+                  text: input.text,
+                })
+              : Effect.fail(notShared(AuthOrchestrationOperateScope));
+          }
           // A collaborator with `send` access dispatches like the host; this path is for `approve`.
           return share?.threadIds.get(input.threadId) === "approve"
             ? messages.submit({ subject, name: share.name, ...input })
@@ -790,7 +821,9 @@ const make = Effect.gen(function* () {
       return {
         ...handlers,
         [DISPATCH]: (command, options) =>
-          dispatch(withoutCollaboratorAttribution(command), options),
+          foldIfAgentBound(withoutCollaboratorAttribution(command)).pipe(
+            Effect.flatMap((folded) => dispatch(folded, options)),
+          ),
         [LAUNCH]: (input, options) => launch(launchWithoutAttribution(input), options),
       };
     }
@@ -811,14 +844,11 @@ const make = Effect.gen(function* () {
           return dispatch(command, options);
         }
         const attribution = collaboratorAttribution(share.name, command.text);
-        return dispatch(
-          {
-            ...command,
-            text: attribution.text,
-            context: { version: 1, records: [], ...command.context, ...attribution.context },
-          },
-          options,
-        );
+        return foldIfAgentBound({
+          ...command,
+          text: attribution.text,
+          context: { version: 1 as const, records: [], ...command.context, ...attribution.context },
+        }).pipe(Effect.flatMap((folded) => dispatch(folded, options)));
       },
       [SHELL]: (input, options) => shell(subject, input, (fresh) => subscribeShell(fresh, options)),
       // Unshared pauses silently, since the client retries a failed stream every 250ms.

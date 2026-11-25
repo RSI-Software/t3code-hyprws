@@ -2212,6 +2212,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       return;
     }
+    if (item.type === "agent-mention") {
+      // spike RSI-711
+      if (trigger.kind !== "path") return;
+      const replacement = "@agent ";
+      const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+        snapshot.value,
+        trigger.rangeEnd,
+        replacement,
+      );
+      const applied = applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+        expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+      });
+      if (applied) setComposerHighlightedItemId(null);
+      return;
+    }
     if (item.type === "model") {
       if (trigger.kind !== "path") return;
       const replacement = `${formatComposerModelMention(item.instanceId, item.model)} `;

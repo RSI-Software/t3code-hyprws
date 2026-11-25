@@ -18,6 +18,7 @@ import {
 import {
   BlocksIcon,
   FolderIcon,
+  BotIcon,
   MessagesSquareIcon,
   PackageIcon,
   SettingsIcon,
@@ -39,6 +40,7 @@ import { ComposerBanner } from "./ComposerBanner";
 import { resolvePullRequestState } from "../pullRequest/pullRequestPresentation";
 
 export type ComposerCommandItem =
+  | { id: string; type: "agent-mention"; label: string; description: string } // spike RSI-711
   | {
       id: string;
       type: "path";
@@ -240,6 +242,9 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           kind={props.item.pathKind}
           theme={props.resolvedTheme}
         />
+      ) : null}
+      {props.item.type === "agent-mention" ? (
+        <BotIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
       ) : null}
       {props.item.type === "thread" ? (
         <MessagesSquareIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
