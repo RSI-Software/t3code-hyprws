@@ -20,6 +20,7 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { msg, useGT, useMessages } from "gt-react";
 import { ArrowUpIcon, Clock3Icon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
@@ -69,23 +70,32 @@ function useWaitingMessages(environmentId: EnvironmentId | null) {
   return (served && data) || NO_MESSAGES;
 }
 
-const FROZEN_BANNER: ComposerBannerStackItem = {
+const FROZEN_BANNER = {
   id: "collaborator-frozen",
   variant: "warning",
   group: "environment",
   icon: <UnplugIcon />,
-  title: "Disconnected from host",
-  description: "The host stopped sharing this thread. You can still read and copy it.",
-};
+  title: msg("Disconnected from host"),
+  description: msg("The host stopped sharing this thread. You can still read and copy it."),
+} satisfies ComposerBannerStackItem;
 
-const APPROVAL_BANNER: ComposerBannerStackItem = {
+const APPROVAL_BANNER = {
   id: "collaborator-approval",
   variant: "info",
   group: "environment",
   icon: <HourglassIcon />,
-  title: "The host sends your messages",
-  description: "Each message waits for the host to send it to the agent.",
-};
+  title: msg("The host sends your messages"),
+  description: msg("Each message waits for the host to send it to the agent."),
+} satisfies ComposerBannerStackItem;
+
+const localizedBanner = (
+  banner: ComposerBannerStackItem & { readonly title: string; readonly description: string },
+  messages: ReturnType<typeof useMessages>,
+): ComposerBannerStackItem => ({
+  ...banner,
+  title: messages(banner.title),
+  description: messages(banner.description),
+});
 
 interface CollaboratorChatThread {
   readonly environmentId: EnvironmentId;
@@ -102,6 +112,8 @@ export function useCollaboratorChatFork(
   followingTimeline: boolean,
   scrollToEnd: (animated: boolean) => void,
 ) {
+  const gt = useGT();
+  const messages = useMessages();
   const prompt = () => composerRef.current?.getSendContext().prompt.trim() ?? "";
   const hasAttachments = () => {
     const context = composerRef.current?.getSendContext();
@@ -135,8 +147,8 @@ export function useCollaboratorChatFork(
     if (hasAttachments()) {
       toastManager.add({
         type: "warning",
-        title: "Only text waits for the host",
-        description: "Remove the attachments to send this message for approval.",
+        title: gt("Only text waits for the host"),
+        description: gt("Remove the attachments to send this message for approval."),
       });
       return;
     }
@@ -147,7 +159,7 @@ export function useCollaboratorChatFork(
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         toastManager.add({
           type: "error",
-          title: "Could not send for approval",
+          title: gt("Could not send for approval"),
           description: formatEnvironmentQueryError(result.cause),
         });
       }
@@ -165,8 +177,8 @@ export function useCollaboratorChatFork(
       if (access === "frozen") {
         return {
           canOperateThread: false,
-          sendDisabledReason: "The host stopped sharing this thread.",
-          bannerItems: [FROZEN_BANNER, ...bannerItems],
+          sendDisabledReason: gt("The host stopped sharing this thread."),
+          bannerItems: [localizedBanner(FROZEN_BANNER, messages), ...bannerItems],
         };
       }
       if (access === "approve") {
@@ -174,7 +186,7 @@ export function useCollaboratorChatFork(
         return {
           onSend: submitForApproval,
           canInterrupt: false,
-          bannerItems: [APPROVAL_BANNER, ...bannerItems],
+          bannerItems: [localizedBanner(APPROVAL_BANNER, messages), ...bannerItems],
         };
       }
       return {};
@@ -208,6 +220,7 @@ function WaitingMessages({
   /** The collaborator sees their own, to withdraw; the host sends or dismisses. */
   readonly asAuthor: boolean;
 }) {
+  const gt = useGT();
   const timestampFormat = useEnvironmentSettings(environmentId).timestampFormat;
   const resolve = useAtomCommand(resolveMessageCommand);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
@@ -226,7 +239,10 @@ function WaitingMessages({
 
   return (
     <section
-      aria-label={`${messages.length} message${messages.length === 1 ? "" : "s"} waiting for the host`}
+      aria-label={gt(
+        "{count, plural, one {{count} message waiting for the host} other {{count} messages waiting for the host}}",
+        { count: messages.length },
+      )}
       className="relative mx-auto flex w-full max-w-(--chat-content-max-width) flex-col pb-4"
     >
       <ol className="flex flex-col items-end gap-3" aria-live="polite">
@@ -237,7 +253,7 @@ function WaitingMessages({
               {asAuthor ? null : (
                 <p className="me-1 text-2xs text-guest-foreground">
                   {message.name}
-                  <span className="sr-only"> (collaborator)</span>
+                  <span className="sr-only"> {gt("(collaborator)")}</span>
                 </p>
               )}
               <div className="flex min-w-0 max-w-[80%] flex-col rounded-2xl border border-dashed border-guest/50 px-3 py-2 text-muted-foreground text-sm">
@@ -256,7 +272,7 @@ function WaitingMessages({
                 {asAuthor ? (
                   <span className="flex items-center gap-1 px-1">
                     <Clock3Icon aria-hidden className="size-3" />
-                    Waiting for the host
+                    {gt("Waiting for the host")}
                   </span>
                 ) : (
                   <Tooltip>
@@ -265,14 +281,14 @@ function WaitingMessages({
                         size="xs"
                         variant="ghost-muted"
                         disabled={busy}
-                        aria-label={`Send ${message.name}'s message`}
+                        aria-label={gt("Send {name}'s message", { name: message.name })}
                         onClick={() => void run(message, "send")}
                       >
                         <ArrowUpIcon />
-                        Send
+                        {gt("Send")}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipPopup>Send to the agent</TooltipPopup>
+                    <TooltipPopup>{gt("Send to the agent")}</TooltipPopup>
                   </Tooltip>
                 )}
                 <Tooltip>
@@ -283,7 +299,9 @@ function WaitingMessages({
                         variant="ghost-muted"
                         disabled={busy}
                         aria-label={
-                          asAuthor ? "Withdraw message" : `Dismiss ${message.name}'s message`
+                          asAuthor
+                            ? gt("Withdraw message")
+                            : gt("Dismiss {name}'s message", { name: message.name })
                         }
                         onClick={() => void run(message, "dismiss")}
                       />
@@ -291,7 +309,7 @@ function WaitingMessages({
                   >
                     <XIcon />
                   </TooltipTrigger>
-                  <TooltipPopup>{asAuthor ? "Withdraw" : "Dismiss"}</TooltipPopup>
+                  <TooltipPopup>{asAuthor ? gt("Withdraw") : gt("Dismiss")}</TooltipPopup>
                 </Tooltip>
               </div>
             </li>
@@ -304,6 +322,7 @@ function WaitingMessages({
 
 /** Tells the host about each new message a collaborator leaves for approval, wherever they are. */
 function EnvironmentMessageToasts({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const gt = useGT();
   const session = useAtomValue(environmentSession.sessionStateAtom(environmentId));
   const asCollaborator =
     session._tag === "Success" && isCollaboratorGrantFork(session.value.permissions);
@@ -324,10 +343,10 @@ function EnvironmentMessageToasts({ environmentId }: { readonly environmentId: E
       const text = assistantCitationsToPlainText(message.text);
       const toastId = toastManager.add({
         type: "info",
-        title: `${message.name} sent a message for approval`,
+        title: gt("{name} sent a message for approval", { name: message.name }),
         description: text.length > 120 ? `${text.slice(0, 120)}…` : text,
         actionProps: {
-          children: "Review",
+          children: gt("Review"),
           onClick: () => {
             toastManager.close(toastId);
             void navigate({
@@ -338,7 +357,7 @@ function EnvironmentMessageToasts({ environmentId }: { readonly environmentId: E
         },
       });
     }
-  }, [messages, environmentId, navigate, openThreadId]);
+  }, [messages, environmentId, navigate, openThreadId, gt]);
   return null;
 }
 

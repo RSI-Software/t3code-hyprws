@@ -14,7 +14,7 @@ import {
   type ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
-import { useGT } from "gt-react";
+import { msg, useGT, useMessages } from "gt-react";
 import { useContext, useEffect } from "react";
 
 import {
@@ -182,7 +182,22 @@ function ThreadTyping({
   );
 }
 
-const kindName = (kind: string) => {
+const KIND_NAMES: Readonly<Record<string, string>> = {
+  image: msg("Image"),
+  file: msg("File"),
+  terminal: msg("Terminal"),
+  "review-comment": msg("Review comment"),
+  "preview-annotation": msg("Preview annotation"),
+  thread: msg("Thread"),
+  response: msg("Response"),
+  environment: msg("Environment"),
+  citation: msg("Citation"),
+};
+
+// A kind this client does not know yet shows as its own words.
+const kindName = (kind: string, messages: ReturnType<typeof useMessages>) => {
+  const known = KIND_NAMES[kind];
+  if (known !== undefined) return messages(known);
   const spaced = kind.replace(/-/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 };
@@ -190,6 +205,7 @@ const kindName = (kind: string) => {
 /** Static text, its end kept when clamped, since the latest words matter most. */
 function DraftPreview({ typist }: { readonly typist: CollaboratorTypistFork }) {
   const gt = useGT();
+  const messages = useMessages();
   const { name, draft } = typist;
   const caption =
     draft === undefined
@@ -216,7 +232,10 @@ function DraftPreview({ typist }: { readonly typist: CollaboratorTypistFork }) {
             <li key={index} className="flex min-w-0">
               <Badge variant="secondary" size="sm" className="max-w-56">
                 <span className="min-w-0 truncate">
-                  {kindName(chip.kind)}: {chip.label}
+                  {gt("{kind}: {label}", {
+                    kind: kindName(chip.kind, messages),
+                    label: chip.label,
+                  })}
                 </span>
               </Badge>
             </li>
