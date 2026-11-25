@@ -255,8 +255,9 @@ The **Sync job summary** carries the rendered report; **conflict tables** live i
 
 ### Bot token
 
-Create a **fine-grained token** owned by the automation actor, scoped to this repository, with read-and-write **Contents**, **Workflows**, and **Actions** (the flake rerun).
-Store it as the **`HYPRWS_MIRROR_TOKEN` secret** of the `hyprws-sync` environment, which **only `hyprws` can deploy** to.
+Each job **mints an hour-long `rsi-software-agent` token** for this repository: **Contents** and **Workflows** write, plus **Actions** for the flake rerun.
+The app's private key is the **`HYPRWS_SYNC_APP_KEY` secret** of the `hyprws-sync` environment, which **only `hyprws` can deploy** to.
+The `hyprws` and `main` rulesets **let the app bypass** their pull request rule.
 **Only its `sync/candidate` push starts `hyprws CI`**; a `GITHUB_TOKEN` push starts no workflow.
 A `sync/resolution` push **runs only trunk files**, so a resolver never reaches the token.
 **Never widen** the job's own `GITHUB_TOKEN`.
@@ -318,7 +319,7 @@ T3 Connect **stays dark** unless every `T3CODE_RELAY_URL` and `T3CODE_CLERK_*` *
 
 ## Failure handling
 
-- **Recreate the token** when the mirror fails
+- **Check the app key** when the mirror fails
 - A **refused mirror** means someone wrote `main`
 - A **refused lease**: rerun; it carries new commits
 - **Never `--force`** the trunk or `main`

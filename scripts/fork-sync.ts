@@ -1402,7 +1402,7 @@ const rerunFlake = (
     });
   if (!flaked) return false;
   process.stdout.write(`sync: rerunning the flaked jobs of ${run.url}\n`);
-  // The job's own token stays read-only, since rebased code inherits it; the mirror PAT reruns.
+  // The job's own token stays read-only, since rebased code inherits it; the app token reruns.
   const pat = process.env.HYPRWS_PUSH_TOKEN;
   const env = pat === undefined ? undefined : { ...process.env, GH_TOKEN: pat };
   const rerun = gh(["run", "rerun", String(run.databaseId), "--failed"], env);
