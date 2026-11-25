@@ -117,8 +117,9 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
     issueSession: (input) =>
       Effect.sync(() => {
         const token = `${name}-token-${++issued}`;
-        sessions.set(token, { sessionId: `${name}-session-${issued}`, subject: input!.subject! });
-        return { token } as never;
+        const sessionId = `${name}-session-${issued}`;
+        sessions.set(token, { sessionId, subject: input!.subject! });
+        return { token, sessionId } as never;
       }),
     listSessions: () => Effect.succeed([...sessions.values()] as never),
     revokeSession: (sessionId) =>
@@ -201,17 +202,25 @@ const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subj
  * The host shares a thread with Sam through a link; Sam accepts it in their own app, which runs the
  * three accept steps against their own server and the host's.
  */
-const acceptedInvite = Effect.gen(function* () {
+const accept = Effect.fn("accept")(function* (host: Server, sam: Server) {
+  const samGrant = yield* sam.colleagues.invite({ environmentId: host.environmentId, name: "Jo" });
+  const hostGrant = yield* host.colleagues.save("colleague:sam", { grant: samGrant });
+  return yield* sam.colleagues.connect({ subject: samGrant.subject, name: "Jo", grant: hostGrant });
+});
+
+const servers = Effect.gen(function* () {
   network.clear();
   const host = yield* makeServer("host", 3801);
   const sam = yield* makeServer("sam", 3802);
   yield* host.shares.share({ threadId: ThreadId.make("host-thread"), collaboratorName: "Sam" });
   // Sam's app paired with the link: a collaborator session on the host.
   host.sessions.set("sam-app", { sessionId: "sam-app", subject: "colleague:sam" });
+  return { host, sam };
+});
 
-  const samGrant = yield* sam.colleagues.invite({ environmentId: host.environmentId, name: "Jo" });
-  const hostGrant = yield* host.colleagues.save("colleague:sam", { grant: samGrant });
-  yield* sam.colleagues.connect({ subject: samGrant.subject, name: "Jo", grant: hostGrant });
+const acceptedInvite = Effect.gen(function* () {
+  const { host, sam } = yield* servers;
+  yield* accept(host, sam);
   return { host, sam };
 });
 
@@ -330,6 +339,40 @@ it.effect("an unreachable colleague is still removed here, and says so", () =>
       assert.deepStrictEqual(yield* host.colleagues.remove("colleague:sam"), { endedThere: false });
       assert.deepStrictEqual(yield* host.colleagues.list, []);
       assert.notInclude(subjectsOf(host), "colleague:sam");
+    }),
+  ),
+);
+
+it.effect("accepting again replaces each side's grant instead of adding one", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      yield* accept(host, sam);
+
+      // The host keeps Sam's app session and one grant; Sam keeps one grant for the host.
+      assert.deepStrictEqual(
+        subjectsOf(host).filter((subject) => subject === "colleague:sam"),
+        ["colleague:sam", "colleague:sam"],
+      );
+      assert.isTrue(host.sessions.has("sam-app"));
+      assert.deepStrictEqual(subjectsOf(sam), ["colleague:jo"]);
+      assert.strictEqual(host.secrets.size, 1);
+      assert.strictEqual(sam.secrets.size, 1);
+    }),
+  ),
+);
+
+it.effect("a new colleague never takes over a one-time guest's shares under their name", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* servers;
+      // Before accepting, Sam shared a thread by link with a guest also called Jo.
+      yield* sam.shares.share({ threadId: ThreadId.make("sam-guest"), collaboratorName: "Jo" });
+
+      const hostOnSam = yield* accept(host, sam);
+      assert.notStrictEqual(hostOnSam.subject, "colleague:jo");
+      assert.isFalse(sam.shares.isShared(hostOnSam.subject, "sam-guest"));
+      assert.isTrue(sam.shares.isShared("colleague:jo", "sam-guest"));
     }),
   ),
 );

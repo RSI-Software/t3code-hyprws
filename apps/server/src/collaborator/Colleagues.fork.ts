@@ -16,6 +16,7 @@ import {
   type ColleagueInviteInputFork,
   type ColleagueSaveInputFork,
   type ColleagueShareThreadInputFork,
+  AuthSessionId,
   EnvironmentId,
   IsoDateTime,
   TrimmedNonEmptyString,
@@ -63,6 +64,8 @@ interface ColleagueRow {
   readonly url: string;
   readonly secret_name: string;
   readonly saved_at: string;
+  /** The session this server issued as the colleague's grant here; null if never known. */
+  readonly grant_session_id: string | null;
 }
 
 const toColleague = (row: ColleagueRow): ColleagueFork => ({
@@ -160,7 +163,8 @@ const make = Effect.gen(function* () {
   );
 
   const readRows = sql<ColleagueRow>`
-    SELECT subject, name, environment_id, url, secret_name, saved_at FROM fork_colleagues
+    SELECT subject, name, environment_id, url, secret_name, saved_at, grant_session_id
+    FROM fork_colleagues
     ORDER BY saved_at, subject
   `;
   const ref = yield* SubscriptionRef.make<ReadonlyArray<ColleagueRow>>(
@@ -180,6 +184,10 @@ const make = Effect.gen(function* () {
     );
 
   const selfId = environment.getDescriptor.pipe(Effect.map((self) => self.environmentId));
+  // The grant `invite` issued per sharer environment, until `connect` saves the row recording it.
+  const invited = new Map<string, { readonly subject: string; readonly sessionId: string }>();
+  const revoke = (sessionId: string | null | undefined) =>
+    sessionId ? auth.revokeSession(AuthSessionId.make(sessionId)).pipe(Effect.ignore) : Effect.void;
 
   const issueGrant = Effect.fn("ColleaguesFork.issueGrant")(function* (
     subject: string,
@@ -195,19 +203,24 @@ const make = Effect.gen(function* () {
         ...collaboratorSessionLifetimeFork(subject),
       })
       .pipe(Effect.mapError(storageError));
-    return {
+    const grant: ColleagueGrantFork = {
       environmentId: yield* selfId,
       url: base,
       subject,
       token: Redacted.make(issued.token),
-    } satisfies ColleagueGrantFork;
+    };
+    return { grant, sessionId: issued.sessionId };
   });
 
-  /** Keeps a colleague's grant; their token goes under a fresh secret name before the row names it. */
+  /**
+   * Keeps a colleague's grant; their token goes under a fresh secret name before the row names it.
+   * A replaced row's secret goes, and so does the grant this server gave under it.
+   */
   const store = Effect.fn("ColleaguesFork.store")(function* (
     subject: string,
     name: string,
     grant: ColleagueGrantFork,
+    grantSessionId: string | null,
   ) {
     if (grant.environmentId === (yield* selfId)) {
       return yield* fail("invalid", "That grant is from this environment.")();
@@ -222,14 +235,16 @@ const make = Effect.gen(function* () {
     const replaced = yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          const replaced = yield* sql<{ readonly secret_name: string }>`
+          const replaced = yield* sql<Pick<ColleagueRow, "secret_name" | "grant_session_id">>`
             DELETE FROM fork_colleagues
             WHERE subject = ${subject} OR environment_id = ${grant.environmentId}
-            RETURNING secret_name
+            RETURNING secret_name, grant_session_id
           `;
           yield* sql`
-            INSERT INTO fork_colleagues (subject, name, environment_id, url, secret_name, saved_at)
-            VALUES (${subject}, ${name}, ${grant.environmentId}, ${url}, ${secretName}, ${savedAt})
+            INSERT INTO fork_colleagues
+              (subject, name, environment_id, url, secret_name, saved_at, grant_session_id)
+            VALUES (${subject}, ${name}, ${grant.environmentId}, ${url}, ${secretName}, ${savedAt},
+              ${grantSessionId})
           `;
           return replaced;
         }),
@@ -238,7 +253,12 @@ const make = Effect.gen(function* () {
         Effect.mapError(storageError),
         Effect.onError(() => secrets.remove(secretName).pipe(Effect.ignore)),
       );
-    yield* Effect.forEach(replaced, (row) => secrets.remove(row.secret_name).pipe(Effect.ignore));
+    yield* Effect.forEach(replaced, (row) =>
+      Effect.andThen(
+        secrets.remove(row.secret_name).pipe(Effect.ignore),
+        row.grant_session_id === grantSessionId ? Effect.void : revoke(row.grant_session_id),
+      ),
+    );
     yield* reload;
     return toColleague({
       subject,
@@ -247,6 +267,7 @@ const make = Effect.gen(function* () {
       url,
       secret_name: secretName,
       saved_at: savedAt,
+      grant_session_id: grantSessionId,
     });
   });
 
@@ -257,16 +278,37 @@ const make = Effect.gen(function* () {
       }
       const rows = yield* SubscriptionRef.get(ref);
       const saved = rows.find((row) => row.environment_id === input.environmentId);
-      const named = collaboratorSubject(input.name);
-      // Two machines with one name stay two colleagues.
+      const pending = invited.get(input.environmentId);
       const subject =
         saved?.subject ??
-        (rows.some((row) => row.subject === named)
-          ? `${named}-${input.environmentId.slice(0, 8).toLowerCase()}`
-          : named);
-      return yield* issueGrant(subject, input.name, input.linkBaseUrl);
+        pending?.subject ??
+        (yield* freshSubject(input.name, input.environmentId));
+      const { grant, sessionId } = yield* issueGrant(subject, input.name, input.linkBaseUrl);
+      yield* revoke(pending?.sessionId);
+      invited.set(input.environmentId, { subject, sessionId });
+      return grant;
     },
   );
+
+  /**
+   * A new colleague takes their name's subject only while nothing here uses it: a one-time guest
+   * or another colleague of that name keeps their shares, and this one gets the environment suffix.
+   */
+  const freshSubject = Effect.fn("ColleaguesFork.freshSubject")(function* (
+    name: string,
+    environmentId: string,
+  ) {
+    const named = collaboratorSubject(name);
+    const rows = yield* SubscriptionRef.get(ref);
+    const sessions = yield* auth.listSessions().pipe(Effect.mapError(storageError));
+    const links = yield* auth.listPairingLinks().pipe(Effect.mapError(storageError));
+    const taken =
+      shares.nameOf(named) !== undefined ||
+      rows.some((row) => row.subject === named) ||
+      sessions.some((session) => session.subject === named) ||
+      links.some((link) => link.subject === named);
+    return taken ? `${named}-${environmentId.slice(0, 8).toLowerCase()}` : named;
+  });
 
   const save: ColleaguesFork["Service"]["save"] = Effect.fn("ColleaguesFork.save")(
     function* (subject, input) {
@@ -277,15 +319,26 @@ const make = Effect.gen(function* () {
           "Only a collaborator with a shared thread saves its sharer.",
         )();
       }
-      yield* store(subject, name, input.grant);
-      return yield* issueGrant(subject, name, input.linkBaseUrl);
+      const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl);
+      yield* store(subject, name, input.grant, sessionId).pipe(
+        Effect.onError(() => revoke(sessionId)),
+      );
+      return grant;
     },
   );
 
-  const connect: ColleaguesFork["Service"]["connect"] = (input) =>
-    isCollaboratorSubject(input.subject)
-      ? store(input.subject, input.name, input.grant)
-      : Effect.fail(fail("invalid", "That subject is not a collaborator's.")());
+  const connect: ColleaguesFork["Service"]["connect"] = Effect.fn("ColleaguesFork.connect")(
+    function* (input) {
+      if (!isCollaboratorSubject(input.subject)) {
+        return yield* fail("invalid", "That subject is not a collaborator's.")();
+      }
+      const pending = invited.get(input.grant.environmentId);
+      const sessionId = pending?.subject === input.subject ? pending.sessionId : null;
+      const colleague = yield* store(input.subject, input.name, input.grant, sessionId);
+      invited.delete(input.grant.environmentId);
+      return colleague;
+    },
+  );
 
   const tokenOf = (row: ColleagueRow) =>
     secrets.get(row.secret_name).pipe(
