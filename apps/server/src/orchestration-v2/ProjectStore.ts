@@ -318,7 +318,13 @@ export const make = Effect.gen(function* () {
         options?.projectIds === undefined ? undefined : { projectIds: options.projectIds },
       ).pipe(Effect.map((rows) => rows.map(toShell)));
     }),
-    ...TeamProjectsFork.teamProjectReadsFork({ sql, get, list, toShell, mapError }), // fork-hook: colleague-collab/team-project-reads
+    ...(yield* TeamProjectsFork.teamProjectReadsFork({
+      get,
+      list,
+      findActiveByWorkspaceRoot,
+      toShell,
+      mapError,
+    })), // fork-hook: colleague-collab/team-project-reads
   });
 });
 

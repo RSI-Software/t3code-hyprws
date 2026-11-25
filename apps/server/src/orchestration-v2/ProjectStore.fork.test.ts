@@ -80,6 +80,9 @@ it.effect("keeps a team project marked across a server restart until it is unmar
       Effect.all([
         projects.listShells().pipe(Effect.map((shells) => shells.map((shell) => shell.teamFork))),
         projects.get(projectId).pipe(Effect.map((row) => Option.getOrNull(row)?.teamFork)),
+        projects
+          .findActiveByWorkspaceRoot("/tmp/project-team")
+          .pipe(Effect.map((row) => Option.getOrNull(row)?.teamFork)),
       ]);
 
     yield* session((projects) =>
@@ -112,9 +115,9 @@ it.effect("keeps a team project marked across a server restart until it is unmar
       }),
     );
     assert.deepStrictEqual(afterRestart, {
-      marked: [[true], true],
-      renamed: [[true], true],
-      unmarked: [[undefined], undefined],
+      marked: [[true], true, true],
+      renamed: [[true], true, true],
+      unmarked: [[undefined], undefined, undefined],
     });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

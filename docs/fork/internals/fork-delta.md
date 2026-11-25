@@ -843,7 +843,7 @@ Over HTTP a collaborator reaches **only socket tickets and shared-thread reads**
 `guardRpc` **allows a closed RPC set**; thread reads and asset URLs only for live shares.
 Behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is **recorded as the address**.
 The thread id **rides the pairing URL query**, which pairing ignores; the desktop opens it once paired.
-A **team project** carries `teamFork: true` on its project and shell; `project.meta-updated` writes `fork_team_projects`, and every project read attaches it.
+A **team project** carries `teamFork: true` on its project and shell; a client `project.update` sets it, `project.meta-updated` writes `fork_team_projects`, and every project read attaches it. Agent tools never set it: sharing is the user's call.
 
 ### Retirement condition
 
