@@ -3485,7 +3485,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
                 adapter: "terminal-manager",
                 shell: candidate.shell,
               })),
-      );
+        cols,
+        rows,
+      ); // fork-hook: zmux-estate/spawn-fallback-grid
     }
 
     const launch = yield* agentScope
@@ -3528,7 +3530,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       session,
       index + 1,
       Cause.isTimeoutError(lastError) ? lastError : spawnError,
-    );
+      cols,
+      rows,
+    ); // fork-hook: zmux-estate/spawn-fallback-grid
   });
 
   const prepareManagedRetarget = Effect.fn("terminal.prepareManagedRetarget")(function* (
@@ -4987,7 +4991,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           ? "Checkout follow paused because T3 Code could not confirm that this terminal is idle. Pin this terminal to keep its current checkout. To retry, toggle Pin then Follow."
           : "Checkout follow paused because a command is still running. Pin this terminal to keep its current checkout. After stopping the command, toggle Pin then Follow to retry.";
         yield* publishSessionNotice(liveSession, notice);
-        return snapshot(liveSession);
+        return liveSession; // fork-hook: zmux-estate/open-session-state
       }
       yield* Effect.acquireUseRelease(
         prepareManagedRetarget(liveSession, nextStartInput),
@@ -5024,7 +5028,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         (preparedRetarget) =>
           preparedRetarget ? Effect.sync(preparedRetarget.dispose) : Effect.void,
       );
-      return snapshot(liveSession);
+      return liveSession; // fork-hook: zmux-estate/open-session-state
     } else if (liveSession.status === "exited" || liveSession.status === "error") {
       liveSession.runtimeEnv = nextRuntimeEnv;
       liveSession.worktreePath = nextWorktreePath;
@@ -5077,7 +5081,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     );
 
   const getShell = Effect.fn("terminal.getShell")(function* (input: TerminalObserveInput) {
-    const session = yield* requireSession(input.threadId, input.terminalId);
+    const session = yield* requireSession(input.threadId, input.terminalId, input.attachmentId); // fork-hook: zmux-estate/get-shell-attachment
     if (session.status !== "running" || session.shell === null) {
       return yield* new TerminalNotRunningError(input);
     }
@@ -5532,7 +5536,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       const terminalId = input.terminalId;
       const phase = input.bracketedPaste ?? input.plainWrite;
       const bracketed = input.bracketedPaste !== undefined;
-      const found = yield* getSession(input.threadId, terminalId);
+      const found = yield* getSession(input.threadId, terminalId, input.attachmentId); // fork-hook: zmux-estate/terminal-write-lookup
       if (Option.isNone(found)) {
         if (input.expectedPid !== undefined) return yield* new TerminalProcessChangedError();
         return yield* new TerminalSessionLookupError({ threadId: input.threadId, terminalId });
