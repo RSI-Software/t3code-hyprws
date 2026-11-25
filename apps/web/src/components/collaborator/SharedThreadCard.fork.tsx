@@ -37,11 +37,14 @@ export function useSharedCardPropsFork() {
         };
 }
 
-export function SharedByFork({ name }: { readonly name: string | null }) {
+/** The card's accessible name stays the title; this describes it, so focus also says who shared it. */
+export const sharedByIdFork = (threadKey: string) => `sidebar-shared-by-${threadKey}`;
+
+export function SharedByFork({ id, name }: { readonly id: string; readonly name: string | null }) {
   return (
     <>
       <UsersIcon aria-hidden className="size-3.5 shrink-0 text-primary" />
-      <span className="min-w-0 truncate font-medium text-primary">
+      <span id={id} className="min-w-0 truncate font-medium text-primary">
         {name === null ? (
           <T>Shared with you</T>
         ) : (

@@ -133,7 +133,11 @@ import { InlineButton } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { ThreadArtifactBadgeFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
 import { ThreadHoverCardArtifactsFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-hover-card-artifacts-import
-import { SHARED_THREAD_CARD_CLASS_FORK, SharedByFork } from "../collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
+import {
+  SHARED_THREAD_CARD_CLASS_FORK,
+  SharedByFork,
+  sharedByIdFork,
+} from "../collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
 import { Menu, MenuItem, MenuItemDetail, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
@@ -1306,7 +1310,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     diff === null &&
     runningTerminalIds.length === 0;
   const sharedByLeadFork =
-    props.sharedByFork === undefined ? null : <SharedByFork name={props.sharedByFork} />; // fork-hook: colleague-collab/shared-card
+    props.sharedByFork === undefined ? null : (
+      <SharedByFork id={sharedByIdFork(threadKey)} name={props.sharedByFork} />
+    ); // fork-hook: colleague-collab/shared-card
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
       {sharedByLeadFork /* fork-hook: colleague-collab/shared-card */}
@@ -1595,6 +1601,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               aria-label={accessibility.label}
               aria-current={accessibility.current}
               data-testid="sidebar-row-card"
+              {...(sharedByLeadFork && {
+                "aria-describedby": sharedByIdFork(threadKey),
+              })} /* fork-hook: colleague-collab/shared-card */
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
               onClick={handleClick}
