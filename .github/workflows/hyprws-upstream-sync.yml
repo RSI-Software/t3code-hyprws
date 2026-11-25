@@ -36,8 +36,8 @@ concurrency:
 
 jobs:
   # Upstream commits touch .github/workflows, so this job authenticates with
-  # HYPRWS_MIRROR_TOKEN: a fine-grained PAT for this repository with Contents
-  # and Workflows read/write.
+  # HYPRWS_MIRROR_TOKEN: a fine-grained PAT for this repository with Contents,
+  # Workflows, and Actions read/write.
   mirror:
     name: Mirror main
     environment: hyprws-sync
@@ -146,7 +146,8 @@ jobs:
       # The driver pushes the candidate and the trunk with the mirror PAT, built
       # here so the token never lands in .git/config or a workflow env block
       # rebased code inherits. Its CI reads and issue writes go through gh with
-      # the job's own token and name the repository themselves.
+      # the job's own token and name the repository themselves; a flake rerun
+      # goes through the PAT.
       - name: Run the sync driver
         env:
           GH_TOKEN: ${{ github.token }}
