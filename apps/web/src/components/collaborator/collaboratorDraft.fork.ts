@@ -16,7 +16,10 @@ import {
   sanitizeComposerContextLabel,
 } from "@t3tools/shared/composerContextReferences";
 
+import { decodeMsg, msg } from "gt-react";
+
 import type { ComposerThreadDraftState } from "~/composerDraftStore";
+import type { MessageResolver } from "~/i18n/messages";
 import {
   environmentContextReference,
   fileContextReference,
@@ -56,6 +59,51 @@ export function withinActive(
   return draft.citations
     ? { text: "", truncated: false, chips: [], citations: draft.citations }
     : null;
+}
+
+const PREVIEW_ANNOTATION = msg("Preview annotation");
+// The sender writes a review comment's diff range in English, as upstream's records keep it.
+const ENGLISH_DIFF_RANGE = /^(.*? )L(\d+)(?: to L(\d+))?( \(before\))?$/u;
+
+/** A chip's label in the viewer's language, as upstream shows its own; people's words stay. */
+export function draftChipLabelFork(
+  { kind, label }: { readonly kind: string; readonly label: string },
+  resolve: MessageResolver,
+): string {
+  if (kind === "preview-annotation" && label === decodeMsg(PREVIEW_ANNOTATION)) {
+    return resolve(PREVIEW_ANNOTATION);
+  }
+  const range = kind === "review-comment" ? ENGLISH_DIFF_RANGE.exec(label) : null;
+  if (range === null) return label;
+  const [, file, start, end, before] = range;
+  if (end === undefined) {
+    return before === undefined
+      ? label
+      : file +
+          resolve(
+            msg("L{start} (before)", { $context: "line in the old version of a diff", start }),
+          );
+  }
+  return (
+    file +
+    (before === undefined
+      ? resolve(msg("L{start} to L{end}", { $context: "line range in a diff", start, end }))
+      : resolve(
+          msg("L{start} to L{end} (before)", {
+            $context: "line range in the old version of a diff",
+            start,
+            end,
+          }),
+        ))
+  );
+}
+
+/** The draft's text, with the chip labels it repeats inline in the viewer's language. */
+export function draftTextFork(draft: CollaboratorDraftFork, resolve: MessageResolver): string {
+  return draft.chips.reduce((text, chip) => {
+    const shown = draftChipLabelFork(chip, resolve);
+    return shown === chip.label ? text : text.replaceAll(chip.label, shown);
+  }, draft.text);
 }
 
 /** The draft as others see it, or null when it holds nothing to show. */

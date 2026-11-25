@@ -40,6 +40,7 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ACCESS, setAccessCommand, threadSharesQuery } from "./collaboratorAccess.fork";
+import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
 
 const isCollaboratorName = Schema.is(CollaboratorNameFork);
@@ -175,7 +176,7 @@ function CollaboratorShareDialog({
     const error = squashAtomCommandFailure(result);
     setState({
       status: "failed",
-      message: error instanceof Error ? error.message : gt("Could not create a collaborator link."),
+      message: collaboratorErrorTextFork(error) ?? gt("Could not create a collaborator link."),
     });
   };
 

@@ -6,11 +6,18 @@ import {
 } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
+import { decodeMsg } from "gt-react";
 import { describe, expect, it } from "vite-plus/test";
 
 import { reviewCommentContextId, reviewCommentContextLabel } from "~/lib/composerContextRecords";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "~/lib/terminalContext";
-import { collaboratorDraftFork, withinActive } from "./collaboratorDraft.fork";
+import type { MessageResolver } from "~/i18n/messages";
+import {
+  collaboratorDraftFork,
+  draftChipLabelFork,
+  draftTextFork,
+  withinActive,
+} from "./collaboratorDraft.fork";
 
 const empty = {
   prompt: "",
@@ -104,6 +111,36 @@ describe("collaboratorDraftFork", () => {
     expect(
       withinActive(collaboratorDraftFork({ ...empty, prompt: "why?" }, threadId), 31_000),
     ).toBeNull();
+  });
+
+  it("shows the generated parts of chip labels in the viewer's language", () => {
+    const german = ((message: string) => `de:${decodeMsg(message)}`) as MessageResolver;
+    const range = { ...comment, id: "c2", rangeLabel: "+12 to +15" };
+    const inline = formatComposerContextReference({
+      kind: "review-comment",
+      contextId: reviewCommentContextId(range.id),
+      label: reviewCommentContextLabel(range),
+    });
+    const draft = collaboratorDraftFork(
+      {
+        ...empty,
+        prompt: `Look at ${inline}`,
+        reviewComments: [range, { ...comment, id: "c3", rangeLabel: "-3" }, comment],
+        previewAnnotations: [
+          { id: "p1", comment: "", pageTitle: "" },
+          { id: "p2", comment: "Make it blue", pageTitle: "" },
+        ] as never,
+      },
+      threadId,
+    );
+    expect(draft?.chips.map((chip) => draftChipLabelFork(chip, german))).toEqual([
+      "app.ts de:L12 to L15",
+      "app.ts de:L3 (before)",
+      "app.ts L12",
+      "de:Preview annotation",
+      "Make it blue",
+    ]);
+    expect(draft && draftTextFork(draft, german)).toBe("Look at app.ts de:L12 to L15");
   });
 
   it("keeps the end of a draft past the cap", () => {

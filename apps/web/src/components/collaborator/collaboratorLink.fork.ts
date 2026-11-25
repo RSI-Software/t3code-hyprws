@@ -20,6 +20,7 @@ import * as PrimaryEnvironmentHttpLayer from "../../environments/primary/httpLay
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 
 /** The shared thread a collaborator link names, if any. */
 export const linkThreadIdFork = (pairingUrl: string) =>
@@ -43,7 +44,7 @@ export function useCollaboratorLinkPairingFork() {
       stackedThreadToast({
         type: "error",
         title: gt("Could not open the shared thread"),
-        description: error instanceof Error ? error.message : gt("Failed to reach the host."),
+        description: collaboratorErrorTextFork(error) ?? gt("Failed to reach the host."),
       }),
     );
   const router = useRouter();

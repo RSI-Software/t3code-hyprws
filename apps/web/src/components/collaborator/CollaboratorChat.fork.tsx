@@ -8,6 +8,7 @@ import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcSubscriptionAtomFamily,
   isAtomCommandInterrupted,
+  squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type CollaboratorMessageFork,
@@ -29,7 +30,7 @@ import { connectionAtomRuntime } from "~/connection/runtime";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
 import { useQuietThreadShell, useServerConfigs } from "~/state/entities";
-import { formatEnvironmentQueryError, useEnvironmentQuery } from "~/state/query";
+import { useEnvironmentQuery } from "~/state/query";
 import { environmentSession } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
@@ -40,6 +41,7 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
+import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 
 const collaboratorMessages = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:messages",
@@ -160,7 +162,9 @@ export function useCollaboratorChatFork(
         toastManager.add({
           type: "error",
           title: gt("Could not send for approval"),
-          description: formatEnvironmentQueryError(result.cause),
+          description:
+            collaboratorErrorTextFork(squashAtomCommandFailure(result)) ??
+            gt("Could not deliver the message."),
         });
       }
       // Keep anything typed while the message was on its way.

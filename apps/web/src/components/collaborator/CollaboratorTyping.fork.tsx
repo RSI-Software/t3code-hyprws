@@ -27,7 +27,12 @@ import { randomUUID } from "~/lib/utils";
 import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { Badge } from "../ui/badge";
-import { collaboratorDraftFork, withinActive } from "./collaboratorDraft.fork";
+import {
+  collaboratorDraftFork,
+  draftChipLabelFork,
+  draftTextFork,
+  withinActive,
+} from "./collaboratorDraft.fork";
 
 export const typingSubscription = createEnvironmentRpcSubscriptionAtomFamily(
   connectionAtomRuntime,
@@ -221,7 +226,8 @@ function DraftPreview({ typist }: { readonly typist: CollaboratorTypistFork }) {
       {draft !== undefined && draft.text.trim() !== "" ? (
         <div className="flex max-h-[4lh] flex-col justify-end overflow-hidden text-foreground/80 text-sm">
           <p className="shrink-0 whitespace-pre-wrap wrap-anywhere">
-            {draft.truncated ? `…${draft.text}` : draft.text}
+            {draft.truncated ? "…" : null}
+            {draftTextFork(draft, messages)}
           </p>
         </div>
       ) : null}
@@ -234,7 +240,7 @@ function DraftPreview({ typist }: { readonly typist: CollaboratorTypistFork }) {
                 <span className="min-w-0 truncate">
                   {gt("{kind}: {label}", {
                     kind: kindName(chip.kind, messages),
-                    label: chip.label,
+                    label: draftChipLabelFork(chip, messages),
                   })}
                 </span>
               </Badge>
