@@ -40,6 +40,7 @@ import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { DismissedMessageFork } from "./CollaboratorMessageOutcome.fork";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 
@@ -252,6 +253,17 @@ function WaitingMessages({
       <ol className="flex flex-col items-end gap-3" aria-live="polite">
         {messages.map((message) => {
           const busy = busyIds.has(message.id);
+          if (message.outcome === "dismissed") {
+            return (
+              <DismissedMessageFork
+                key={message.id}
+                message={message}
+                timestampFormat={timestampFormat}
+                busy={busy}
+                onClear={() => void run(message, "dismiss")}
+              />
+            );
+          }
           return (
             <li key={message.id} className="group/queued flex w-full flex-col items-end gap-1">
               {asAuthor ? null : (

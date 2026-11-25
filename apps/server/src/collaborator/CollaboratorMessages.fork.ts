@@ -1,5 +1,6 @@
 // Fork-only (colleague-collab): a collaborator with `approve` access sends nothing to the agent.
 // Their messages wait here until the host sends or dismisses each one, or they withdraw it.
+// A dismissed one stays, so its author sees the outcome, until they clear it.
 import {
   CollaboratorMessageBusyErrorFork,
   CollaboratorMessageDeliveryErrorFork,
@@ -51,6 +52,7 @@ interface MessageRow {
   readonly collaborator_name: string;
   readonly text: string;
   readonly submitted_at: string;
+  readonly outcome: string | null;
 }
 
 const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
@@ -60,6 +62,7 @@ const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
   name: row.collaborator_name,
   text: row.text,
   submittedAt: row.submitted_at,
+  outcome: row.outcome === "dismissed" ? "dismissed" : undefined,
 });
 
 export const makeCollaboratorMessages = Effect.gen(function* () {
@@ -71,7 +74,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   const lock = (yield* Semaphore.make(1)).withPermits(1);
 
   const read = sql<MessageRow>`
-    SELECT id, thread_id, subject, collaborator_name, text, submitted_at
+    SELECT id, thread_id, subject, collaborator_name, text, submitted_at, outcome
     FROM fork_collaborator_messages ORDER BY submitted_at
   `.pipe(Effect.map((rows) => rows.map(fromRow)));
   const ref = yield* SubscriptionRef.make(yield* read.pipe(Effect.orDie));
@@ -86,7 +89,10 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     const undelivered = (cause: unknown) =>
       new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
     const waiting = (yield* SubscriptionRef.get(ref)).filter(
-      (message) => message.subject === input.subject && message.threadId === input.threadId,
+      (message) =>
+        message.subject === input.subject &&
+        message.threadId === input.threadId &&
+        message.outcome === undefined,
     );
     if (waiting.length >= GUEST_PENDING_MESSAGE_LIMIT) {
       return yield* new CollaboratorMessageBusyErrorFork({ threadId: input.threadId });
@@ -100,7 +106,10 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
   });
 
-  /** `subject` null is the host, who may send; a collaborator may only withdraw their own. */
+  /**
+   * `subject` null is the host, who sends or dismisses a waiting message; a collaborator may
+   * only remove their own, withdrawing it while it waits or clearing it once dismissed.
+   */
   const resolve = Effect.fn("CollaboratorMessagesFork.resolve")(function* (
     input: CollaboratorResolveMessageInputFork,
     subject: string | null,
@@ -111,7 +120,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
       (candidate) =>
         candidate.id === input.messageId &&
         candidate.threadId === input.threadId &&
-        (subject === null || candidate.subject === subject),
+        (subject === null ? candidate.outcome === undefined : candidate.subject === subject),
     );
     if (message === undefined) {
       return yield* new CollaboratorMessageMissingErrorFork({ messageId: input.messageId });
@@ -121,7 +130,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
       const context: OrchestrationMessageContext = {
         version: 1,
         records: [],
-        ...attribution.context,
+        collaboratorFork: { ...attribution.context.collaboratorFork, sentByHost: true },
       };
       // Ids from the message, so a retry after a failed delete replays instead of sending twice.
       yield* threads
@@ -139,10 +148,11 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
         })
         .pipe(Effect.mapError(undelivered));
     }
-    yield* sql`DELETE FROM fork_collaborator_messages WHERE id = ${message.id}`.pipe(
-      Effect.andThen(reload),
-      Effect.mapError(undelivered),
-    );
+    yield* (
+      input.decision === "dismiss" && subject === null
+        ? sql`UPDATE fork_collaborator_messages SET outcome = 'dismissed' WHERE id = ${message.id}`
+        : sql`DELETE FROM fork_collaborator_messages WHERE id = ${message.id}`
+    ).pipe(Effect.andThen(reload), Effect.mapError(undelivered));
   }, lock);
 
   /** Drops a collaborator's waiting messages on a thread they no longer share. */
@@ -157,7 +167,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     submit,
     resolve,
     drop,
-    /** The waiting messages a session may see, re-emitted whenever any changes. */
+    /** The messages a session may see, re-emitted whenever any changes. */
     visible: (
       visibleTo: (message: CollaboratorMessageFork) => boolean,
     ): Stream.Stream<ReadonlyArray<CollaboratorMessageFork>> =>
