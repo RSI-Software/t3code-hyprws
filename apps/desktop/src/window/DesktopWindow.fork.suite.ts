@@ -77,7 +77,7 @@ type FakeBrowserWindowFork = {
   readonly isFocused: Mock<() => boolean>;
   readonly isMinimized: Mock<() => boolean>;
   readonly isVisible: Mock<() => boolean>;
-  readonly loadURL: Mock<() => Promise<void>>;
+  readonly loadURL: Mock<(url: string) => Promise<void>>;
   readonly openDevTools: Mock;
   readonly send: Mock;
   readonly setTitle: Mock;
