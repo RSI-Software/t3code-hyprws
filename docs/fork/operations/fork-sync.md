@@ -285,6 +285,7 @@ Each workflow's `on:` block and comments **own its triggers**.
 ### Upstream workflows and merge settings
 
 **Keep only the `hyprws-*.yml` workflows enabled**; disable every other with `gh workflow disable`, since they expect upstream secrets and runners.
+The one exception, `upstream-ci-hosted.yml`, lives only on `contrib/ci-base`: it runs upstream's CI on hosted runners for `contrib/*` previews.
 A sync can add an upstream workflow, which **arrives enabled**: disable it, or adapt it as a `hyprws-*.yml` copy.
 
 ```bash
