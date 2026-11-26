@@ -7,12 +7,15 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { type ColleagueFork, type EnvironmentId, WS_METHODS } from "@t3tools/contracts";
+import { type ColleagueFork, EnvironmentId, WS_METHODS } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { useGT } from "gt-react";
-import { createElement, useEffect, useRef } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
 
+import { environmentCatalog } from "~/connection/catalog";
 import { connectPairing } from "~/connection/onboarding";
 import { connectionAtomRuntime } from "~/connection/runtime";
+import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useServerConfigs } from "~/state/entities";
 import {
@@ -27,6 +30,7 @@ import { readPreparedConnection } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { waitForAtomValue } from "~/state/waitForAtomValue";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { createColleagueReconcilerFork, type KnownColleagueFork } from "./colleagueReconcile.fork";
 
 const colleaguesFamily = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "colleagues:subscribe",
@@ -130,12 +134,51 @@ export function useSaveColleagueFork() {
 // reconnect) retries one that failed, and a re-save (new savedAt) is a new attach.
 const attempted = new Map<string, ReadonlyArray<ColleagueFork>>();
 
+// The device's last colleague list, so an app closed during a removal still forgets them.
+const LastColleagues = Schema.Array(
+  Schema.Struct({ environmentId: EnvironmentId, name: Schema.String }),
+);
+const LAST_COLLEAGUES_PREFIX = "t3code:colleagues-fork:";
+const readLastColleagues = (key: string) => {
+  try {
+    return getLocalStorageItem(key, LastColleagues) ?? [];
+  } catch {
+    return [];
+  }
+};
+// Read as this window starts, before its catalog loads: its first colleague list can arrive after
+// another window has already cleaned up and rewritten the stored one.
+const startupColleagues = (() => {
+  try {
+    return new Map(
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith(LAST_COLLEAGUES_PREFIX))
+        .map((key) => [key, readLastColleagues(key)] as const),
+    );
+  } catch {
+    return new Map<string, ReadonlyArray<KnownColleagueFork>>();
+  }
+})();
+const windowColleagueReconciler = (environmentId: EnvironmentId) => {
+  const key = `${LAST_COLLEAGUES_PREFIX}${environmentId}`;
+  return createColleagueReconcilerFork(startupColleagues.get(key) ?? [], (list) => {
+    try {
+      setLocalStorageItem(key, list, LastColleagues);
+    } catch {
+      // Storage off: removals still apply live, only not across a reload.
+    }
+  });
+};
+
 function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
   const gt = useGT();
   const { data } = useEnvironmentQuery(colleaguesAtom(props.environmentId));
   // Colleagues already saved when this app loaded; any other is new and confirmed with a toast.
   const seen = useRef<Set<string> | null>(null);
-  const { environments } = useEnvironments();
+  const reconciled = useRef<ReadonlyArray<ColleagueFork> | null>(null);
+  const [reconcile] = useState(() => windowColleagueReconciler(props.environmentId));
+  const removeEnvironment = useAtomCommand(environmentCatalog.remove, { reportFailure: false });
+  const { environments, isReady } = useEnvironments();
   const pairClient = useAtomCommand(pairClientCommand, { reportFailure: false });
   const connect = useAtomCommand(connectPairing, { reportFailure: false });
   const known = new Set(environments.map((environment) => environment.environmentId));
@@ -157,9 +200,9 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
       expectedEnvironmentId: pairing.value.environmentId,
     });
   };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pairs the external environment catalog with saved colleagues it lacks, and announces new ones.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pairs the external environment catalog with saved colleagues: adds new ones, forgets removed ones.
   useEffect(() => {
-    if (data === null) return;
+    if (data === null || !isReady) return;
     const saves = data.map((colleague) => `${colleague.subject}:${colleague.savedAt}`);
     for (const colleague of seen.current === null ? [] : data) {
       if (seen.current?.has(`${colleague.subject}:${colleague.savedAt}`)) continue;
@@ -171,14 +214,30 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
     }
     seen.current = new Set(saves);
     for (const colleague of missing) void attach(colleague, data);
+    if (reconciled.current === data) return;
+    reconciled.current = data;
+    void reconcile({
+      current: data,
+      known,
+      remove: async (environmentId) => (await removeEnvironment(environmentId))._tag === "Success",
+      forgotten: (colleague) =>
+        toastManager.add({
+          type: "info",
+          title: gt("{name} is no longer a colleague", { name: colleague.name }),
+          description: gt("Threads shared between you are gone from this app."),
+        }),
+    });
   });
   return null;
 }
 
-/** Adds each saved colleague's environment the catalog lacks, through a one-time client pairing. */
+/**
+ * Adds each saved colleague's environment the catalog lacks, through a one-time client pairing,
+ * and forgets one whose colleague was removed.
+ */
 export function ColleaguesAttachSyncFork() {
   const primary = usePrimaryEnvironmentId();
   const configs = useServerConfigs();
   if (primary === null || !colleaguesServedFork(configs, primary)) return null;
-  return createElement(AttachColleagues, { environmentId: primary });
+  return createElement(AttachColleagues, { key: primary, environmentId: primary });
 }

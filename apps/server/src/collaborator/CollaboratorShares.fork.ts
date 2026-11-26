@@ -451,6 +451,8 @@ export class CollaboratorSharesFork extends Context.Service<
     ) => <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | RpcScopeAuthorization>;
     /** Whether the thread is shared live with the subject. */
     readonly isShared: (subject: string, threadId: string) => boolean;
+    /** Each subject's live shared threads, now and on every change. */
+    readonly liveThreadIds: Stream.Stream<ReadonlyMap<string, ReadonlyArray<ThreadId>>>;
     /**
      * Narrows a collaborator session's thread handlers and answers its waiting messages; other
      * sessions only lose the right to attribute a message to a collaborator.
@@ -906,6 +908,17 @@ const make = Effect.gen(function* () {
     typingHandlers,
     guardRpc,
     isShared,
+    liveThreadIds: SubscriptionRef.changes(ref).pipe(
+      Stream.map(
+        (shares) =>
+          new Map(
+            [...shares].map(([subject, { threadIds }]) => [
+              subject,
+              [...threadIds.keys()].map((id) => ThreadId.make(id)),
+            ]),
+          ),
+      ),
+    ),
     wrapHandlers,
   });
 });

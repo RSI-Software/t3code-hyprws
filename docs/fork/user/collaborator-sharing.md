@@ -29,6 +29,9 @@ You each save the other as a **colleague**, and both apps say so: **Saved Jordan
 To share with a saved colleague, right-click the thread, then **Share with → their name**: **one click**, no link.
 The share dialog and command palette offer the same.
 
+**Settings → Sharing & access → Colleagues** lists each colleague with the threads you share with them.
+**Remove** ends their access to every shared thread on both sides; if their machine is unreachable, it still lists you until it is removed there too.
+
 ## Approve their messages
 
 By default each collaborator **Needs approval**: their messages **wait for you** at the end of the thread, with **Send** and **Dismiss**.
