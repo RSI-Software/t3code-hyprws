@@ -290,6 +290,7 @@ import {
   type SnoozePreset,
 } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { TeamProjectMarkFork } from "./collaborator/TeamProject.fork"; // fork-hook: colleague-collab/team-project-mark-import
 import { deriveProviderEntriesByEnvironment } from "../providerInstances";
 import { useStableCallback } from "../hooks/useStableCallback";
 import {
@@ -3591,6 +3592,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               )}
                             </ProjectScopeRowIcon>
                             <span className="min-w-0 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: colleague-collab/team-project-mark */}
+                            <TeamProjectMarkFork project={project} />
+                            {/* fork-hook-end */}
                             {/* fork-hook: workspaces/chooser-mode */}
                             {item.value === "all" ? (
                               <ProjectChooserModeFork

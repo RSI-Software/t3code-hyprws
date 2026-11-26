@@ -15,6 +15,7 @@ import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import type { OrchestrationV2StoredEvent } from "./orchestrationV2.ts";
 import { ProjectScript, ProjectTrackedFolders, StoredProjectIcon } from "./project.ts";
+import { TeamProjectFieldFork } from "./teamProject.fork.ts"; // fork-hook: colleague-collab/team-project-import
 
 export const OrchestrationClientOrigin = Schema.Struct({
   surface: Schema.optional(ClientSurface),
@@ -64,6 +65,7 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   trackedFolders: Schema.optional(ProjectTrackedFolders),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  ...TeamProjectFieldFork, // fork-hook: colleague-collab/team-project-event
   updatedAt: IsoDateTime,
 });
 export type ApplicationProjectMetaUpdatedPayload = typeof ApplicationProjectMetaUpdatedPayload.Type;

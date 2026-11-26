@@ -157,6 +157,7 @@ import { pickTriageEnvironment } from "../lib/triageTarget";
 import { useNewProject } from "../hooks/useNewProject";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { reportProjectFailure, useProjectPin } from "../hooks/useProjectGroupUpdate";
+import { useTeamProjectPaletteFork } from "./collaborator/TeamProject.fork"; // fork-hook: colleague-collab/team-project-palette-import
 import {
   useEnvironmentProviders,
   useEnvironments,
@@ -657,6 +658,7 @@ function OpenCommandPaletteDialog(props: {
     ]),
   );
   const { canPinProjectGroup, toggleProjectGroupPin } = useProjectPin();
+  const pushTeamProjectItemFork = useTeamProjectPaletteFork(); // fork-hook: colleague-collab/team-project-palette
   // A row's target record can change when another machine's copy loads, so the kept
   // order follows the project group instead.
   const rowOrderKey = (prefix: string) => (item: CommandPaletteActionItem) =>
@@ -1900,6 +1902,7 @@ function OpenCommandPaletteDialog(props: {
       run: async () => toggleProjectGroupPin(currentProjectGroup),
     });
   }
+  pushTeamProjectItemFork(actionItems, currentProjectGroup); // fork-hook: colleague-collab/team-project-palette
   const contextualProjectGroup = currentProjectGroup ?? projectGroups[0] ?? null;
   if (desktopBridge) {
     actionItems.push({

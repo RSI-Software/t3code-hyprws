@@ -92,6 +92,11 @@ const FORK_TABLES = [
     text TEXT NOT NULL,
     submitted_at TEXT NOT NULL
   )`,
+  // Projects marked team for the colleague-collab domain; unmarking deletes the row.
+  `CREATE TABLE IF NOT EXISTS fork_team_projects (
+    project_id TEXT PRIMARY KEY,
+    marked_at TEXT NOT NULL
+  )`,
 ] as const;
 
 /**
