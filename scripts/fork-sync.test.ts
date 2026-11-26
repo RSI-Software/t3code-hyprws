@@ -1947,6 +1947,9 @@ it("relabels an unchanged body once, after its job settles or the job budget has
   assert.deepStrictEqual(publish("<!-- agent-labelled:2026-09-21T09:00:00.000Z -->", ["ci"]), []);
   const recent = "<!-- agent-labelled:2026-09-21T09:00:00.000Z -->";
   assert.deepStrictEqual(publish(recent, ["ci"], undefined, "**running**: the agent works"), []);
+  // rsi-agent still retrying a busy model, 1 h 50 min in: its sticky still reads running
+  const retrying = "<!-- agent-labelled:2026-09-21T08:10:00.000Z -->";
+  assert.deepStrictEqual(publish(retrying, ["ci"], undefined, "**running**: the agent works"), []);
   // a job that settled inside the budget, such as one whose push lost its lease, retries at once
   const [settled] = publish(recent, ["ci"], undefined, "**refused** `6b06ba4`: remote head moved");
   assert.strictEqual(settled!.args[settled!.args.indexOf("--add-label") + 1], "rsi:fork-sync");
