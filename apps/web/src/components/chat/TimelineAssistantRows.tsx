@@ -23,6 +23,7 @@ import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../times
 import { readThreadTurnItems } from "../../state/entities";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
+import { QuietRowAskAgentFork } from "../collaborator/askAgent.fork"; // Spike RSI-714
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
@@ -40,8 +41,10 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
   // Spike RSI-712: the agent judged a shared-thread message to be between people.
   if (!row.message.streaming && text.trim() === "(listening)") {
     return (
-      <div className="min-w-0 px-1 py-0.5 text-muted-foreground text-xs italic">
-        Agent stayed quiet: people talking
+      <div className="flex min-w-0 items-center gap-2 px-1 py-0.5 text-muted-foreground text-xs">
+        <span className="italic">Agent stayed quiet: people talking</span>
+        {/* Spike RSI-714: answer the skipped line after all. */}
+        <QuietRowAskAgentFork quietItemId={row.projectedItem?.item.id} />
       </div>
     );
   }

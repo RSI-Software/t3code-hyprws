@@ -39,13 +39,14 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
+import { useThreadSharedFork } from "./askAgent.fork";
 
 const collaboratorMessages = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:messages",
   tag: WS_METHODS.collaboratorSubscribeMessagesFork,
 });
 
-const submitMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
+export const submitMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "send message for approval",
   tag: WS_METHODS.collaboratorSubmitMessageFork,
 });
@@ -127,6 +128,9 @@ export function useCollaboratorChatFork(
   const submit = useAtomCommand(submitMessageCommand);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const access = thread?.collaboratorFork;
+  // Spike RSI-714: approval sends only text, so the forced ask stays off the approve composer.
+  const shared = useThreadSharedFork(thread);
+  const askAgentFork = access === "send" || (access === undefined && shared);
 
   const submitForApproval = (event?: { preventDefault: () => void }) => {
     event?.preventDefault();
@@ -177,7 +181,7 @@ export function useCollaboratorChatFork(
           bannerItems: [APPROVAL_BANNER, ...bannerItems],
         };
       }
-      return {};
+      return askAgentFork ? { askAgentFork } : {};
     },
     footer: (footer: ReactNode) =>
       thread == null || waiting.length === 0

@@ -4,6 +4,7 @@ import { m } from "~/i18n/messages";
 import { isClearComposerCommand, parseSideChatCommand } from "@t3tools/shared/composerTrigger";
 import { readWorktreeBaseBranch } from "../../worktreeRepositoryChoiceStore";
 import { armFreshSession, disarmFreshSession, readFreshSessionArm } from "./freshSessionArms";
+import { takeForceReplyFork, withForceReplyFork } from "../collaborator/askAgent.fork"; // Spike RSI-714
 import {
   mergeDirectPreviewAnnotation,
   resolveBackgroundDraftWorkspaceOptions,
@@ -1076,19 +1077,23 @@ export function useComposerSend(input: ComposerSendInput) {
     // Records bind attachments by the id each side knows: the local id for the optimistic
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
+    const forceReplyFork = takeForceReplyFork(composerTargetKey(composerDraftTarget)); // Spike RSI-714
     const buildOutgoingMessageContext = (attachmentIds: ReadonlyArray<string>) =>
-      buildMessageContext({
-        terminalContexts: composerTerminalContextsSnapshot,
-        reviewComments: composerReviewCommentsSnapshot,
-        previewAnnotations: composerPreviewAnnotationsSnapshot,
-        threadContexts: composerThreadContextsSnapshot,
-        environmentContexts: composerEnvironmentContextsSnapshot,
-        replyTo,
-        attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
-          attachment,
-          attachmentId: attachmentIds[index] ?? attachment.id,
-        })),
-      });
+      withForceReplyFork(
+        buildMessageContext({
+          terminalContexts: composerTerminalContextsSnapshot,
+          reviewComments: composerReviewCommentsSnapshot,
+          previewAnnotations: composerPreviewAnnotationsSnapshot,
+          threadContexts: composerThreadContextsSnapshot,
+          environmentContexts: composerEnvironmentContextsSnapshot,
+          replyTo,
+          attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
+            attachment,
+            attachmentId: attachmentIds[index] ?? attachment.id,
+          })),
+        }),
+        forceReplyFork,
+      );
     const outgoingMessageContext = buildOutgoingMessageContext(
       composerAttachmentsSnapshot.map((attachment) => attachment.id),
     );

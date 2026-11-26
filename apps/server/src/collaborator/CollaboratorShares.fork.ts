@@ -301,6 +301,10 @@ const withoutCollaboratorAttribution = (
   return { ...command, context };
 };
 
+/** Spike RSI-714: "Ask the agent" sends `forceReplyFork`, so the prefix says the message is for it. */
+const forcedMode = (command: { readonly context?: { readonly forceReplyFork?: boolean } }) =>
+  command.context?.forceReplyFork === true ? ("answer" as const) : undefined;
+
 const launchWithoutAttribution = (
   input: OrchestrationV2ThreadLaunchInput,
 ): OrchestrationV2ThreadLaunchInput => {
@@ -804,7 +808,7 @@ const make = Effect.gen(function* () {
             .map((share) => share.name);
           if (others.length === 0) return dispatch(clean, options);
           const owner = process.env.T3CODE_SPIKE_OWNER_NAME ?? "The owner";
-          const attribution = ownerAttributionSpike(owner, others, clean.text);
+          const attribution = ownerAttributionSpike(owner, others, clean.text, forcedMode(clean));
           return dispatch(
             {
               ...clean,
@@ -833,7 +837,7 @@ const make = Effect.gen(function* () {
         if (command.type !== "message.dispatch" && command.type !== "queued-run.edit") {
           return dispatch(command, options);
         }
-        const attribution = collaboratorAttribution(share.name, command.text);
+        const attribution = collaboratorAttribution(share.name, command.text, forcedMode(command));
         return dispatch(
           {
             ...command,

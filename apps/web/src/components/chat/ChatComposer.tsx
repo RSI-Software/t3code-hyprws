@@ -307,6 +307,11 @@ import { ComposerControlsBar } from "./ComposerControlsBar";
 import { composerCommandKeyHandler } from "./composerCommandKey";
 import { promptSuggestionToAccept, usePromptSuggestion } from "./usePromptSuggestion";
 import { useFreshSessionArmed } from "./freshSessionArms";
+import {
+  AskAgentSendMenuFork,
+  armForceReplyFork,
+  disarmForceReplyFork,
+} from "../collaborator/askAgent.fork"; // Spike RSI-714
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
   const armed = Date.now() <= deadline.current;
@@ -405,6 +410,7 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   canSteer: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  askAgentFork?: boolean; // Spike RSI-714: a shared thread offers "Ask the agent" beside Send
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -2485,6 +2491,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     );
   };
   const handleSubmitMessageStable = useStableCallback(handleSubmitMessage);
+  // Spike RSI-714: sends the draft with `forceReplyFork`, which the send path takes.
+  const askAgentFork = () => {
+    armForceReplyFork(composerDraftTargetKey);
+    if (!submitComposer(undefined)) disarmForceReplyFork(composerDraftTargetKey);
+  };
   const submitCitationAndSend = () => {
     return submitComposer(
       undefined,
@@ -4162,6 +4173,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onCancelDownload={() => void speechInput.setup.cancelDownload()}
                       onStartRecording={() => void speechInput.setup.startRecording()}
                     />
+                    {/* Spike RSI-714: the send menu, right before Send. */}
+                    {props.askAgentFork && !isEditingQueuedMessage && !pendingPrimaryAction ? (
+                      <AskAgentSendMenuFork
+                        disabled={!hasMessageToSend || isSendBusy || composerSendHeld}
+                        onAsk={askAgentFork}
+                      />
+                    ) : null}
                   </ComposerFooterPrimaryActions>
                 </div>
               </div>
