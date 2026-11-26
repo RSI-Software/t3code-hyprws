@@ -102,7 +102,7 @@ export function AddEnvironmentDialog({
   const desktopBridge = window.desktopBridge;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const connectPairing = useAtomCommand(connectPairingAtom, { reportFailure: false });
-  const pastedCollaboratorLinkFork = usePastedCollaboratorLinkFork(); // fork-hook: colleague-collab/add-backend-link-handler
+  const collaboratorLinkFork = usePastedCollaboratorLinkFork(); // fork-hook: colleague-collab/add-backend-link-handler
   const connectSshEnvironment = useAtomCommand(connectSshEnvironmentAtom, {
     reportFailure: false,
   });
@@ -371,7 +371,7 @@ export function AddEnvironmentDialog({
   };
 
   const handleSavedBackendHostChange = (value: string) => {
-    if (pastedCollaboratorLinkFork(value, () => handleOpenChange(false))) return; // fork-hook: colleague-collab/add-backend-link
+    if (collaboratorLinkFork(value, setSavedBackendHost, () => handleOpenChange(false))) return; // fork-hook: colleague-collab/add-backend-link
     const parsedPairingUrl = parsePairingUrlFields(value);
     if (parsedPairingUrl) {
       setSavedBackendHost(parsedPairingUrl.host);
