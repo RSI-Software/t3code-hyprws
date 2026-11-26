@@ -3,6 +3,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { selectEnvironmentQueryData } from "@t3tools/client-runtime/state/runtime";
 import type { CollaboratorAccessFork, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { useGT, useMessages } from "gt-react";
 import { UserIcon, UserPlusIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -37,6 +38,8 @@ export function ThreadCollaboratorsPanelFork({
 }
 
 function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaboratorsPanelProps) {
+  const gt = useGT();
+  const messages = useMessages();
   const sharesAtom = threadSharesQuery({ environmentId, input: { threadId } });
   const shares = useEnvironmentQuerySelector(sharesAtom, selectEnvironmentQueryData);
   const setAccess = useAtomCommand(setAccessCommand);
@@ -54,7 +57,7 @@ function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaborator
   return (
     <ThreadDetailsSection
       headingId="thread-details-collaborators-heading"
-      title="Collaborators"
+      title={gt("Collaborators")}
       actions={
         <Tooltip>
           <TooltipTrigger
@@ -63,14 +66,14 @@ function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaborator
                 size="icon-xs"
                 variant="ghost"
                 part="icon"
-                aria-label="Share with collaborator"
+                aria-label={gt("Share with collaborator")}
                 onClick={() => openCollaboratorShareDialog({ environmentId, threadId })}
               >
                 <UserPlusIcon className="size-3.5" />
               </ThreadDetailsControl>
             }
           />
-          <TooltipPopup>Share with collaborator</TooltipPopup>
+          <TooltipPopup>{gt("Share with collaborator")}</TooltipPopup>
         </Tooltip>
       }
     >
@@ -89,7 +92,7 @@ function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaborator
                 {collaborator.name}
               </span>
               <p className="truncate text-2xs text-muted-foreground">
-                {ACCESS[collaborator.access].label}
+                {messages(ACCESS[collaborator.access].label)}
               </p>
             </div>
             <Tooltip>
@@ -98,7 +101,7 @@ function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaborator
                   <Switch
                     checked={collaborator.access === "send"}
                     disabled={busySubject !== null}
-                    aria-label={`Let ${collaborator.name} send without approval`}
+                    aria-label={gt("Let {name} send without approval", { name: collaborator.name })}
                     onCheckedChange={(send) =>
                       void changeAccess(collaborator.subject, send ? "send" : "approve")
                     }
@@ -107,8 +110,8 @@ function ThreadCollaboratorsList({ environmentId, threadId }: ThreadCollaborator
               />
               <TooltipPopup side="left">
                 {collaborator.access === "send"
-                  ? "Turn off to approve each message first"
-                  : "Turn on to let messages reach the agent at once"}
+                  ? gt("Turn off to approve each message first")
+                  : gt("Turn on to let messages reach the agent at once")}
               </TooltipPopup>
             </Tooltip>
           </li>

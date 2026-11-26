@@ -5,6 +5,9 @@ import {
 } from "@t3tools/client-runtime/state/shell";
 import { hasQueuedTurnStart } from "@t3tools/client-runtime/state/thread-settled";
 
+import { msg } from "gt-react";
+
+import { m, type MessageResolver } from "../i18n/messages";
 import type { ThreadActionMenuId, ThreadActionMenuState } from "./threadActionMenu.logic.ts";
 
 /**
@@ -36,9 +39,16 @@ export function openInNewWindowMenuItems(
 /** Fork: share the thread with a collaborator's app through a pairing link (colleague-collab). */
 export function collaboratorShareMenuItems(
   state: Pick<ThreadActionMenuState, "canShareWithCollaboratorFork">,
+  resolve: MessageResolver = m,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   return state.canShareWithCollaboratorFork === true
-    ? [{ id: "share-collaborator" as const, label: "Share with collaborator…", icon: "user-plus" }]
+    ? [
+        {
+          id: "share-collaborator" as const,
+          label: resolve(msg("Share with collaborator…")),
+          icon: "user-plus",
+        },
+      ]
     : [];
 }
 

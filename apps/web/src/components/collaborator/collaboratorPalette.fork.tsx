@@ -2,8 +2,10 @@
 // `CommandPalette.tsx` carries only marked hook lines pointing here.
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { msg } from "gt-react";
 import { UserPlusIcon } from "lucide-react";
 
+import { m } from "../../i18n/messages";
 import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "../CommandPalette.logic";
 import {
   canShareWithCollaboratorFork,
@@ -21,7 +23,7 @@ export function buildShareWithCollaboratorActionItemFork(
     kind: "action",
     value: "action:share-thread-with-collaborator",
     searchTerms: ["share", "collaborator", "colleague", "invite", "pair", "link", "teammate"],
-    title: "Share with collaborator",
+    title: m(msg("Share with collaborator")),
     icon: <UserPlusIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       openCollaboratorShareDialog(threadRef);
