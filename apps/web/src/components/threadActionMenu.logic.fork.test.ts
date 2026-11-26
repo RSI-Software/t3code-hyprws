@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { ThreadActionMenuState } from "./threadActionMenu.logic.ts";
 import {
+  collaboratorShareMenuItems,
   forkThreadMenuItems,
   forkThreadMenuStateFork,
   openInNewWindowMenuItems,
@@ -111,5 +112,14 @@ describe("openInNewWindowMenuItems", () => {
     ]);
     expect(openInNewWindowMenuItems({ openInNewWindow: false })).toEqual([]);
     expect(openInNewWindowMenuItems({})).toEqual([]);
+  });
+});
+
+describe("collaboratorShareMenuItems", () => {
+  it("opens the link dialog until a colleague is saved", () => {
+    expect(
+      collaboratorShareMenuItems({ canShareWithCollaboratorFork: true }).map((item) => item.id),
+    ).toEqual(["share-collaborator"]);
+    expect(collaboratorShareMenuItems({ canShareWithCollaboratorFork: false })).toEqual([]);
   });
 });

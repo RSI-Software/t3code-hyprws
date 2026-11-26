@@ -9,8 +9,8 @@ Passages either of you cites stay **marked in the transcript** in that person's 
 ## Share a thread
 
 1. **Right-click** the thread in the sidebar
-2. Choose **Share with collaborator**
-3. Type their name and choose **Share**
+2. Choose **Share with collaborator** or **Someone new…**
+3. Type their **name** and choose **Share**
 4. **Send them** the link
 
 The link opens in their desktop app or browser; unopened, it **expires after 24 hours**.
@@ -26,6 +26,9 @@ You each save the other as a **colleague**, and both apps say so: **Saved Jordan
 - A colleague sees **nothing of yours** until you share a thread
 - In a browser with no T3 Code of its own, you stay a **one-time guest**
 
+To share with a saved colleague, right-click the thread, then **Share with → their name**: **one click**, no link.
+The share dialog and command palette offer the same.
+
 ## Approve their messages
 
 By default each collaborator **Needs approval**: their messages **wait for you** at the end of the thread, with **Send** and **Dismiss**.
@@ -38,6 +41,7 @@ They see which you did: **Sent by the host** under a sent message, or **Dismisse
 ## Stop sharing
 
 Open **Share with collaborator** on the thread, then **Stop sharing** beside their name.
+For a saved colleague, **pick their checked name** under **Share with** again.
 Their waiting messages are dropped, and their copy **freezes**, marked **Disconnected from host**.
 Sharing again brings it back to live.
 
