@@ -2,6 +2,7 @@
 // browser it first offers the T3 Code app, which pairs through the `t3code://pair` app link.
 import type { AuthSessionState } from "@t3tools/contracts";
 import { buildPairingAppLink } from "@t3tools/shared/remote";
+import { useGT } from "gt-react";
 import { type ReactNode, useState } from "react";
 
 import { isElectron } from "~/env";
@@ -18,6 +19,7 @@ interface PairingGate {
 
 /** A collaborator link opened in a browser: the landing, then pairing that opens the shared thread. */
 export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): ReactNode | null {
+  const gt = useGT();
   // Read once: pairing in this browser strips the token from the URL.
   const [href] = useState(() => window.location.href);
   const [continued, setContinued] = useState(false);
@@ -49,15 +51,17 @@ export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): R
   return (
     <StandalonePage>
       <StandalonePageHeader
-        title="A thread was shared with you"
-        description="Open it in T3 Code, or continue in this browser. Your messages run on the sharer's machine."
+        title={gt("A thread was shared with you")}
+        description={gt(
+          "Open it in T3 Code, or continue in this browser. Your messages run on the sharer's machine.",
+        )}
       />
       <div className="mt-6 flex flex-wrap gap-2">
         <Button render={<a href={buildPairingAppLink(href)} />}>
-          {onPhone ? "Open in app" : "Open in desktop app"}
+          {onPhone ? gt("Open in app") : gt("Open in desktop app")}
         </Button>
         <Button variant="outline" onClick={continueInBrowser}>
-          Continue in this browser
+          {gt("Continue in this browser")}
         </Button>
       </div>
     </StandalonePage>

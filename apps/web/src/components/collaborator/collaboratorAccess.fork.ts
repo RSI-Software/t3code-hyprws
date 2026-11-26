@@ -12,6 +12,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import { msg } from "gt-react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { serverEnvironment } from "~/state/server";
@@ -34,8 +35,8 @@ export const setAccessCommand = createEnvironmentRpcCommand(connectionAtomRuntim
 });
 
 export const ACCESS: Record<CollaboratorAccessFork, { label: string; detail: string }> = {
-  approve: { label: "Needs approval", detail: "Each message waits for you to send it" },
-  send: { label: "Can send", detail: "Messages go straight to the agent" },
+  approve: { label: msg("Needs approval"), detail: msg("Each message waits for you to send it") },
+  send: { label: msg("Can send"), detail: msg("Messages go straight to the agent") },
 };
 
 /** A collaborator's copy is the host's thread, so pinning, settling, and snoozing stay the host's. */
