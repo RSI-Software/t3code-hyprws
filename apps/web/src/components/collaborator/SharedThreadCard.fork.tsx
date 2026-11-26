@@ -13,18 +13,23 @@ import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
 export const SHARED_THREAD_CARD_CLASS_FORK =
   "before:absolute before:inset-y-2 before:start-0 before:w-0.5 before:rounded-full before:bg-primary/70";
 
-/** One read for the whole list. A shared thread's card names its sharer in place of the machine:
- * the saved colleague on its environment, or null for a one-time guest copy. */
-export function useSharedCardPropsFork() {
+/** Who shared each environment's threads: the colleagues saved on this app's own server. */
+export function useSharerNamesFork() {
   const primary = usePrimaryEnvironmentId();
   const served = colleaguesServedFork(useServerConfigs(), primary);
   const colleagues = useEnvironmentQuerySelector(
     served && primary !== null ? colleaguesAtom(primary) : null,
     selectEnvironmentQueryData,
   );
-  const nameByEnvironment = new Map(
+  return new Map(
     (colleagues ?? []).map((colleague) => [colleague.environmentId, colleague.name] as const),
   );
+}
+
+/** One read for the whole list. A shared thread's card names its sharer in place of the machine:
+ * the saved colleague on its environment, or null for a one-time guest copy. */
+export function useSharedCardPropsFork() {
+  const nameByEnvironment = useSharerNamesFork();
   return (thread: {
     readonly environmentId: EnvironmentId;
     readonly collaboratorFork?: string | undefined;

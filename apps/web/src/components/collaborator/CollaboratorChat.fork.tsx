@@ -35,6 +35,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
 import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
+import { GuestMessageName } from "../chat/guestMessageStyle";
 import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
@@ -259,12 +260,7 @@ function WaitingMessages({
           }
           return (
             <li key={message.id} className="group/queued flex w-full flex-col items-end gap-1">
-              {asAuthor ? null : (
-                <p className="me-1 text-2xs text-guest-foreground">
-                  {message.name}
-                  <span className="sr-only"> {gt("(collaborator)")}</span>
-                </p>
-              )}
+              {asAuthor ? null : <GuestMessageName name={message.name} />}
               <div className="flex min-w-0 max-w-[80%] flex-col rounded-2xl border border-dashed border-guest/50 px-3 py-2 text-muted-foreground text-sm">
                 <p className="whitespace-pre-wrap wrap-anywhere">
                   {assistantCitationsToPlainText(message.text)}
