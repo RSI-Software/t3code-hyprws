@@ -39,6 +39,11 @@ import {
   canShareWithCollaboratorFork,
   openCollaboratorShareDialog,
 } from "../components/collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/menu-dispatch-import
+import {
+  dispatchColleagueShareFork,
+  readColleagueShareTargetsFork,
+  useColleagueShareTargetsWarmFork,
+} from "../components/collaborator/colleagueShare.fork"; // fork-hook: colleague-collab/colleague-menu-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { m } from "../i18n/messages";
@@ -113,6 +118,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const forkThreadDispatch = useThreadForkDispatchFork(); // fork-hook: thread-fork/header-dispatch-hook
+  useColleagueShareTargetsWarmFork(threadRef); // fork-hook: colleague-collab/colleague-menu-warm
   const handleNewThread = useNewThreadHandler();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
@@ -148,6 +154,7 @@ export function useThreadActionMenu(input: {
     };
     const isRegeneratingTitle = thread.titleRegeneration != null;
     const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+    const colleaguesFork = readColleagueShareTargetsFork(threadRef); // fork-hook: colleague-collab/colleague-menu-state
     const items = buildThreadActionMenuItems({
       canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
       canTriage: threadTriagePermitted(threadRef.environmentId),
@@ -171,6 +178,7 @@ export function useThreadActionMenu(input: {
       ), // fork-hook: thread-fork/header-menu-state
       openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
       canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
+      colleaguesFork, // fork-hook: colleague-collab/colleague-menu-state
       supports,
       snoozePresets,
       canShareWithGuest,
@@ -191,6 +199,8 @@ export function useThreadActionMenu(input: {
         );
         return;
       }
+      const colleagueShare = dispatchColleagueShareFork(threadRef, action, colleaguesFork); // fork-hook: colleague-collab/colleague-menu-dispatch
+      if (colleagueShare !== false) return colleagueShare; // fork-hook: colleague-collab/colleague-menu-dispatch
       if (action.startsWith("snooze:")) {
         const preset =
           action === "snooze:custom"
