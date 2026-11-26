@@ -10,6 +10,7 @@ import * as Logger from "effect/Logger";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 
+import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as ServiceLauncherClient from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -83,6 +84,7 @@ const boot = (env: Record<string, string>) =>
           capabilities: { repositoryIdentity: true },
         }),
       }),
+      Layer.mock(BackgroundPolicy.BackgroundPolicy)({ shouldRunHostWork: Effect.succeed(true) }),
       Layer.mock(ProjectStore.ProjectStoreV2)({ listShells: () => Effect.succeed([]) }),
       Layer.mock(ProjectService.ProjectService)({}),
       Layer.mock(ThreadManagement.ThreadManagementService)({}),
@@ -118,6 +120,7 @@ const boot = (env: Record<string, string>) =>
     const outcome = yield* Effect.gen(function* () {
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       yield* startup.markHttpListening;
+      yield* startup.awaitCommandReady;
       return yield* Deferred.await(settled);
     }).pipe(
       Effect.provide(ServerRuntimeStartup.layerWithOptions().pipe(Layer.provide(dependencies))),
