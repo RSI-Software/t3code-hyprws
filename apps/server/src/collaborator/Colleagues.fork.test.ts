@@ -552,7 +552,8 @@ it.effect("a pairing code never carries more than the colleague's grant", () =>
       const scopeless = yield* Effect.flip(
         sam.colleagues.issueClientPairing({ subject: "colleague:jo", scopes: [] }),
       );
-      assert.strictEqual(scopeless._tag, "ColleagueNotCollaboratorErrorFork");
+      assert.strictEqual(scopeless._tag, "ColleagueNoScopeErrorFork");
+      assert.strictEqual(scopeless.message, "That grant cannot attach a client.");
     }),
   ),
 );

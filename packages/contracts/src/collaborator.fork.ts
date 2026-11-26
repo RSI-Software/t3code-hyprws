@@ -375,13 +375,40 @@ export class ColleagueSelfErrorFork extends Schema.TaggedError<ColleagueSelfErro
   }
 }
 
-/** The caller holds no live collaborator share, or a grant without its scopes. */
+export class ColleagueOwnGrantErrorFork extends Schema.TaggedError<ColleagueOwnGrantErrorFork>()(
+  "ColleagueOwnGrantErrorFork",
+  {},
+) {
+  override get message(): string {
+    return "That grant is from this environment.";
+  }
+}
+
 export class ColleagueNotCollaboratorErrorFork extends Schema.TaggedError<ColleagueNotCollaboratorErrorFork>()(
   "ColleagueNotCollaboratorErrorFork",
   {},
 ) {
   override get message(): string {
+    return "That subject is not a collaborator's.";
+  }
+}
+
+export class ColleagueNoLiveShareErrorFork extends Schema.TaggedError<ColleagueNoLiveShareErrorFork>()(
+  "ColleagueNoLiveShareErrorFork",
+  {},
+) {
+  override get message(): string {
     return "Only a collaborator with a shared thread saves its sharer.";
+  }
+}
+
+/** The calling grant holds none of the collaborator scopes. */
+export class ColleagueNoScopeErrorFork extends Schema.TaggedError<ColleagueNoScopeErrorFork>()(
+  "ColleagueNoScopeErrorFork",
+  {},
+) {
+  override get message(): string {
+    return "That grant cannot attach a client.";
   }
 }
 
@@ -394,12 +421,22 @@ export class ColleagueSavedAsAnotherErrorFork extends Schema.TaggedError<Colleag
   }
 }
 
-export class ColleagueAddressErrorFork extends Schema.TaggedError<ColleagueAddressErrorFork>()(
-  "ColleagueAddressErrorFork",
+export class ColleagueNotHttpErrorFork extends Schema.TaggedError<ColleagueNotHttpErrorFork>()(
+  "ColleagueNotHttpErrorFork",
   {},
 ) {
   override get message(): string {
-    return "Their address must be https, or http on loopback, Tailscale or a private network.";
+    return "Their address is not an http or https address.";
+  }
+}
+
+/** `origin` is the address's scheme and host only. */
+export class ColleaguePublicHttpErrorFork extends Schema.TaggedError<ColleaguePublicHttpErrorFork>()(
+  "ColleaguePublicHttpErrorFork",
+  { origin: Schema.String },
+) {
+  override get message(): string {
+    return `${this.origin} is public plain http.`;
   }
 }
 
@@ -422,17 +459,21 @@ export class ColleagueRevokedErrorFork extends Schema.TaggedError<ColleagueRevok
   }
 }
 
-/** Their server failed the call: `status` for an error answer, `cause` for an unknown shape. */
 export class ColleagueRemoteErrorFork extends Schema.TaggedError<ColleagueRemoteErrorFork>()(
   "ColleagueRemoteErrorFork",
-  {
-    colleague: Schema.String,
-    status: Schema.optional(Schema.Number),
-    cause: Schema.optional(Schema.Defect()),
-  },
+  { colleague: Schema.String, status: Schema.Number },
 ) {
   override get message(): string {
-    return `${this.colleague}'s server could not do that.`;
+    return `${this.colleague}'s server answered ${this.status}.`;
+  }
+}
+
+export class ColleagueUnknownShapeErrorFork extends Schema.TaggedError<ColleagueUnknownShapeErrorFork>()(
+  "ColleagueUnknownShapeErrorFork",
+  { colleague: Schema.String, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `${this.colleague}'s server answered in an unknown shape.`;
   }
 }
 
@@ -440,12 +481,17 @@ export const ColleagueErrorFork = Schema.Union([
   ColleagueMissingErrorFork,
   ColleagueStorageErrorFork,
   ColleagueSelfErrorFork,
+  ColleagueOwnGrantErrorFork,
   ColleagueNotCollaboratorErrorFork,
+  ColleagueNoLiveShareErrorFork,
+  ColleagueNoScopeErrorFork,
   ColleagueSavedAsAnotherErrorFork,
-  ColleagueAddressErrorFork,
+  ColleagueNotHttpErrorFork,
+  ColleaguePublicHttpErrorFork,
   ColleagueSilentErrorFork,
   ColleagueRevokedErrorFork,
   ColleagueRemoteErrorFork,
+  ColleagueUnknownShapeErrorFork,
 ]);
 export type ColleagueErrorFork = typeof ColleagueErrorFork.Type;
 
