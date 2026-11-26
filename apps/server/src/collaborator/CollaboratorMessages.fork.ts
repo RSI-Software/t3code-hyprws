@@ -23,25 +23,58 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 
+/** The agent's whole reply to a shared-thread message that is between people. */
+export const QUIET_MARKER = "(listening)";
+
+// Model-facing: evals/shared-thread-quiet grades this text; rerun it after any change.
+const sharedThreadRule = (people: string) =>
+  `This thread is shared: ${people} read it and your replies live, and people here also talk to each other. ` +
+  `A message is for the agent when it asks the agent to do, check, explain, change or decide something, even with no name ("can you...", "it should...", "let's add..." said to the room); ` +
+  `when it passes a request to the agent through a person ("Jordan, can you get it to add a test?", "ask it to...", "have the agent..."); ` +
+  `when it answers a question the agent just asked ("yes, option 2", "sounds good, go ahead"); ` +
+  `or when it says the agent's work is wrong or incomplete. ` +
+  `A message is between people when it is addressed to a person about something only people can answer or do (meetings, plans, a person's opinion), ` +
+  `or is thanks, agreement or small talk that asks nothing of the agent, or talks about what the agent made without asking for a change. ` +
+  `When unsure, treat it as for the agent. ` +
+  `When the message is not for you, do nothing: no tools, no work, and reply with exactly ${QUIET_MARKER} and nothing else.`;
+
+const PREFIX_END = `${QUIET_MARKER} and nothing else.]\n\n`;
+
 /**
- * What the agent reads. It names the collaborator and says they follow the thread live, so the
- * agent answers them here instead of drafting replies for the host to pass on.
+ * A queued edit starts from the already attributed text, maybe under an older share list, so any
+ * prefix by the same author is replaced rather than nested.
  */
-export const collaboratorPrompt = (name: string, text: string) =>
-  `${collaboratorPromptPrefix(name)}${text}`;
+const attributed = (intro: string, people: string, text: string) => {
+  const end = text.startsWith(intro) ? text.indexOf(PREFIX_END) : -1;
+  const own = end === -1 ? text : text.slice(end + PREFIX_END.length);
+  return { own, text: `${intro}${sharedThreadRule(people)}]\n\n${own}` };
+};
 
-const collaboratorPromptPrefix = (name: string) =>
-  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${name} reads this thread and your replies live, so answer ${name} here directly, as you would the owner.]\n\n`;
-
-/** The attributed text and the context that shows the collaborator's own words beside their name. */
+/** What the agent reads from a collaborator, and the context that shows their own words. */
 export const collaboratorAttribution = (name: string, text: string) => {
-  // A queued edit starts from the already attributed text, so the prefix is not repeated.
-  const own = text.startsWith(collaboratorPromptPrefix(name))
-    ? text.slice(collaboratorPromptPrefix(name).length)
-    : text;
+  // Naming the host here made Haiku read collaborators' doubts as addressed to them.
+  const { own, text: prompt } = attributed(
+    `[${name}, a collaborator the owner shared this thread with, wrote the message below. `,
+    `the owner and ${name}`,
+    text,
+  );
+  return { text: prompt, context: { collaboratorFork: { name, text: own } } };
+};
+
+/** The host's own message in a shared thread names them too; people still see it as the host's. */
+export const hostAttribution = (
+  host: string | undefined,
+  others: ReadonlyArray<string>,
+  text: string,
+) => {
+  const { own, text: prompt } = attributed(
+    `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below. `,
+    `${host ?? "the owner"} and ${others.join(" and ")}`,
+    text,
+  );
   return {
-    text: collaboratorPrompt(name, own),
-    context: { collaboratorFork: { name, text: own } },
+    text: prompt,
+    context: { collaboratorFork: { name: host ?? "", text: own, host: true as const } },
   };
 };
 
@@ -74,9 +107,9 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   const lock = (yield* Semaphore.make(1)).withPermits(1);
 
   const read = sql<MessageRow>`
-    SELECT id, thread_id, subject, collaborator_name, text, submitted_at, outcome
-    FROM fork_collaborator_messages ORDER BY submitted_at
-  `.pipe(Effect.map((rows) => rows.map(fromRow)));
+  SELECT id, thread_id, subject, collaborator_name, text, submitted_at, outcome
+  FROM fork_collaborator_messages ORDER BY submitted_at
+`.pipe(Effect.map((rows) => rows.map(fromRow)));
   const ref = yield* SubscriptionRef.make(yield* read.pipe(Effect.orDie));
   const reload = read.pipe(Effect.flatMap((next) => SubscriptionRef.set(ref, next)));
 
@@ -100,10 +133,10 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     const id = yield* random.uuidV4().pipe(Effect.mapError(undelivered));
     const submittedAt = DateTime.formatIso(yield* DateTime.now);
     yield* sql`
-      INSERT INTO fork_collaborator_messages
-        (id, thread_id, subject, collaborator_name, text, submitted_at)
-      VALUES (${id}, ${input.threadId}, ${input.subject}, ${input.name}, ${input.text}, ${submittedAt})
-    `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
+    INSERT INTO fork_collaborator_messages
+      (id, thread_id, subject, collaborator_name, text, submitted_at)
+    VALUES (${id}, ${input.threadId}, ${input.subject}, ${input.name}, ${input.text}, ${submittedAt})
+  `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
   });
 
   /**
@@ -158,8 +191,8 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   /** Drops a collaborator's waiting messages on a thread they no longer share. */
   const drop = (subject: string, threadId: string) =>
     sql`
-      DELETE FROM fork_collaborator_messages WHERE subject = ${subject} AND thread_id = ${threadId}
-    `.pipe(Effect.andThen(reload));
+    DELETE FROM fork_collaborator_messages WHERE subject = ${subject} AND thread_id = ${threadId}
+  `.pipe(Effect.andThen(reload));
 
   return {
     /** Runs `effect` alone; `submit` and `drop` run only inside it, with the share check. */

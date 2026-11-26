@@ -57,12 +57,17 @@ import { failEnvironmentScopeRequired } from "../auth/http.ts";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import {
   buildPairingUrl,
   isLoopbackHost,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
-import { collaboratorAttribution, makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
+import {
+  collaboratorAttribution,
+  hostAttribution,
+  makeCollaboratorMessages,
+} from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
 import { collaboratorSubject, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
@@ -493,6 +498,21 @@ const make = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const httpClient = yield* HttpClient.HttpClient;
+  const git = yield* GitVcsDriver.GitVcsDriver;
+  // The host has no name here; the agent reads the one they gave git, else "the owner".
+  const hostName = yield* Effect.cached(
+    git
+      .execute({
+        operation: "CollaboratorSharesFork.hostName",
+        cwd: config.cwd,
+        args: ["config", "--get", "user.name"],
+        allowNonZeroExit: true,
+      })
+      .pipe(
+        Effect.map((result) => result.stdout.trim() || undefined),
+        Effect.orElseSucceed(() => undefined),
+      ),
+  );
   const messages = yield* makeCollaboratorMessages;
   const typing = yield* makeCollaboratorTyping;
   // The local tunnel's public hostname, then the origin the sharing client reached, then a guess.
@@ -857,8 +877,32 @@ const make = Effect.gen(function* () {
     if (!isCollaboratorSubject(subject)) {
       return {
         ...handlers,
-        [DISPATCH]: (command, options) =>
-          dispatch(withoutCollaboratorAttribution(command), options),
+        [DISPATCH]: (command, options) => {
+          const clean = withoutCollaboratorAttribution(command);
+          if (clean.type !== "message.dispatch" && clean.type !== "queued-run.edit") {
+            return dispatch(clean, options);
+          }
+          const others = [...current.values()]
+            .filter((share) => share.threadIds.has(clean.threadId))
+            .map((share) => share.name);
+          // A prefix would hide a native command such as /compact from the provider.
+          if (others.length === 0 || clean.text.trimStart().startsWith("/")) {
+            return dispatch(clean, options);
+          }
+          return hostName.pipe(
+            Effect.flatMap((host) => {
+              const attribution = hostAttribution(host, others, clean.text);
+              return dispatch(
+                {
+                  ...clean,
+                  text: attribution.text,
+                  context: { version: 1, records: [], ...clean.context, ...attribution.context },
+                },
+                options,
+              );
+            }),
+          );
+        },
         [LAUNCH]: (input, options) => launch(launchWithoutAttribution(input), options),
       };
     }
