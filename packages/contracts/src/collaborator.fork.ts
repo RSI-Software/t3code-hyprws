@@ -7,7 +7,13 @@ import {
   type AuthEnvironmentScope,
 } from "./auth.ts";
 import { AssistantCitation } from "./assistantCitations.ts";
-import { IsoDateTime, NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  EnvironmentId,
+  IsoDateTime,
+  NonNegativeInt,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
 
 /** The whole grant a collaborator link pairs; the server narrows it further to shared threads. */
@@ -261,6 +267,173 @@ export const CollaboratorMessageErrorFork = Schema.Union([
   CollaboratorMessageDeliveryErrorFork,
 ]);
 export type CollaboratorMessageErrorFork = typeof CollaboratorMessageErrorFork.Type;
+
+/**
+ * A saved colleague: their server and this one each hold a collaborator grant for the other, so
+ * either side shares a thread with no link. Access stays per thread, as for any collaborator.
+ */
+export const ColleagueFork = Schema.Struct({
+  /** Their collaborator subject here: what shares, sessions, and removal key on. */
+  subject: Schema.String,
+  name: Schema.String,
+  /** Their environment; a client attaches it and reads its shared threads as theirs. */
+  environmentId: EnvironmentId,
+  /** Where their server answered when they were saved. */
+  url: Schema.String,
+  savedAt: IsoDateTime,
+});
+export type ColleagueFork = typeof ColleagueFork.Type;
+
+/** One server's collaborator grant for the other's, carried once by the accepting client. */
+export const ColleagueGrantFork = Schema.Struct({
+  environmentId: EnvironmentId,
+  /** The issuing server's http(s) origin, as public as it knows. */
+  url: Schema.String,
+  /** The subject the token carries on the issuing server. */
+  subject: Schema.String,
+  token: Schema.RedactedFromValue(TrimmedNonEmptyString),
+});
+export type ColleagueGrantFork = typeof ColleagueGrantFork.Type;
+
+/** Accept step 1, on the accepting client's own server: a grant for the sharer. */
+export const ColleagueInviteInputFork = Schema.Struct({
+  /** The sharer's environment, from the descriptor of the host the client just paired with. */
+  environmentId: EnvironmentId,
+  /** What this side calls the sharer. */
+  name: CollaboratorNameFork,
+  linkBaseUrl: Schema.optional(Schema.String),
+});
+export type ColleagueInviteInputFork = typeof ColleagueInviteInputFork.Type;
+
+/** Accept step 2, on the sharer's server over the collaborator session: answers with its grant. */
+export const ColleagueSaveInputFork = Schema.Struct({
+  grant: ColleagueGrantFork,
+  linkBaseUrl: Schema.optional(Schema.String),
+});
+export type ColleagueSaveInputFork = typeof ColleagueSaveInputFork.Type;
+
+/** Accept step 3, on the accepting client's own server: keeps the sharer's grant. */
+export const ColleagueConnectInputFork = Schema.Struct({
+  /** The `subject` of step 1's grant. */
+  subject: Schema.String,
+  name: CollaboratorNameFork,
+  grant: ColleagueGrantFork,
+});
+export type ColleagueConnectInputFork = typeof ColleagueConnectInputFork.Type;
+
+export const ColleagueSubjectInputFork = Schema.Struct({ subject: Schema.String });
+export type ColleagueSubjectInputFork = typeof ColleagueSubjectInputFork.Type;
+
+export const ColleagueRemoveResultFork = Schema.Struct({
+  /** Their server dropped this side too; false when it could not be reached. */
+  endedThere: Schema.Boolean,
+});
+export type ColleagueRemoveResultFork = typeof ColleagueRemoveResultFork.Type;
+
+/** A one-time code for this client to pair with a colleague's server as the saved colleague. */
+export const ColleagueClientPairingFork = Schema.Struct({
+  environmentId: EnvironmentId,
+  url: Schema.String,
+  credential: TrimmedNonEmptyString,
+  expiresAt: IsoDateTime,
+});
+export type ColleagueClientPairingFork = typeof ColleagueClientPairingFork.Type;
+
+export const ColleagueShareThreadInputFork = Schema.Struct({
+  threadId: ThreadId,
+  subject: Schema.String,
+  access: Schema.optional(CollaboratorAccessFork),
+});
+export type ColleagueShareThreadInputFork = typeof ColleagueShareThreadInputFork.Type;
+
+export class ColleagueMissingErrorFork extends Schema.TaggedError<ColleagueMissingErrorFork>()(
+  "ColleagueMissingErrorFork",
+  { subject: Schema.String },
+) {
+  override get message(): string {
+    return "That colleague is not saved here.";
+  }
+}
+
+export class ColleagueStorageErrorFork extends Schema.TaggedError<ColleagueStorageErrorFork>()(
+  "ColleagueStorageErrorFork",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not read or save colleagues.";
+  }
+}
+
+/** A request this server will not act on; `origin` is the address's scheme and host only. */
+export class ColleagueRefusedErrorFork extends Schema.TaggedError<ColleagueRefusedErrorFork>()(
+  "ColleagueRefusedErrorFork",
+  {
+    rule: Schema.Literals([
+      "own-environment",
+      "own-grant",
+      "not-collaborator",
+      "no-live-share",
+      "saved-as-another",
+      "not-http",
+      "public-http",
+      "no-scope",
+    ]),
+    origin: Schema.optional(Schema.String),
+  },
+) {
+  override get message(): string {
+    return this.rule === "public-http" && this.origin !== undefined
+      ? `${this.origin} is public plain http.`
+      : COLLEAGUE_REFUSALS[this.rule];
+  }
+}
+
+const COLLEAGUE_REFUSALS: Record<ColleagueRefusedErrorFork["rule"], string> = {
+  "own-environment": "That is this environment.",
+  "own-grant": "That grant is from this environment.",
+  "not-collaborator": "That subject is not a collaborator's.",
+  "no-live-share": "Only a collaborator with a shared thread saves its sharer.",
+  "saved-as-another": "That environment is saved here as another colleague.",
+  "not-http": "Their address is not an http or https address.",
+  "public-http": "Their address is public plain http.",
+  "no-scope": "That grant cannot attach a client.",
+};
+
+/** The colleague's server failed a call: silent, refused this side's grant, or answered wrong. */
+export class ColleagueRemoteErrorFork extends Schema.TaggedError<ColleagueRemoteErrorFork>()(
+  "ColleagueRemoteErrorFork",
+  {
+    colleague: Schema.String,
+    outcome: Schema.Literals(["silent", "refused", "failed", "unknown-shape"]),
+    status: Schema.optional(Schema.Number),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.outcome) {
+      case "silent":
+        return `${this.colleague}'s server did not answer.`;
+      case "refused":
+        return `${this.colleague}'s server no longer accepts this one.`;
+      case "failed":
+        return `${this.colleague}'s server answered ${this.status}.`;
+      case "unknown-shape":
+        return `${this.colleague}'s server answered in an unknown shape.`;
+    }
+  }
+}
+
+export const ColleagueErrorFork = Schema.Union([
+  ColleagueMissingErrorFork,
+  ColleagueStorageErrorFork,
+  ColleagueRefusedErrorFork,
+  ColleagueRemoteErrorFork,
+]);
+export type ColleagueErrorFork = typeof ColleagueErrorFork.Type;
+
+/** Server-to-server routes a colleague's server calls with its grant here. */
+export const COLLEAGUE_PAIR_CLIENT_ROUTE_FORK = "/api/fork/colleague/pair-client";
+export const COLLEAGUE_FORGET_ROUTE_FORK = "/api/fork/colleague/forget";
 
 /** Query param on a `t3code://pair` link naming the thread to open after pairing. */
 export const COLLABORATOR_THREAD_LINK_PARAM = "thread";
