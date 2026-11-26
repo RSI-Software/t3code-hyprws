@@ -16,7 +16,10 @@ import { SystemGit } from "./lib/fork-git-reader.ts";
 
 const HELP = `Usage: vp run fork:ci [--only <step>[,<step>...]]
 
-Runs what the fork's pull-request CI jobs run, in CI's own shape:
+Runs what the fork's pull-request CI jobs run, in CI's own shape. Before the
+first ledger step it fetches upstream main and origin hyprws, as the Fork
+ledger step does, so a stale local ref never turns a step red or green; a
+failed fetch reds the ledger steps and names the fix.
 
   delta         vp run fork:delta --check --head <head>, the same form the
                 workflow's Fork ledger step runs (scripts/fork-delta.ts)
@@ -138,6 +141,12 @@ const STEPS: ReadonlyArray<StepDefinition> = [
   },
 ];
 
+// The Fork ledger step's fetch: a stale upstream/main lists upstream commits as fork commits.
+const FETCHES: ReadonlyArray<Command> = [
+  ["git", ["fetch", "--no-tags", "upstream", "main"]],
+  ["git", ["fetch", "--no-tags", "origin", "hyprws"]],
+];
+
 const STEP_NAMES: ReadonlyArray<string> = STEPS.map((step) => step.name);
 
 /** The steps `--only` names, in battery order; a string when the argv is not a valid selection. */
@@ -172,21 +181,25 @@ export const run = (
   const git = new SystemGit(cwd);
   const root = git.run(["rev-parse", "--show-toplevel"]).trim();
   const head = git.run(["rev-parse", "HEAD"]).trim();
-  // Derived once, and only when a selected step needs it, so `--only typecheck` runs without
-  // the upstream remote.
-  // A failed derivation is kept, so each ledger step reports it red without rederiving.
+  // Fetched and derived once, and only when a selected step needs it, so `--only typecheck`
+  // runs offline and without the upstream remote.
+  // A failure is kept, so each ledger step reports it red without refetching.
   let derived: ForkCiFlags | Error | undefined;
   const flags = (): ForkCiFlags => {
     if (derived instanceof Error) throw derived;
     if (derived === undefined) {
+      const failed = FETCHES.find(([command, args]) => step(command, args, root) !== 0);
+      if (failed !== undefined) {
+        derived = new Error(
+          `${failed[0]} ${failed[1].join(" ")} failed; the ledger steps read fresh refs, as CI's Fork ledger step does\n` +
+            "check the network, or add the remote: git remote add upstream https://github.com/pingdotgg/t3code.git",
+        );
+        throw derived;
+      }
       try {
         derived = deriveForkCiFlags(systemForkCiGit(git), head);
       } catch (error) {
-        derived = new Error(
-          `${error instanceof Error ? error.message : String(error)}\n` +
-            "the flag derivation needs the upstream remote fetched and origin/hyprws present; CI's Fork ledger step provisions them",
-          { cause: error },
-        );
+        derived = error instanceof Error ? error : new Error(String(error));
         throw derived;
       }
       process.stdout.write(
