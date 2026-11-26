@@ -17,15 +17,24 @@ name: hyprws upstream sync
 # trunk; the scrub step below removes it before any rebased code can run. The
 # app key lives in the hyprws-sync environment, which deploys only to hyprws: a
 # run started from any other ref never sees it.
+#
+# rsi-agent's workflow heartbeat dispatches this every 15 min; GitHub drops
+# most `schedule` runs, so there is none. A run's outcome follows from the
+# upstream tags, `hyprws`, `sync/resolution`, and the clock behind the agent
+# retry and the marker pin, so the same inputs reach the driver once per UTC
+# hour: a repeat skips Sync and the stable cut. `rerun` never skips; the
+# resolution workflow's dispatch sets it (docs/fork/operations/fork-sync.md).
 
 on:
   push:
     branches:
       - hyprws
-  schedule:
-    # every 15 min while the sync loop is under test; hourly after
-    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
+    inputs:
+      rerun:
+        description: Run even when the inputs match a run this hour
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,6 +49,9 @@ jobs:
     environment: hyprws-sync
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      key: ${{ steps.inputs.outputs.key }}
+      repeat: ${{ steps.repeat.outputs.cache-hit }}
     steps:
       - name: Mint push token
         id: app
@@ -70,9 +82,30 @@ jobs:
           git push origin upstream/main:refs/heads/main
           git push origin --tags --force
 
+      - name: Key the sync inputs
+        id: inputs
+        run: |
+          inputs="$(git ls-remote --tags upstream && git ls-remote origin refs/heads/hyprws refs/heads/sync/resolution)"
+          echo "key=hyprws-sync-$(sha256sum <<<"$inputs" | cut -c1-16)-$(date -u +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+
+      # The path is the Sync job's driver log; it saves the key once the driver ran.
+      - name: Look up a run this hour
+        id: repeat
+        if: ${{ !inputs.rerun }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/fork-sync.log
+          key: ${{ steps.inputs.outputs.key }}
+          lookup-only: true
+
+      - name: Skip a repeat
+        if: steps.repeat.outputs.cache-hit == 'true'
+        run: echo "Inputs match a run this hour (\`${{ steps.inputs.outputs.key }}\`); Sync skips. Rerun with \`-f rerun=true\`." >> "$GITHUB_STEP_SUMMARY"
+
   sync:
     name: Sync
     needs: [mirror]
+    if: needs.mirror.outputs.repeat != 'true'
     environment: hyprws-sync
     runs-on: ubuntu-latest
     # The driver waits up to an hour on hyprws CI for the candidate.
@@ -157,6 +190,7 @@ jobs:
       # the job's own token and name the repository themselves; a flake rerun
       # goes through the app token.
       - name: Run the sync driver
+        id: driver
         env:
           GH_TOKEN: ${{ github.token }}
           HYPRWS_PUSH_TOKEN: ${{ steps.app.outputs.token }}
@@ -185,3 +219,23 @@ jobs:
               printf 'The sync driver never ran; see the earlier steps.\n'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Any outcome counts: a red run already posted its issue, and the next
+      # hour retries. A run that never reached the driver saves nothing.
+      - name: Save the sync inputs
+        if: ${{ !cancelled() && steps.driver.outcome != 'skipped' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/fork-sync.log
+          key: ${{ needs.mirror.outputs.key }}
+
+  # The cut reads only tags; a new fork nightly waits for the next hour's run.
+  stable:
+    name: Stable
+    needs: [sync]
+    if: ${{ !cancelled() && needs.sync.result != 'skipped' }}
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    uses: ./.github/workflows/hyprws-stable.yml

@@ -10,7 +10,8 @@ name: hyprws sync resolution
 # A job that ends without a push (failed, blocked, unchanged) leaves only its
 # sticky comment, so a settled rsi-agent sticky also reruns the sync; a
 # pushed sticky is skipped because its push already did. An
-# issue_comment runs the default branch's file, which is hyprws.
+# issue_comment runs the default branch's file, which is hyprws. The dispatch
+# sets rerun: a settled sticky changes no sync input, yet earns the relabel.
 
 # The comment author is matched by the rsi-agent bot's user id: the id
 # survives an App rename, the login does not.
@@ -42,4 +43,4 @@ jobs:
       - name: Dispatch the trunk's sync
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run hyprws-upstream-sync.yml --ref hyprws --repo "$GITHUB_REPOSITORY"
+        run: gh workflow run hyprws-upstream-sync.yml --ref hyprws --repo "$GITHUB_REPOSITORY" -f rerun=true
