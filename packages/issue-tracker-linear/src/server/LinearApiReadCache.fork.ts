@@ -14,7 +14,7 @@ type Write = "createIssue" | "updateIssue" | "createComment" | "createReaction" 
 
 const TIME_TO_LIVE = "3 minutes";
 
-export const make = Effect.fnUntraced(function* (
+export const make = Effect.fn("LinearApiReadCache.make")(function* (
   api: Pick<Api, "viewer" | "getIssue" | Write>,
   storedToken: (operation: string) => Effect.Effect<string, IssueTrackerError>,
 ) {
