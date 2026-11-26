@@ -38,22 +38,26 @@ const sharedThreadRule = (people: string) =>
   `When unsure, treat it as for the agent. ` +
   `When the message is not for you, do nothing: no tools, no work, and reply with exactly ${QUIET_MARKER} and nothing else.`;
 
-// Naming the host here made Haiku read collaborators' doubts as addressed to them.
-const collaboratorPromptPrefix = (name: string) =>
-  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${sharedThreadRule(`the owner and ${name}`)}]\n\n`;
+const PREFIX_END = `${QUIET_MARKER} and nothing else.]\n\n`;
 
-const hostPromptPrefix = (host: string | undefined, others: string) =>
-  `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below. ${sharedThreadRule(`${host ?? "the owner"} and ${others}`)}]\n\n`;
-
-/** A queued edit starts from the already attributed text, so the prefix is not repeated. */
-const attributed = (prefix: string, text: string) => {
-  const own = text.startsWith(prefix) ? text.slice(prefix.length) : text;
-  return { own, text: `${prefix}${own}` };
+/**
+ * A queued edit starts from the already attributed text, maybe under an older share list, so any
+ * prefix by the same author is replaced rather than nested.
+ */
+const attributed = (intro: string, people: string, text: string) => {
+  const end = text.startsWith(intro) ? text.indexOf(PREFIX_END) : -1;
+  const own = end === -1 ? text : text.slice(end + PREFIX_END.length);
+  return { own, text: `${intro}${sharedThreadRule(people)}]\n\n${own}` };
 };
 
 /** What the agent reads from a collaborator, and the context that shows their own words. */
 export const collaboratorAttribution = (name: string, text: string) => {
-  const { own, text: prompt } = attributed(collaboratorPromptPrefix(name), text);
+  // Naming the host here made Haiku read collaborators' doubts as addressed to them.
+  const { own, text: prompt } = attributed(
+    `[${name}, a collaborator the owner shared this thread with, wrote the message below. `,
+    `the owner and ${name}`,
+    text,
+  );
   return { text: prompt, context: { collaboratorFork: { name, text: own } } };
 };
 
@@ -63,7 +67,11 @@ export const hostAttribution = (
   others: ReadonlyArray<string>,
   text: string,
 ) => {
-  const { own, text: prompt } = attributed(hostPromptPrefix(host, others.join(" and ")), text);
+  const { own, text: prompt } = attributed(
+    `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below. `,
+    `${host ?? "the owner"} and ${others.join(" and ")}`,
+    text,
+  );
   return {
     text: prompt,
     context: { collaboratorFork: { name: host ?? "", text: own, host: true as const } },

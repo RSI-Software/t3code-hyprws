@@ -42,7 +42,7 @@ import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import { collaboratorAttribution } from "./CollaboratorMessages.fork.ts";
+import { collaboratorAttribution, hostAttribution } from "./CollaboratorMessages.fork.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
 
 const shared = ThreadId.make("shared");
@@ -335,6 +335,17 @@ database("CollaboratorSharesFork", (it) => {
         assert.deepStrictEqual(sentAuthor(ownerSent), { name: HOST, text: "hi", host: true });
         assert.isTrue(sentText(ownerSent).startsWith(`[${HOST}, the owner of this thread,`));
         assert.include(sentText(ownerSent), `${HOST} and Sam read it`);
+        const ownerDispatch = (command: OrchestrationV2Command) =>
+          owner["orchestration.dispatchCommand"](command, undefined as never);
+        // An edit made under an older share list is re-attributed once, not nested.
+        const stale = hostAttribution(HOST, ["Sam", "Kim"], "hi").text;
+        const edited = yield* ownerDispatch(message(shared, "queued-run.edit", stale));
+        assert.strictEqual(sentText(edited), sentText(ownerSent));
+        assert.deepStrictEqual(sentAuthor(edited), { name: HOST, text: "hi", host: true });
+        // A native command reaches the provider as typed.
+        const compact = yield* ownerDispatch(message(shared, "message.dispatch", "/compact"));
+        assert.strictEqual(sentText(compact), "/compact");
+        assert.isUndefined(sentAuthor(compact));
         const launched = yield* owner["orchestration.launchThread"](
           {
             initialMessage: { text: "hi", context: sentContext(claimed), attachments: [] },
