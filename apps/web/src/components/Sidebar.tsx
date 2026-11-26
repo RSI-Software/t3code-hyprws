@@ -98,7 +98,10 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { desktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
-import { openCollaboratorShareDialog } from "./collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
+import {
+  canShareWithCollaboratorFork,
+  openCollaboratorShareDialog,
+} from "./collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
 import { collaboratorRowControlsFork } from "./collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/sidebar-row-controls-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
@@ -3084,6 +3087,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 ...forkThreadStateTailFork(thread, new Date().toISOString()), // fork-hook: thread-fork/sidebar-state
               ),
               openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
+              canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,

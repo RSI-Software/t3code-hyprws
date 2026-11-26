@@ -122,6 +122,7 @@ export interface ThreadActionMenuState {
   readonly hasManualOrder?: boolean; // fork-hook: thread-ordering/reset-order-state
   readonly fork?: ForkableThreadProviderState | null; // fork-hook: thread-fork/menu-state
   readonly openInNewWindow?: boolean; // fork-hook: multi-window/dispatch-thread-menu-state
+  readonly canShareWithCollaboratorFork?: boolean; // fork-hook: colleague-collab/menu-share-state
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
