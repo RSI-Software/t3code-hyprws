@@ -67,7 +67,6 @@ export interface ProjectUpdateInput extends ProjectUpdatePayload {
   /** Added to, and removed by path from, the list the project has when the update commits. */
   readonly trackFolders?: ReadonlyArray<ProjectTrackedFolder> | undefined;
   readonly untrackFolders?: ReadonlyArray<string> | undefined;
-  readonly teamFork?: boolean | undefined; // fork-hook: colleague-collab/team-project-input
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
