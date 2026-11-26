@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import {
+  AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   type AuthEnvironmentScope,
@@ -11,6 +12,9 @@ import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
 
 /** The whole grant a collaborator link pairs; the server narrows it further to shared threads. */
 export const COLLABORATOR_SCOPES = [AuthOrchestrationReadScope, AuthOrchestrationOperateScope];
+
+/** Sharing or widening a share hands that grant out, so the sharer must hold it, as for a pairing link. */
+export const COLLABORATOR_SHARE_SCOPES = [AuthAccessWriteScope, ...COLLABORATOR_SCOPES];
 
 /** A session holding exactly the collaborator grant: narrow by design, not a pre-scope leftover. */
 export const isCollaboratorGrantFork = (
