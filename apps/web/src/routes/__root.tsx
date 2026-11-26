@@ -33,6 +33,7 @@ import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAp
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ThreadGroupsSyncFork } from "../components/ThreadGroupsSyncFork"; // fork-hook: thread-ordering/thread-groups-sync-import
+import { ColleaguesAttachSyncFork } from "../components/collaborator/colleagues.fork"; // fork-hook: colleague-collab/colleagues-sync-import
 import { CollaboratorShareDialogHostFork } from "../components/collaborator/CollaboratorShareDialog.fork"; // fork-hook: colleague-collab/share-dialog-import
 import { CollaboratorMessageToastsFork } from "../components/collaborator/CollaboratorChat.fork"; // fork-hook: colleague-collab/message-toasts-import
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
@@ -209,6 +210,9 @@ function RootRouteBranch() {
       <SnapShotCoordinator />
       {/* fork-hook: thread-ordering/thread-groups-sync */}
       <ThreadGroupsSyncFork />
+      {/* fork-hook-end */}
+      {/* fork-hook: colleague-collab/colleagues-sync */}
+      <ColleaguesAttachSyncFork />
       {/* fork-hook-end */}
       <ReopenClosedViewShortcut />
       <ConfirmDialogHost />
