@@ -81,13 +81,20 @@ const claudeTurn = (cwd: string, text: string, session: string | undefined) =>
       (error, stdout, stderr) => {
         if (error) return reject(new Error(`claude failed: ${(stderr || stdout).slice(-800)}`));
         // A notice may precede the JSON result line.
-        const result = JSON.parse(stdout.trim().split("\n").at(-1)!) as {
+        const line = stdout.trim().split("\n").at(-1) ?? "";
+        const result = (line.startsWith("{") ? JSON.parse(line) : {}) as {
           result?: string;
+          is_error?: boolean;
           session_id: string;
           total_cost_usd?: number;
         };
+        // An empty answer is a failed turn, not a reply.
+        const reply = result.result?.trim() ?? "";
+        if (result.is_error === true || reply === "") {
+          return reject(new Error(`claude gave no answer: ${stdout.slice(-800)}`));
+        }
         resolve({
-          reply: (result.result ?? "").trim(),
+          reply,
           session: result.session_id,
           costUsd: result.total_cost_usd ?? 0,
         });
