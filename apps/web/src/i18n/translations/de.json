@@ -1682,6 +1682,15 @@
     },
     " klonen und die lokalen Dateien mitnehmen, die git nicht verfolgt."
   ],
+  "8cc15a6f70507c21": "Mit dir geteilt",
+  "3b725f8fc56f81e0": [
+    "Geteilt von ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "77494a56d6315a2e": "Klonen über",
   "1c7a3992dd8e38af": "Ignorierte Dateien kopieren",
   "7d4bb884e519b298": "Dateien werden nach dem Klonen kopiert. Ordner, die git komplett ignoriert, etwa node_modules, werden ausgelassen.",
