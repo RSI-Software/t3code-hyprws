@@ -42,7 +42,6 @@ import { encodeThreadSnapshotBody } from "./threadSnapshotBody.ts";
 import { boundedSnapshotResponseFields } from "./ThreadStream.ts";
 import { requireCollaboratorHttpThreadFork } from "../collaborator/CollaboratorShares.fork.ts"; // fork-hook: colleague-collab/http-thread-guard-import
 import { makeThreadGroupTitleHandlerFork } from "./ThreadGroupTitles.ts"; // fork-hook: thread-ordering/group-title-handler-import
-import { refuseCollaboratorHttpShellFork } from "../collaborator/CollaboratorShares.fork.ts"; // fork-hook: colleague-collab/http-shell-refuse-import
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
 
 const isInvalidThreadHistoryCursorError = Schema.is(InvalidThreadHistoryCursorError);
@@ -195,7 +194,6 @@ export const layer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          yield* refuseCollaboratorHttpShellFork; // fork-hook: colleague-collab/http-shell-refuse
           return yield* answerShellSnapshot(args.query).pipe(
             traceLocalHandlerWork,
             Effect.catch((cause) =>
