@@ -27,12 +27,12 @@ vp run fork:fold prove --base <tag> HEAD <tip>
 git checkout --detach <tip>
 ```
 
-1. **List:** domains, files, stack positions
-2. **Plan:** `../fold.tsv`; [fold rule](#fold-rule)
-3. **Apply:** prints `<tip>`; moves no ref
-4. **Prove:** `<old>` is the unfolded `HEAD`
-5. **Move:** detach the kept worktree at `<tip>`
-6. **Rerun** the sync, then [hand off][handoff]
+1. List: **domains, files**, stack positions
+2. Plan: **`../fold.tsv`**; [fold rule](#fold-rule)
+3. Apply: **prints `<tip>`**; moves no ref
+4. Prove: **`<old>`** is the unfolded `HEAD`
+5. Move: **detach** the kept worktree at `<tip>`
+6. **Rerun** the sync, then **[hand off][handoff]**
 
 [handoff]: ../fork-sync/SKILL.md#hand-off
 
@@ -62,12 +62,12 @@ One line per output commit: member shas, tab-separated, in stack order.
 25bf181b2a	RSI-Software/t3code-hyprws#395
 ```
 
-- **Coverage:** every ahead commit, exactly once
-- **Order:** line order is the new stack order
-- **One member:** message kept verbatim
-- **Fold:** lead prose, merged trailers
-- **Every other member trailer** kept
-- **`Squashes:`** each member's PR references
+- Coverage: **every ahead commit**, exactly once
+- Order: **line order** is the new stack order
+- One member: message **kept verbatim**
+- Fold: **lead prose**, merged trailers
+- Every other member **trailer kept**
+- `Squashes:` **each member's** PR references
 
 A `RSI-Software/t3code-hyprws#N` field attaches that PR link to the lead's `Squashes:` line; a lone member then renders as a fold.
 Backfill a link an earlier fold lost this way.

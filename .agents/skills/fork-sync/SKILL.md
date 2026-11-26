@@ -18,11 +18,11 @@ vp run fork:sync <tag>      # one named v… tag
 vp run fork:sync <tag> --refold   # fold a tag the trunk already has
 ```
 
-- **Session:** rebases only; no CI, push, or issue
-- **Tag:** name one only when the user does
-- **Setup:** waits for the checkout's own setup
-- **`--land`:** workflow only; never a session
-- **`--refold`:** session; [fold](#fold), no new tag
+- Session: **rebases only**; no CI, push, or issue
+- Tag: **name one** only when the user does
+- Setup: **waits** for the checkout's own setup
+- `--land`: **workflow only**; never a session
+- `--refold`: **session**; [fold](#fold), no new tag
 
 Any other flag is a defect.
 
@@ -30,9 +30,9 @@ Any other flag is a defect.
 
 **Start:** the first that applies.
 
-1. Kept worktree: same tag and target, live lease
-2. A valid [marker](#hand-off)'s tip
-3. Fresh: `origin/hyprws` rebased onto the tag
+1. Kept worktree: **same tag** and target, live lease
+2. A **valid [marker](#hand-off)'s** tip
+3. Fresh: **`origin/hyprws` rebased** onto the tag
 
 A lease is live while `origin/hyprws` contains it.
 A partial marker resumes its saved rebase todo.
@@ -42,10 +42,10 @@ To drop the kept worktree and adopt a marker or start fresh, delete `.t3/fork-sy
 
 ## Read the report
 
-`.t3/fork-sync/<tag>.json` in the main checkout is the only run authority; the printed Markdown is output.
+`.t3/fork-sync/<tag>.json` in the main checkout is the **only run authority**; the printed Markdown is output.
 The kept worktree lives beside it, whichever checkout runs the sync.
 Fields: [the report](../../../docs/fork/operations/fork-sync.md#the-report).
-Never edit a report; a rerun supersedes it.
+**Never edit** a report; a rerun supersedes it.
 
 | Outcome           | Exit | Next                                              |
 | ----------------- | ---- | ------------------------------------------------- |
@@ -59,14 +59,14 @@ Never edit a report; a rerun supersedes it.
 
 ## Procedure
 
-1. Run `vp run fork:sync [<tag>]`
-2. Stopped: [resolve](#resolve), then rerun
-3. `rebased`: commit [tip work](#tip-work), rerun
-4. Green, with budget left: [fold](#fold), rerun
-5. Record [decisions](#decisions), then rerun once
-6. [Hand off](#hand-off) the marker
+1. **Run** `vp run fork:sync [<tag>]`
+2. Stopped: **[resolve](#resolve)**, then rerun
+3. `rebased`: **commit [tip work](#tip-work)**, rerun
+4. Green, with budget left: **[fold](#fold)**, rerun
+5. **Record [decisions](#decisions)**, then rerun once
+6. **[Hand off](#hand-off)** the marker
 
-Never `git rebase --continue`, `git cherry-pick --continue`, or script a resolver.
+**Never** `git rebase --continue`, `git cherry-pick --continue`, or script a resolver.
 The rerun continues with every automatic resolver, and the report keeps only stops a run saw.
 
 ## Resolve
@@ -82,27 +82,27 @@ Resolve each path in that worktree by verdict, then `git add` it.
 
 **Resolve minimally:**
 
-- **Upstream's text:** stands
-- **Marked fork hook:** goes back verbatim
-- **Net-zero fork edit:** upstream's delete stands
-- **Replayed commit:** never adapt; hook guard
-  - Adds no line its original lacked
-  - Never a later fork commit's text
-  - A broken build is tip work, not resolution
-- **[Regenerable][regen]:** regenerates on rerun
+- Upstream's text: **stands**
+- Marked fork hook: **back verbatim**
+- Net-zero fork edit: **upstream's delete** stands
+- Replayed commit: **never adapt**; hook guard
+  - Adds **no line** its original lacked
+  - **Never** a later fork commit's text
+  - A broken build is **tip work**, not resolution
+- [Regenerable][regen]: **regenerates** on rerun
 
 [regen]: ../../../docs/fork/operations/fork-sync.md#regenerable-files
 
-Before keeping an upstream deletion, grep the old trunk (`git grep <name> <lease sha>`): later fork commits are not replayed yet.
+Before keeping an upstream deletion, **grep the old trunk** (`git grep <name> <lease sha>`): later fork commits are not replayed yet.
 
 A carried trunk commit conflicts like a seam: resolve, `git add`, rerun.
 
 **Second block:** the same seam stops a second sync.
 
-- **Cause:** the owner is not a pure insertion
-- **Fix:** reshape it in a tip `fixup!`
-- **Shape:** [marked insertions only][hook]
-- **Next sync:** may stop once more, then folds it
+- Cause: the owner is **not a pure insertion**
+- Fix: **reshape it** in a tip `fixup!`
+- Shape: **[marked insertions only][hook]**
+- Next sync: **may stop once more**, then folds it
 
 [hook]: ../../../docs/fork/internals/fork-delta.md#marking-a-hook
 
@@ -110,51 +110,49 @@ To fold it sooner, [fold](#fold) this session.
 
 ## Tip work
 
-Adaptation the candidate needs (build or test fixes, ports) commits at the tip of the kept worktree.
+Adaptation the candidate needs (build or test fixes, ports) **commits at the tip** of the kept worktree.
 
-- **One commit per owner:** per [Reshape][reshape]
-- **Iterate:** amend that owner's fixup
-  - The guard reads each commit alone
-  - A second fixup never clears the first
-- **Comment-only line:** never in an upstream file
-  - Move the code into a `.fork.ts` helper
-- **Owner:** newest fork commit on those lines
-- **Find it:** `vp run fork:fixup-fold`
-- **Unmarked fork line:** the fixup marks it
-  - Replayed commit: [replay fresh](#replay-fresh)
-- **Lost hook:** restore it at the tip
-  - Target carries it: drop its leftovers
-  - Target deleted its code: retire it
-  - Trailer: `Fork-Hook-Retired: domain/name`
-  - One commit may carry many trailers
-- **Merge-tree:** path conflicts with upstream
-  - Move the hook lines off its changed lines
-- **Mirror:** upstream changed a workflow copy's file
-  - Adapt it, or note why not: [copies][copies]
-  - New check agent: convert it, pinned
-  - That commit moves its pin to the target
-- **Local checks:** each rerun runs `fork:ci`
-  - It names every red step
-  - Recheck: `vp run fork:ci --only <steps>`
-  - Focused tests: `vp test run`
-- **Gate:** candidate CI in the land run
+- One commit **per owner**: per [Reshape][reshape]
+- Iterate: **amend** that owner's fixup
+  - The guard reads **each commit alone**
+  - A second fixup **never clears** the first
+- Comment-only line: **never** in an upstream file
+  - Move the code into a **`.fork.ts` helper**
+- Owner: **newest fork commit** on those lines
+- Find it: **`vp run fork:fixup-fold`**
+- Unmarked fork line: the **fixup marks** it
+  - Replayed commit: **[replay fresh](#replay-fresh)**
+- Lost hook: **restore it** at the tip
+  - Target carries it: **drop** its leftovers
+  - Target deleted its code: **retire** it
+  - Trailer: **`Fork-Hook-Retired: domain/name`**
+  - One commit may carry **many trailers**
+- Merge-tree: path **conflicts with upstream**
+  - **Move the hook lines** off its changed lines
+- Mirror: upstream **changed a workflow copy's** file
+  - **Adapt it**, or note why not: [copies][copies]
+  - New check agent: **convert it**, pinned
+  - That commit **moves its pin** to the target
+- Local checks: each rerun **runs `fork:ci`**
+  - It **names every red step**
+  - Recheck: **`vp run fork:ci --only <steps>`**
+  - Focused tests: **`vp test run`**, inside the package
+- Gate: **candidate CI** in the land run
 
-Run `vp test run` inside the package.
-Fix every red step, recheck them, then rerun once so the marker covers the tip work.
+**Fix every red step**, recheck them, then rerun once so the marker covers the tip work.
 
 [reshape]: ../../../docs/fork/operations/fork-sync.md#reshape
-[copies]: ../../../docs/fork/operations/fork-sync.md#workflow-copies
 
 ## Replay fresh
 
 A `fork:ci` hook finding in a replayed commit means its resolution adapted it.
-A tip `fixup!` never clears it; only a new replay does.
-The new replay resolves that seam with the original's lines only; the build fix is [tip work](#tip-work).
+A tip `fixup!` **never clears it**; only a new replay does.
+The new replay resolves that seam with **the original's lines only**; the build fix is [tip work](#tip-work).
 
-- **Past the marker:** drop the kept worktree; rerun
-- **In the marker:** also delete `sync/resolution`
-  - Job: report it; never hand off
-- **Job:** one fresh replay; a second one reports
+- Past the marker: **drop the kept worktree**; rerun
+- In the marker: **also delete** `sync/resolution`
+  - Job: **report it**; never hand off
+- Job: **one fresh replay**; a second one reports
 
 ```bash
 git merge-base --is-ancestor <sha> origin/sync/resolution   # exit 0: in the marker
@@ -180,11 +178,11 @@ Record a call **only when an app user would notice it**, as one line in `.t3/for
 
 **One line** in a user's words, naming no component, hook, or symbol: `<where>: now <X>, was <Y>; alternative: <Z>`.
 
-- **References:** full fork form; upstream in code spans
-- **Carried:** the next marker's trailers
-- **Resumed marker:** its items merge into the file
-- **Land run:** files them as one issue
-- **No items:** nothing posted
+- References: **full fork form**; upstream in code spans
+- Carried: **the next marker's** trailers
+- Resumed marker: its items **merge into the file**
+- Land run: **files them** as one issue
+- No items: **nothing posted**
 
 ```md
 - Branch picker: now blocked during a running turn, was allowed; alternative: allow it again
@@ -192,15 +190,15 @@ Record a call **only when an app user would notice it**, as one line in `.t3/for
 
 ## Fold
 
-After a green run, fold the stack in the kept worktree per [fork-fold](../fork-fold/SKILL.md).
-The fold is tree-equal, so the rerun that follows adopts it, and the marker hands it to the land run.
-Skip it when the budget is short; the next sync folds further.
+After a green run, **fold the stack** in the kept worktree per [fork-fold](../fork-fold/SKILL.md).
+The fold is **tree-equal**, so the rerun that follows adopts it, and the marker hands it to the land run.
+**Skip it** when the budget is short; the next sync folds further.
 
 **Trunk already has the tag:** the job lands each tag within minutes.
 
 - **Run** with `--refold`, both times
 - **Land run** takes a **refold** marker
-- **Refold:** new tip, **same tree** as its lease
+- Refold: new tip, **same tree** as its lease
 - **Other markers** stay `already-applied`
 
 **A `hyprws refold` issue** follows each stable cut: refold the tag the trunk is on, with the whole budget.
@@ -210,9 +208,9 @@ Skip it when the budget is short; the next sync folds further.
 
 ## Hand off
 
-Every rerun writes `refs/fork-sync/resolution`: finished once the rebase ends, partial at every block.
-A finished marker predates the `hooks` and `check` steps: hand it off after a green run, or red when the budget ends.
-The land run refuses a red tip and keeps the marker; the next session or job resumes from it, partial or finished.
+Every rerun writes `refs/fork-sync/resolution`: **finished** once the rebase ends, **partial** at every block.
+A finished marker **predates the `hooks` and `check` steps**: hand it off after a green run, or red when the budget ends.
+The land run **refuses a red tip** and keeps the marker; the next session or job resumes from it, partial or finished.
 
 **Session:**
 
@@ -228,30 +226,30 @@ git rev-parse '<tag>^{commit}'   # prerequisites: ["<sha>"]
 ```
 
 The push runs `hyprws-sync-resolution.yml`, which dispatches the trunk's sync: [the land run](../../../docs/fork/operations/fork-sync.md#the-land-run).
-A partial marker never lands; it rewrites the attention issue as blocked.
+A partial marker **never lands**; it rewrites the attention issue as blocked.
 
 ## Red candidate
 
-The attention issue names each red job instead of a seam.
+The attention issue **names each red job** instead of a seam.
 
-1. Run the session; it adopts the finished marker
-2. Read each: `gh run view --job <id> --log-failed`
-3. Reproduce with `vp test run` inside its package
-4. Fix at the tip per [Tip work](#tip-work)
-5. Rerun, then hand off
+1. **Run the session**; it adopts the finished marker
+2. Read each: **`gh run view --job <id> --log-failed`**
+3. **Reproduce** with `vp test run` inside its package
+4. **Fix at the tip** per [Tip work](#tip-work)
+5. **Rerun**, then hand off
 
-- **Lost hooks:** restore per [Tip work](#tip-work)
-- **Known flake:** the land run reran it once
-- **Other flake:** `gh run rerun --failed`; rerun sync
-- **Never started:** check the sync app key
-- **Never:** weaken a check
+- Lost hooks: **restore** per [Tip work](#tip-work)
+- Known flake: the land run **reran it once**
+- Other flake: **`gh run rerun --failed`**; rerun sync
+- Never started: **check the sync app key**
+- **Never** weaken a check
 
 ## Job
 
 The `rsi:fork-sync` label starts it on the attention issue.
-No human reviews it: candidate CI gates the landing.
+**No human reviews it**: candidate CI gates the landing.
 
-```sh
+```bash
 mkdir -p /tmp/fork-bin && ln -sf "$PWD/node_modules/.bin/vp" /tmp/fork-bin/vp
 PATH=/tmp/fork-bin:$PATH vp run fork:sync <tag>
 ```
@@ -261,34 +259,34 @@ A live one holds the job open and can rewrite the marker after the bundle.
 
 **Decide every seam.** Uncertainty never blocks a job:
 
-- **Default:** upstream stands; port at the tip
-- **Port fails its checks:** Retire it
-- **Behaviour changed:** one [decision](#decisions)
-- **Blocked:** only a driver or setup failure
+- Default: **upstream stands**; port at the tip
+- Port fails its checks: **Retire it**
+- Behaviour changed: **one [decision](#decisions)**
+- Blocked: **only a driver** or setup failure
 
 **Lost hooks first.** Clear every lost hook in one batch before any type or test work:
 
-1. List: the `hooks` error names each key and trunk
-2. Find: `git grep -n 'fork-hook: <key>' <trunk>`
-3. Group by upstream file; fix a group at once
-4. Rerun once, after the whole batch
+1. List: the **`hooks` error** names each key and trunk
+2. Find: **`git grep -n 'fork-hook: <key>' <trunk>`**
+3. **Group** by upstream file; fix a group at once
+4. **Rerun once**, after the whole batch
 
-**Memory.** The job's scratch lives in RAM, under its 12 GiB limit.
-The repo image holds the install and its pnpm store on disk; the driver's worktree install copies from that store, so files in RAM stay under 1 GiB.
-The driver's kept worktree is the only other checkout; never clone, copy, add another, or run a second install.
+**Memory.** The job's scratch lives **in RAM**, under its sandbox limit (`sandbox.size` in `.rsi-agent/config.yml`).
+The repo image holds the install and its pnpm store **on disk**; the driver's worktree install copies from that store, so little lands in RAM.
+The driver's kept worktree is **the only other checkout**; never clone, copy, add another, or run a second install.
 The one exception: `fork:fold apply`'s own rebase worktree, which holds no install.
 
-**Budget.** The job has 45 minutes, and a killed job saves nothing.
+**Budget.** The job runs for the `timeout` in `.rsi-agent/workflows/fork-sync.md`, and **a killed job saves nothing**.
 
-- **Clock:** `date -u` at start and at every stop
-- **Fold:** start one only before 20 minutes gone
-- **Work:** to the wrap-up steer; never stop early
-- **Steer, or 35 minutes gone:** wrap up
-  1. Commit tip work; record [decisions](#decisions)
-  2. One rerun; it writes the marker before `check`
-  3. Hand off, even if the cut stops that rerun
-- **After the steer:** no tests, typecheck, or amend
-- **No progress:** one retry, then a human
+- Clock: **`date -u`** at start and at every stop
+- Fold: start one only with **25+ minutes left**
+- Work: **to the wrap-up steer**; never stop early
+- Steer, or 10 minutes left: **wrap up**
+  1. **Commit** tip work; record [decisions](#decisions)
+  2. **One rerun**; it writes the marker before `check`
+  3. **Hand off**, even if the cut stops that rerun
+- After the steer: **no tests**, typecheck, or amend
+- No progress: **one retry**, then a human
 
 ## Never
 
@@ -298,3 +296,5 @@ The one exception: `fork:fold apply`'s own rebase worktree, which holds no insta
 - **Move** published tags
 - **Force** past a refused lease: inspect, rerun
 - **Edit** a report; a comment decides nothing
+
+[copies]: ../../../docs/fork/operations/fork-sync.md#workflow-copies
