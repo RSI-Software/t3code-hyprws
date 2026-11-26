@@ -7,7 +7,7 @@ import {
   type AuthEnvironmentScope,
 } from "./auth.ts";
 import { AssistantCitation } from "./assistantCitations.ts";
-import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
 
 /** The whole grant a collaborator link pairs; the server narrows it further to shared threads. */
@@ -125,6 +125,16 @@ export const CollaboratorDraftFork = Schema.Struct({
       label: Schema.String.check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIP_LABEL_MAX_CHARS)),
     }),
   ).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),
+  /** Where `text` holds a context's generated label, so others can show it in their language. */
+  inline: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        start: NonNegativeInt,
+        end: NonNegativeInt,
+        kind: Schema.String.check(Schema.isMaxLength(40)),
+      }),
+    ).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),
+  ),
   /** Passages of this thread the draft cites, so others see them marked inline. */
   citations: Schema.optional(
     Schema.Array(AssistantCitation).check(Schema.isMaxLength(COLLABORATOR_DRAFT_CHIPS_MAX)),

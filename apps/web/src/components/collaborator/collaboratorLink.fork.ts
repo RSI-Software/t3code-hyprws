@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { COLLABORATOR_THREAD_LINK_PARAM, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
+import { useGT } from "gt-react";
 import * as Effect from "effect/Effect";
 
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -19,6 +20,7 @@ import * as PrimaryEnvironmentHttpLayer from "../../environments/primary/httpLay
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 
 /** The shared thread a collaborator link names, if any. */
 export const linkThreadIdFork = (pairingUrl: string) =>
@@ -34,17 +36,17 @@ export const sharedThreadPathFork = (threadId: string) =>
     ),
   );
 
-const reportFailure = (error: unknown) =>
-  toastManager.add(
-    stackedThreadToast({
-      type: "error",
-      title: "Could not open the shared thread",
-      description: error instanceof Error ? error.message : "Failed to reach the host.",
-    }),
-  );
-
 /** Returns a handler that takes a collaborator link end to end; it returns false for any other link. */
 export function useCollaboratorLinkPairingFork() {
+  const gt = useGT();
+  const reportFailure = (error: unknown) =>
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: gt("Could not open the shared thread"),
+        description: collaboratorErrorTextFork(error) ?? gt("Failed to reach the host."),
+      }),
+    );
   const router = useRouter();
   const connect = useAtomCommand(connectPairing, { reportFailure: false });
   return async (pairingUrl: string, origin: string, paired: Set<string>): Promise<boolean> => {
@@ -52,7 +54,9 @@ export function useCollaboratorLinkPairingFork() {
     if (!threadId) return false;
     const confirmed =
       (await requestConfirmDialog(
-        `Open the thread shared with you from ${origin}? Your messages run on their machine.`,
+        gt("Open the thread shared with you from {origin}? Your messages run on their machine.", {
+          origin,
+        }),
       )) ?? false;
     if (!confirmed) return true;
     const result = await connect({ pairingUrl });
@@ -63,8 +67,8 @@ export function useCollaboratorLinkPairingFork() {
     paired.add(pairingUrl);
     toastManager.add({
       type: "success",
-      title: "Shared thread added",
-      description: "It sits in your sidebar beside your own threads.",
+      title: gt("Shared thread added"),
+      description: gt("It sits in your sidebar beside your own threads."),
     });
     await router.navigate({
       to: "/$environmentId/$threadId",
