@@ -5162,7 +5162,6 @@
   "4f113bb0bc732b3d": "Borrar",
   "0bbf2aafc8237b02": "Enviado por el anfitrión",
   "24c8dfc068a42d78": "Mensajes descartados por el anfitrión",
-  "0294b3d077615215": "{count, plural, one {{count} mensaje esperando al anfitrión} other {{count} mensajes esperando al anfitrión}}",
   "3bd17825c03a079e": "Quitar de este dispositivo",
   "0c908cde609c9b94": "Vincula una cuenta de pago de T3 Chat para tener más túneles de T3 Connect: hasta {pro} con Pro y {premier} con Premier.",
   "fa83ec856513632c": "No vinculado",

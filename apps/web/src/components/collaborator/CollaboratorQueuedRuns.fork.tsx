@@ -60,14 +60,17 @@ type QueuedRow<Message, Thumbnail, Props> = ComponentType<
 /** On a collaborator's copy, draws the queue for them; null for the host, who keeps the controls. */
 export function useCollaboratorQueueFork(environmentId: EnvironmentId, threadId: ThreadId) {
   const threadRef = scopeThreadRef(environmentId, threadId);
-  const asCollaborator = useQuietThreadShell(threadRef)?.collaboratorFork !== undefined;
+  const access = useQuietThreadShell(threadRef)?.collaboratorFork;
+  const asCollaborator = access !== undefined;
+  // The server refuses queue changes without send access, own messages included.
   const { you } = useCollaboratorCitationsFork(asCollaborator ? threadRef : null);
+  const owner = access === "send" ? you : null;
   return asCollaborator
     ? <Message extends PresentedMessage, Thumbnail, Props extends QueueProps>(
         items: ReadonlyArray<QueuedItem<Message, Thumbnail>>,
         row: QueuedRow<Message, Thumbnail, Props>,
         rowProps: Props,
-      ) => <CollaboratorQueuedRuns items={items} row={row} rowProps={rowProps} you={you} />
+      ) => <CollaboratorQueuedRuns items={items} row={row} rowProps={rowProps} editor={owner} />
     : null;
 }
 
@@ -79,12 +82,12 @@ function CollaboratorQueuedRuns<
   items,
   row: Row,
   rowProps,
-  you,
+  editor,
 }: {
   readonly items: ReadonlyArray<QueuedItem<Message, Thumbnail>>;
   readonly row: QueuedRow<Message, Thumbnail, Props>;
   readonly rowProps: Props;
-  readonly you: string | null;
+  readonly editor: string | null;
 }) {
   const gt = useGT();
   const cancel = useAtomCommand(threadEnvironment.cancelQueuedRun);
@@ -106,6 +109,11 @@ function CollaboratorQueuedRuns<
       data-thread-queue="true"
       className="relative mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-2 pb-4"
     >
+      <span className="sr-only" aria-live="polite">
+        {gt("{count, plural, one {{count} queued} other {{count} queued}}", {
+          count: items.length,
+        })}
+      </span>
       <ol className="flex flex-col items-end gap-3">
         {items.map((item, position) => {
           const presentation = item.message ? resolveUserMessagePresentation(item.message) : null;
@@ -119,8 +127,8 @@ function CollaboratorQueuedRuns<
               ).trim();
           // The server attributes a collaborator's message and lets them change only their own.
           const ownRun =
-            you !== null &&
-            presentation?.guestName === you &&
+            editor !== null &&
+            presentation?.guestName === editor &&
             item.runId !== null &&
             item.messageId !== null
               ? {
