@@ -4,6 +4,7 @@ import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts"
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectScript, ProjectTrackedFolders, ReceivedProjectIcon } from "./project.ts";
+import { TeamProjectFieldFork } from "./teamProject.fork.ts"; // fork-hook: colleague-collab/team-project-import
 
 export const OrchestrationProjectShell = Schema.Struct({
   id: ProjectId,
@@ -25,6 +26,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   // Pinned projects lead project pickers; archived ones leave them. Optional so older servers decode.
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  ...TeamProjectFieldFork, // fork-hook: colleague-collab/team-project-field
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

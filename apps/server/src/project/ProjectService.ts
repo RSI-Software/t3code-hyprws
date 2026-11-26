@@ -45,6 +45,8 @@ import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import { makeIsWorktreeContainer } from "./worktreeContainer.ts";
+import { teamProjectChangeFork } from "@t3tools/contracts"; // fork-hook: colleague-collab/team-project-import
+import { teamProjectFieldFork } from "../collaborator/TeamProjects.fork.ts"; // fork-hook: colleague-collab/team-project-import
 import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
 import {
   discoverFolders,
@@ -65,6 +67,7 @@ export interface ProjectUpdateInput extends ProjectUpdatePayload {
   /** Added to, and removed by path from, the list the project has when the update commits. */
   readonly trackFolders?: ReadonlyArray<ProjectTrackedFolder> | undefined;
   readonly untrackFolders?: ReadonlyArray<string> | undefined;
+  readonly teamFork?: boolean | undefined; // fork-hook: colleague-collab/team-project-input
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
@@ -229,6 +232,7 @@ export const make = Effect.gen(function* () {
     trackedFolders: row.trackedFolders,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
+    ...teamProjectFieldFork(row), // fork-hook: colleague-collab/team-project-field
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -654,6 +658,7 @@ export const make = Effect.gen(function* () {
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
         ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
         ...(input.archived === undefined ? {} : { archived: input.archived }),
+        ...teamProjectChangeFork(input), // fork-hook: colleague-collab/team-project-command
       } as const;
       // Checked against the row under the lock: an update that ran meanwhile may have moved the
       // project's folder or changed what it tracks.

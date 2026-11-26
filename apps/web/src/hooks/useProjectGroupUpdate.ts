@@ -25,6 +25,7 @@ export type ProjectGroupUpdate = Partial<{
   projectIcon: ProjectIconOverride | null;
   pinned: boolean;
   archived: boolean;
+  teamFork: boolean; // fork-hook: colleague-collab/team-project-group-update
 }>;
 
 type ProjectGroupMember = Pick<

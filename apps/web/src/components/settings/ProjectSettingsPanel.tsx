@@ -63,6 +63,7 @@ import {
   scopeProjectSettingsGroup,
 } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
+import { TeamProjectSettingsRowFork } from "../collaborator/TeamProject.fork"; // fork-hook: colleague-collab/team-project-row-import
 import { readUnloadedThreadCount } from "../../state/olderSettledShelf";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 import { SharedTooltipTrigger } from "../ui/shared-tooltip";
@@ -661,6 +662,13 @@ function ProjectDetail({
                   />
                 }
               />
+              {/* fork-hook: colleague-collab/team-project-row */}
+              <TeamProjectSettingsRowFork
+                members={allMembers}
+                disabled={isOrganizing}
+                organize={organize}
+              />
+              {/* fork-hook-end */}
               <SettingsRow
                 title={gt("Archive")}
                 description={

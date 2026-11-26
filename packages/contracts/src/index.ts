@@ -89,6 +89,7 @@ export * from "./clientRpcPermissions.ts";
 export * from "./textGeneration.fork.ts"; // fork-hook: thread-ordering/title-budget-export
 export * from "./threadGroups.fork.ts"; // fork-hook: thread-ordering/thread-groups-export
 export * from "./collaborator.fork.ts"; // fork-hook: colleague-collab/contracts-export
+export { teamProjectChangeFork } from "./teamProject.fork.ts"; // fork-hook: colleague-collab/team-project-export
 export * from "./speechRemoteModel.fork.ts"; // fork-hook: voice-input/contracts-export
 export * from "./voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-contracts
 export * from "./terminalSession.fork.ts"; // fork-hook: zmux-estate/terminal-session-export
