@@ -281,6 +281,8 @@ export const ColleagueFork = Schema.Struct({
   /** Where their server answered when they were saved. */
   url: Schema.String,
   savedAt: IsoDateTime,
+  /** The threads shared live with them from here. */
+  threadIds: Schema.Array(ThreadId),
 });
 export type ColleagueFork = typeof ColleagueFork.Type;
 
