@@ -1434,7 +1434,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   : "flex h-9 items-center gap-2.5 px-2.5",
                 // Lines titles up with the folder name, past its chevron and icon.
                 inFolder && "ps-9",
-                  props.grouped && "ml-2 border-l border-sidebar-border/70 pl-1.5", // fork-hook: thread-ordering/group-snoozed-rail
+                props.grouped && "ml-2 border-l border-sidebar-border/70 pl-1.5", // fork-hook: thread-ordering/group-snoozed-rail
               )}
               onClick={handleClick}
               onPointerEnter={intentPrefetch.onPointerEnter}
@@ -1645,9 +1645,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             aria-label={accessibility.label}
             aria-current={accessibility.current}
             data-testid="sidebar-row-card"
-              {...(sharedByLeadFork && {
-                "aria-describedby": sharedByIdFork(threadKey),
-              })} /* fork-hook: colleague-collab/shared-card */
+            {...(sharedByLeadFork && {
+              "aria-describedby": sharedByIdFork(threadKey),
+            })} /* fork-hook: colleague-collab/shared-card */
             aria-busy={isRegeneratingTitle || undefined}
             className={rowSurfaceClassName}
             onClick={handleClick}
@@ -1663,8 +1663,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         <div
           className={cn(
             "relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
-              (metaLineEmpty || groupCompactFork) && "h-auto", // fork-hook: thread-ordering/group-compact
-              groupCompactFork && "[&>div.mt-0\\.5]:hidden", // fork-hook: thread-ordering/group-compact
+            (metaLineEmpty || groupCompactFork) && "h-auto", // fork-hook: thread-ordering/group-compact
+            groupCompactFork && "[&>div.mt-0\\.5]:hidden", // fork-hook: thread-ordering/group-compact
           )}
         >
           <div className="flex h-5 min-w-0 items-center gap-1.5">
@@ -1677,9 +1677,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             {pinIndicator}
             {pinButton}
             {hostPressureIcon}
-              {groupCompactFork ? (
-                title
-              ) : props.projectDisplayName ? ( // fork-hook: thread-ordering/group-compact
+            {groupCompactFork ? (
+              title
+            ) : props.projectDisplayName ? ( // fork-hook: thread-ordering/group-compact
               <span
                 className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
               >
@@ -1831,10 +1831,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             )}
             {props.sweepAction !== null ? dragDestination : null}
           </div>
-            <div
-              className={cn("mt-1 flex min-w-0 items-center gap-1.5", groupCompactFork && "hidden")} // fork-hook: thread-ordering/group-compact
-            >
-              {groupCompactFork ? null : title /* fork-hook: thread-ordering/group-compact */}
+          <div
+            className={cn("mt-1 flex min-w-0 items-center gap-1.5", groupCompactFork && "hidden")} // fork-hook: thread-ordering/group-compact
+          >
+            {groupCompactFork ? null : title /* fork-hook: thread-ordering/group-compact */}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
                 <T>Regenerating title</T>
