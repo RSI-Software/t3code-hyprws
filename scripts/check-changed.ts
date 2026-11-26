@@ -201,6 +201,11 @@ export const comparisonBase = Effect.fn("checkChanged.comparisonBase")(function*
         ref: name + "/main",
         rev: "refs/remotes/" + name + "/main",
       }));
+  candidates.push(
+    ...(Option.isSome(explicitRef)
+      ? []
+      : [{ ref: "origin/hyprws", rev: "refs/remotes/origin/hyprws" }]),
+  ); // fork-hook: fork-meta/check-changed-trunk-base
   let closest: { ref: string; base: string; ahead: number } | undefined;
   for (const { ref, rev } of candidates) {
     const base = yield* git(root, ["merge-base", "HEAD", rev]).pipe(
