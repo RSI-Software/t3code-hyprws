@@ -49,6 +49,7 @@ import { useSearchableSetting } from "./settingsSearch";
 import { ConnectDeviceApprovalSettings } from "./ConnectDeviceApprovalSettings";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
+import { ColleaguesSettingsFork } from "../collaborator/ColleaguesSettings.fork"; // fork-hook: colleague-collab/colleagues-section-import
 import { EnvironmentsMap } from "./EnvironmentsMap";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { addEnvironmentPrefillAtom } from "~/state/linkedThreadView";
@@ -1451,6 +1452,14 @@ function ConnectionsSettingsContent({
               </details>
             ) : null}
           </SettingsSection>
+          {/* fork-hook: colleague-collab/colleagues-section */}
+          {canReadAccess ? (
+            <ColleaguesSettingsFork
+              environmentId={accessEnvironmentId}
+              canRemove={canWriteAccess}
+            />
+          ) : null}
+          {/* fork-hook-end */}
 
           {canReadAccess || canWriteAccess ? (
             <FoldedSettingsSection

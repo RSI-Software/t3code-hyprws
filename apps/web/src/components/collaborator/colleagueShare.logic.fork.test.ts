@@ -14,6 +14,7 @@ const colleague = (name: string) => ({
   environmentId: EnvironmentId.make(`env-${name}`),
   url: "https://example.test",
   savedAt: IsoDateTime.make("2026-11-25T00:00:00.000Z"),
+  threadIds: [],
 });
 const person = (name: string) => ({ subject: `colleague:${name.toLowerCase()}`, name });
 
