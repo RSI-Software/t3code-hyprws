@@ -102,6 +102,11 @@ import {
   canShareWithCollaboratorFork,
   openCollaboratorShareDialog,
 } from "./collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
+import {
+  dispatchColleagueShareFork,
+  loadColleagueShareTargetsFork,
+  useColleagueListsWarmFork,
+} from "./collaborator/colleagueShare.fork"; // fork-hook: colleague-collab/sidebar-colleague-menu-import
 import { collaboratorRowControlsFork } from "./collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/sidebar-row-controls-import
 import { useSharedCardPropsFork } from "./collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
@@ -1124,6 +1129,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     { open: false, query: "" },
   );
   const windowFilter = useWindowProjectFilter(projectGroups); // fork-hook: workspaces/filter
+  useColleagueListsWarmFork(); // fork-hook: colleague-collab/sidebar-colleague-warm
   const projectChooser = useSidebarProjectChooserFork({
     filter: windowFilter.filter,
     setFilter: windowFilter.setFilter,
@@ -3031,6 +3037,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           currentGroupId: currentGroup?.id ?? null,
           isGroupParent: currentGroup?.parentThreadId === threadKey,
         }); // fork-hook: thread-ordering/group-menu-state
+        const colleaguesFork = await loadColleagueShareTargetsFork(threadRef); // fork-hook: colleague-collab/sidebar-colleague-menu-state
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -3070,6 +3077,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               ),
               openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
               canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
+              colleaguesFork, // fork-hook: colleague-collab/sidebar-colleague-menu-state
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -3084,6 +3092,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        const colleagueShare = dispatchColleagueShareFork(threadRef, clicked.value, colleaguesFork); // fork-hook: colleague-collab/sidebar-colleague-menu-dispatch
+        if (colleagueShare !== false) return colleagueShare; // fork-hook: colleague-collab/sidebar-colleague-menu-dispatch
         if (clicked.value.startsWith("move-to-group:")) {
           const targetGroupId = clicked.value.slice("move-to-group:".length);
           if (!groups.some((group) => group.id === targetGroupId)) return;

@@ -10,6 +10,8 @@ import type { ForkableThreadProviderState } from "./threadActionMenu.logic.fork"
 import { forkThreadMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-items-import
 import { openInNewWindowMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { collaboratorShareMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: colleague-collab/menu-items-import
+import type { ColleagueShareMenuIdFork } from "./threadActionMenu.logic.fork"; // fork-hook: colleague-collab/colleague-menu-id-import
+import type { ColleagueShareTargetFork } from "./collaborator/colleagueShare.logic.fork"; // fork-hook: colleague-collab/colleague-menu-state-import
 
 export type ThreadActionMenuId =
   | SidebarThreadGroupContextMenuId // fork-hook: thread-ordering/group-menu-id
@@ -24,6 +26,7 @@ export type ThreadActionMenuId =
   | "fork" // fork-hook: thread-fork/menu-id
   | "open-in-new-window" // fork-hook: multi-window/dispatch-thread-menu-id
   | "share-collaborator" // fork-hook: colleague-collab/menu-id
+  | ColleagueShareMenuIdFork // fork-hook: colleague-collab/colleague-menu-id
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -123,6 +126,7 @@ export interface ThreadActionMenuState {
   readonly fork?: ForkableThreadProviderState | null; // fork-hook: thread-fork/menu-state
   readonly openInNewWindow?: boolean; // fork-hook: multi-window/dispatch-thread-menu-state
   readonly canShareWithCollaboratorFork?: boolean; // fork-hook: colleague-collab/menu-share-state
+  readonly colleaguesFork?: ReadonlyArray<ColleagueShareTargetFork>; // fork-hook: colleague-collab/colleague-menu-state
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;

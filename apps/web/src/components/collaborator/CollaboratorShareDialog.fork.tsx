@@ -16,15 +16,21 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { useGT, useMessages } from "gt-react";
+import { msg, useGT, useMessages } from "gt-react";
 import { CheckIcon, CopyIcon, PlusIcon, UserIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { namedClipboardTarget, useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { m } from "~/i18n/messages";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { useServerConfigs } from "~/state/entities";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { useEnvironmentQueryRefresh, useEnvironmentQuerySelector } from "~/state/query";
+import {
+  useEnvironmentQuery,
+  useEnvironmentQueryRefresh,
+  useEnvironmentQuerySelector,
+} from "~/state/query";
 import { readPreparedConnection } from "~/state/session";
 import { Button } from "../ui/button";
 import {
@@ -42,17 +48,15 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ACCESS, setAccessCommand, threadSharesQuery } from "./collaboratorAccess.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
+import { colleagueShareThreadCommand, unshareThreadCommand } from "./colleagueShare.fork";
+import { shareSuggestions } from "./colleagueShare.logic.fork";
+import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
 
 const isCollaboratorName = Schema.is(CollaboratorNameFork);
 
 const shareThreadWithCollaboratorCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "share thread with collaborator",
   tag: WS_METHODS.collaboratorShareThreadFork,
-});
-
-const unshareThreadCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
-  label: "stop sharing thread with collaborator",
-  tag: WS_METHODS.collaboratorUnshareThreadFork,
 });
 
 function AccessSelect({
@@ -117,6 +121,7 @@ export function CollaboratorShareDialogHostFork() {
 type ShareState =
   | { readonly status: "idle" }
   | { readonly status: "creating" }
+  | { readonly status: "shared"; readonly name: string }
   | ({ readonly status: "created" } & CollaboratorShareThreadResultFork)
   | { readonly status: "failed"; readonly message: string };
 
@@ -132,6 +137,13 @@ function CollaboratorShareDialog({
     shareThreadWithCollaboratorCommand.permissionAtom(threadRef.environmentId),
   );
   const share = useAtomCommand(shareThreadWithCollaboratorCommand, { reportFailure: false });
+  const shareWithColleague = useAtomCommand(colleagueShareThreadCommand, { reportFailure: false });
+  const colleagues =
+    useEnvironmentQuery(
+      colleaguesServedFork(useServerConfigs(), threadRef.environmentId)
+        ? colleaguesAtom(threadRef.environmentId)
+        : null,
+    ).data ?? [];
   const unshare = useAtomCommand(unshareThreadCommand);
   const setAccess = useAtomCommand(setAccessCommand);
   const sharesAtom = threadSharesQuery({
@@ -149,9 +161,32 @@ function CollaboratorShareDialog({
   const validName = isCollaboratorName(trimmedName);
 
   const sharedWith = shares?.sharedWith ?? [];
-  const suggestions = (shares?.collaborators ?? []).filter(
-    (collaborator) => !sharedWith.some((shared) => shared.subject === collaborator.subject),
-  );
+  const suggestions = shareSuggestions(colleagues, {
+    sharedWith,
+    collaborators: shares?.collaborators ?? [],
+  });
+
+  const fail = (fallback: string, error: unknown) =>
+    setState({ status: "failed", message: collaboratorErrorTextFork(error) ?? fallback });
+
+  // A saved colleague's app already reaches this server, so no link is minted.
+  const shareColleague = async (colleague: { subject: string; name: string }) => {
+    setState({ status: "creating" });
+    const result = await shareWithColleague({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, subject: colleague.subject },
+    });
+    if (result._tag === "Success") {
+      setName("");
+      setState({ status: "shared", name: colleague.name });
+      return;
+    }
+    if (isAtomCommandInterrupted(result)) return setState({ status: "idle" });
+    fail(
+      m(msg("Could not share with {name}", { name: colleague.name })),
+      squashAtomCommandFailure(result),
+    );
+  };
 
   const create = async (collaboratorName: string) => {
     setState({ status: "creating" });
@@ -173,11 +208,7 @@ function CollaboratorShareDialog({
       setState({ status: "idle" });
       return;
     }
-    const error = squashAtomCommandFailure(result);
-    setState({
-      status: "failed",
-      message: collaboratorErrorTextFork(error) ?? gt("Could not create a collaborator link."),
-    });
+    fail(gt("Could not create a collaborator link."), squashAtomCommandFailure(result));
   };
 
   const stopSharing = async (subject: string) => {
@@ -186,7 +217,6 @@ function CollaboratorShareDialog({
       input: { threadId: threadRef.threadId, subject },
     });
     setState({ status: "idle" });
-    refreshShares();
   };
 
   const changeAccess = async (subject: string, next: CollaboratorAccessFork) => {
@@ -232,10 +262,27 @@ function CollaboratorShareDialog({
                 {busy ? gt("Sharing...") : gt("Share")}
               </Button>
             </form>
-            {suggestions.length > 0 ? (
+            {suggestions.colleagues.length > 0 ? (
+              <div className="-mt-2 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
+                <span>{m(msg("Colleagues, no link needed:"))}</span>
+                {suggestions.colleagues.map((colleague) => (
+                  <Button
+                    key={colleague.subject}
+                    size="xs"
+                    variant="outline"
+                    disabled={!canShare || busy}
+                    onClick={() => void shareColleague(colleague)}
+                  >
+                    <PlusIcon />
+                    {colleague.name}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            {suggestions.sharedBefore.length > 0 ? (
               <div className="-mt-2 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
                 <span>{gt("Shared before:")}</span>
-                {suggestions.map((collaborator) => (
+                {suggestions.sharedBefore.map((collaborator) => (
                   <Button
                     key={collaborator.subject}
                     size="xs"
@@ -248,6 +295,13 @@ function CollaboratorShareDialog({
                   </Button>
                 ))}
               </div>
+            ) : null}
+            {state.status === "shared" ? (
+              <p role="status" className="text-sm">
+                {m(
+                  msg("{name} sees it in their sidebar now. No link needed.", { name: state.name }),
+                )}
+              </p>
             ) : null}
             {state.status === "created" ? (
               <div className="flex flex-col gap-2">
