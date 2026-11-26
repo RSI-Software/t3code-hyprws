@@ -16,9 +16,9 @@ A `hyprws refold` issue instead asks for a fold of the current trunk after a sta
 
 The `fork-sync` skill owns every step and rule; follow its procedure and its Job section, and copy nothing from memory.
 
-- **Hand off:** `HEAD` at the marker; `committed`
-- **Unsure:** decide per the skill; never block
-- **Decisions:** record each per the skill
-- **Partial:** fine; hand off before the budget
-- **Never push `hyprws`:** the land run writes it
-- **Never post:** to `pingdotgg/t3code`
+- Hand off: **`HEAD` at the marker**; `committed`
+- Unsure: **decide** per the skill; never block
+- Decisions: **record each** per the skill
+- Partial: **fine**; hand off before the budget
+- `hyprws`: **never push**; the land run writes it
+- `pingdotgg/t3code`: **never post**

@@ -2,7 +2,7 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-`package.json` **lists every script**; [Development](../../operations/development.md) owns **setup, dev state, ports, and desktop builds**.
+`package.json` **lists every script**; [Development](../../operations/00_development.md) owns **setup, dev state, ports, and desktop builds**.
 This page holds what a fork script name cannot carry.
 
 ## Upstream reference guard

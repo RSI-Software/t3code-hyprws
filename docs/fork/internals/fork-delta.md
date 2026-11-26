@@ -85,31 +85,10 @@ The hook guard, `scripts/lib/fork-hook-guard.ts`, **refuses every added line** o
 | Between `=>` and the body | starts at the body        | refuses |
 | Inside the call arguments | open bracket: walk passes | accepts |
 
-## Domain index
+## Domains
 
 A domain is **a reason the fork exists**, not a feature area; each section states its **retirement condition**.
-
-- [multi-window](#multi-window)
-- [workspaces](#workspaces)
-- [browser-bookmarks](#browser-bookmarks)
-- [backend-attach](#backend-attach)
-- [github-issues](#github-issues)
-- [thread-artifacts](#thread-artifacts)
-- [custom-agents](#custom-agents)
-- [device-auth](#device-auth)
-- [markdown-editing](#markdown-editing)
-- [workspace-files](#workspace-files)
-- [fork-meta](#fork-meta)
-- [distribution](#distribution)
-- [upstream-fixes](#upstream-fixes)
-- [thread-ordering](#thread-ordering)
-- [thread-fork](#thread-fork)
-- [zmux-estate](#zmux-estate)
-- [worktrunk-hooks](#worktrunk-hooks)
-- [delegated-rounds](#delegated-rounds)
-- [voice-input](#voice-input)
-- [colleague-collab](#colleague-collab)
-- [citation-annotations](#citation-annotations)
+`FORK_DOMAINS` **lists them**; each has a section below.
 
 ## multi-window
 
@@ -239,10 +218,10 @@ The settings search items **live in `issueSearch.fork.ts`**, spread into the ups
 - **Shell refetch** carries the links live
 - **No issue events** in detail; old-client safe
 - An **older snapshot** never wins
-- Snapshots carry **sub-issues, parent, type, and labels**
+- Snapshots carry **sub-issues, parent, type, labels**
 - **Older servers reject** link events
 - **Linear links** by URL alone
-- **Linear reads** need a Settings key or `LINEAR_API_KEY`
+- Linear needs **a Settings key** or `LINEAR_API_KEY`
 - **`IssueService` routes** Linear keys to its reader
 - **Linear prompt links** open the `repo` label
 
@@ -926,7 +905,7 @@ Upstream keeps cited passages marked in the transcript, with each comment readab
 
 ## Adding a domain
 
-A new domain needs a section with the **same four headings**, a **domain index row**, and a **`FORK_DOMAINS` entry** to carry as `Fork-Domain`.
+A new domain needs a section with the **same four headings** and a **`FORK_DOMAINS` entry** to carry as `Fork-Domain`.
 Answer:
 
 1. What does **upstream not do**, as behavior?
