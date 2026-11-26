@@ -8,6 +8,17 @@ export const COLLABORATOR_SUBJECT_PREFIX = "colleague:";
 export const isCollaboratorSubject = (subject: string) =>
   subject.startsWith(COLLABORATOR_SUBJECT_PREFIX);
 
+// Mirrors `guardRpc`'s closed set: socket tickets and one shared thread's reads, whose handlers
+// check the share. Every other HTTP API endpoint, upstream's new ones included, refuses.
+const COLLABORATOR_HTTP_PATHS = [
+  /^\/api\/auth\/websocket-ticket(\/[^/]+)?$/,
+  /^\/api\/orchestration\/threads\/[^/]+(\/(transcript|bounded|history))?$/,
+];
+
+export const isCollaboratorHttpRefusedFork = (subject: string, url: string) =>
+  isCollaboratorSubject(subject) &&
+  !COLLABORATOR_HTTP_PATHS.some((path) => path.test(new URL(url, "http://host").pathname));
+
 /** A collaborator keeps access until the host unshares or revokes; the store needs some expiry. */
 const COLLABORATOR_SESSION_TTL = Duration.days(36_500);
 
