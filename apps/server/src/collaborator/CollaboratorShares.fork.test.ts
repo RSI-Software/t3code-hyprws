@@ -250,6 +250,15 @@ it.effect("hands out the collaborator grant only to a session holding it", () =>
     assert.strictEqual(yield* denied(reader, share), AuthOrchestrationOperateScope);
     assert.strictEqual(yield* denied(reader, setAccess), AuthOrchestrationOperateScope);
     assert.isNull(yield* denied(host, share));
+    assert.strictEqual(
+      yield* denied(manager, WS_METHODS.colleagueInviteFork),
+      AuthOrchestrationReadScope,
+    );
+    assert.strictEqual(
+      yield* denied(reader, WS_METHODS.colleagueShareThreadFork),
+      AuthOrchestrationOperateScope,
+    );
+    assert.isNull(yield* denied(host, WS_METHODS.colleagueInviteFork));
     assert.isNull(yield* denied(manager, WS_METHODS.collaboratorUnshareThreadFork));
   }),
 );

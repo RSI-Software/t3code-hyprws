@@ -9,7 +9,11 @@ import {
   type AuthEnvironmentScope,
   type CollaboratorShareErrorFork,
   type CollaboratorThreadMissingErrorFork,
-  ColleagueAddressErrorFork,
+  ColleagueNoLiveShareErrorFork,
+  ColleagueNoScopeErrorFork,
+  ColleagueNotHttpErrorFork,
+  ColleagueOwnGrantErrorFork,
+  ColleaguePublicHttpErrorFork,
   type ColleagueClientPairingFork,
   type ColleagueConnectInputFork,
   type ColleagueErrorFork,
@@ -26,6 +30,7 @@ import {
   type ColleagueSaveInputFork,
   type ColleagueShareThreadInputFork,
   ColleagueStorageErrorFork,
+  ColleagueUnknownShapeErrorFork,
   AuthSessionId,
   EnvironmentId,
   IsoDateTime,
@@ -108,7 +113,7 @@ export type ColleagueClientPairingResponseFork = typeof ClientPairingResponse.Ty
 const grantOrigin = (url: string) => {
   const parsed = URL.parse(url);
   if (parsed === null || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-    return Effect.fail(new ColleagueAddressErrorFork());
+    return Effect.fail(new ColleagueNotHttpErrorFork());
   }
   const { hostname } = parsed;
   if (
@@ -117,7 +122,7 @@ const grantOrigin = (url: string) => {
     !isTailnetHost(hostname) &&
     !isPrivateNetworkHost(hostname)
   ) {
-    return Effect.fail(new ColleagueAddressErrorFork());
+    return Effect.fail(new ColleaguePublicHttpErrorFork({ origin: parsed.origin }));
   }
   return Effect.succeed(parsed.origin);
 };
@@ -255,7 +260,7 @@ const make = Effect.gen(function* () {
     savedBy: string | null,
   ) {
     if (grant.environmentId === (yield* selfId)) {
-      return yield* new ColleagueSelfErrorFork();
+      return yield* new ColleagueOwnGrantErrorFork();
     }
     const rows = yield* SubscriptionRef.get(ref);
     if (rows.some((row) => row.environment_id === grant.environmentId && row.subject !== subject)) {
@@ -356,7 +361,7 @@ const make = Effect.gen(function* () {
         ? shares.nameOf(subject)
         : undefined;
     if (name === undefined) {
-      return yield* new ColleagueNotCollaboratorErrorFork();
+      return yield* new ColleagueNoLiveShareErrorFork();
     }
     const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl);
     yield* store(subject, name, input.grant, sessionId, caller).pipe(
@@ -418,7 +423,9 @@ const make = Effect.gen(function* () {
     const row = yield* rowOf(subject);
     const response = yield* callRemote(row, COLLEAGUE_PAIR_CLIENT_ROUTE_FORK);
     const pairing = yield* HttpClientResponse.schemaBodyJson(ClientPairingResponse)(response).pipe(
-      Effect.mapError((cause) => new ColleagueRemoteErrorFork({ colleague: row.name, cause })),
+      Effect.mapError(
+        (cause) => new ColleagueUnknownShapeErrorFork({ colleague: row.name, cause }),
+      ),
     );
     return { environmentId: EnvironmentId.make(row.environment_id), url: row.url, ...pairing };
   });
@@ -503,7 +510,7 @@ const make = Effect.gen(function* () {
     const name = pending?.name ?? (yield* rowOf(subject)).name;
     // Never wider than the grant the colleague's server called with.
     const scopes = COLLABORATOR_SCOPES.filter((scope) => held.includes(scope));
-    if (scopes.length === 0) return yield* new ColleagueNotCollaboratorErrorFork();
+    if (scopes.length === 0) return yield* new ColleagueNoScopeErrorFork();
     const issued = yield* auth
       .createPairingLink({ subject, label: `Colleague ${name}`, scopes, ttl: CLIENT_PAIRING_TTL })
       .pipe(Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })));

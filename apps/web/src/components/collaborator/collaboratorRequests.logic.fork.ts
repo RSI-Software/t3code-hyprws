@@ -7,6 +7,8 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import type { CollaboratorMessageFork, EnvironmentId } from "@t3tools/contracts";
 import type { useGT } from "gt-react";
 
+import type { SidebarThreadGroup } from "../../state/threadGroups";
+
 export type CollaboratorRequestShellFork = Pick<
   EnvironmentThreadShell,
   | "environmentId"
@@ -78,6 +80,32 @@ export function withCollaboratorRequestsFork<T extends CollaboratorRequestShellF
     unsettledAt: latest,
     collaboratorRequestersFork: [...new Set(waiting.map((message) => message.name))],
   };
+}
+
+/**
+ * A request is attention, as an approval is: a running thread it waits on leaves Working for Active,
+ * and runs after regrouping so a working parent never carries it back. A requested parent's group
+ * comes along, as it would follow the parent anywhere else.
+ */
+export function liftCollaboratorRequestsFork<
+  T extends Pick<EnvironmentThreadShell, "environmentId" | "id"> & CollaboratorRequestersFork,
+>(
+  active: T[],
+  working: T[],
+  groups: readonly Pick<SidebarThreadGroup, "parentThreadId" | "threadIds">[],
+): void {
+  const requested = new Set(
+    working
+      .filter((thread) => thread.collaboratorRequestersFork !== undefined)
+      .map(collaboratorRequestKeyFork),
+  );
+  if (requested.size === 0) return;
+  for (const group of groups) {
+    if (requested.has(group.parentThreadId)) for (const key of group.threadIds) requested.add(key);
+  }
+  const lifted = working.filter((thread) => requested.has(collaboratorRequestKeyFork(thread)));
+  working.splice(0, working.length, ...working.filter((thread) => !lifted.includes(thread)));
+  active.push(...lifted);
 }
 
 /** The card's status label naming who asked; empty leaves upstream's guest label. */
