@@ -22,6 +22,7 @@ import {
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { CollaboratorSentByHostFork } from "../collaborator/CollaboratorMessageOutcome.fork"; // fork-hook: colleague-collab/queued-sent-by-host-import
 import { useCollaboratorQueueFork } from "../collaborator/CollaboratorQueuedRuns.fork"; // fork-hook: colleague-collab/queued-read-only-import
+import { queuedLineLockedFork } from "../collaborator/collaboratorQueue.logic.fork"; // fork-hook: colleague-collab/queued-not-editable-import
 import { Link } from "@tanstack/react-router";
 import {
   ArrowUpIcon,
@@ -151,7 +152,7 @@ export function QueuedRunsControl({
       text,
       // A guest's message keeps the guest's words; the owner can cancel it, not rewrite it.
       editable: context?.guest === undefined,
-      ...(context?.collaboratorFork && !context.collaboratorFork.host && { editable: false }), // fork-hook: colleague-collab/queued-not-editable
+      ...(queuedLineLockedFork(context) && { editable: false }), // fork-hook: colleague-collab/queued-not-editable
       attachments,
       thumbnails: attachments.filter(isImageAttachment).map<ChatImageAttachment>((attachment) => {
         const previewUrl = queuedImageUrlById.get(attachment.id);
@@ -223,7 +224,7 @@ export function QueuedRunsControl({
     editLatest(repeat) {
       if (collaboratorQueueFork) return false; // fork-hook: colleague-collab/queued-read-only-edit
       const latest = queued.at(-1);
-      if (latest?.context?.collaboratorFork && !latest.context.collaboratorFork.host) return false; // fork-hook: colleague-collab/queued-not-editable-latest
+      if (queuedLineLockedFork(latest?.context)) return false; // fork-hook: colleague-collab/queued-not-editable-latest
       if (
         !latest ||
         latest.context?.guest !== undefined ||
