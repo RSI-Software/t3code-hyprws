@@ -17,6 +17,14 @@ export type SharedThreadRouteSpike = "agent" | "people";
 const RECENT_LINES = 12;
 const LINE_CHARS = 400;
 
+/** RSI-711's fold: people lines the router held back reach the agent with its next message. */
+export const peopleLinesPromptSpike = (lines: ReadonlyArray<SharedThreadLineSpike>) =>
+  lines.length === 0
+    ? ""
+    : `[Since your last message, the people in this thread said the lines below to each other, not to you. Use them as context; act only on the message after them.]\n${lines
+        .map((line) => `${line.name}: ${line.text}`)
+        .join("\n")}\n[End of people-only lines.]\n\n`;
+
 const clip = (text: string) =>
   text.length > LINE_CHARS ? `${text.slice(0, LINE_CHARS)}...` : text;
 
