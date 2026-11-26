@@ -885,7 +885,10 @@ const make = Effect.gen(function* () {
           const others = [...current.values()]
             .filter((share) => share.threadIds.has(clean.threadId))
             .map((share) => share.name);
-          if (others.length === 0) return dispatch(clean, options);
+          // A prefix would hide a native command such as /compact from the provider.
+          if (others.length === 0 || clean.text.trimStart().startsWith("/")) {
+            return dispatch(clean, options);
+          }
           return hostName.pipe(
             Effect.flatMap((host) => {
               const attribution = hostAttribution(host, others, clean.text);
