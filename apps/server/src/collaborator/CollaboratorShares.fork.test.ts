@@ -41,7 +41,8 @@ import * as RpcAuthorization from "../auth/RpcAuthorization.ts";
 import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
-import { collaboratorPrompt } from "./CollaboratorMessages.fork.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { collaboratorAttribution } from "./CollaboratorMessages.fork.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
 
 const shared = ThreadId.make("shared");
@@ -132,7 +133,14 @@ const config = Layer.succeed(ServerConfig.ServerConfig, {
   port: 3773,
   privateNetworkOnly: false,
   devUrl: undefined,
+  cwd: "/",
 } as never as ServerConfig.ServerConfig["Service"]);
+// The host's git user.name, which the agent reads in shared threads.
+const HOST = "Jordan Lee";
+const collaboratorPrompt = (name: string, text: string) => collaboratorAttribution(name, text).text;
+const git = Layer.mock(GitVcsDriver.GitVcsDriver)({
+  execute: () => Effect.succeed({ stdout: `${HOST}\n` } as never),
+});
 
 const database = it.layer(
   Layer.mergeAll(
@@ -141,6 +149,7 @@ const database = it.layer(
     threads,
     auth,
     config,
+    git,
   ),
 );
 type Ingress = ReadonlyArray<{ hostname?: string; path?: string; service: string }>;
@@ -311,7 +320,8 @@ database("CollaboratorSharesFork", (it) => {
         assert.deepStrictEqual(shellInputs.map(Object.keys), [[], [], [], [], []]);
         yield* Fiber.interrupt(fiber);
 
-        // The host's own sends cannot claim a collaborator wrote them.
+        // The host's own sends cannot claim a collaborator wrote them; in a shared thread the
+        // agent reads the host's name, and people see the host's own words.
         const owner = service.wrapHandlers("owner", handlers);
         const claimed = message(shared, "message.dispatch", "hi", {
           version: 1,
@@ -322,7 +332,9 @@ database("CollaboratorSharesFork", (it) => {
           claimed,
           undefined as never,
         );
-        assert.isUndefined(sentAuthor(ownerSent));
+        assert.deepStrictEqual(sentAuthor(ownerSent), { name: HOST, text: "hi", host: true });
+        assert.isTrue(sentText(ownerSent).startsWith(`[${HOST}, the owner of this thread,`));
+        assert.include(sentText(ownerSent), `${HOST} and Sam read it`);
         const launched = yield* owner["orchestration.launchThread"](
           {
             initialMessage: { text: "hi", context: sentContext(claimed), attachments: [] },

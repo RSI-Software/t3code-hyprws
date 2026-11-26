@@ -9,6 +9,9 @@ export function collaboratorPresentationFork(context: object | undefined) {
   const attribution =
     context !== undefined && "collaboratorFork" in context ? context.collaboratorFork : undefined;
   if (!isAttribution(attribution)) return undefined;
+  if (attribution.host === true) {
+    return { text: attribution.text, attribution: null, scheduledTaskId: undefined };
+  }
   return {
     text: attribution.text,
     attribution: "guest" as const,
