@@ -57,17 +57,14 @@ SINCE=$(git log -1 --date=short --format=%cd "$(git merge-base HEAD upstream/mai
 
 ### `SINCE` is derived, never typed
 
-It is the date of the commit the fork branched from upstream.
+It is the date of **the commit the fork branched from** upstream.
 
-- **Window:** exactly what a rebase would bring in
-- **Same fork head:** two agents agree
-- **At each rebase:** it moves forward
-- **So it never** grows without bound
-- **Filters on:** last activity, not creation
-- **Example:** `badae6a5cc83` gives `2026-08-25`
+- Window: **what a rebase would bring in**
+- Same fork head: **two agents agree**
+- Each rebase: it **moves forward**, never unbounded
+- Filters on: **last activity**, not creation
 
-`hyprws` at `badae6a5cc83` derives `2026-08-25`, the day before `v0.0.34` published.
-An old thread upstream touched inside the window is news; one untouched since before it is not.
+An old thread **touched inside the window** is news; one untouched since is not.
 
 A survey that deliberately wants more history may set `SINCE` by hand.
 The header then says the window was widened on purpose and names the derived date it was widened from.
@@ -87,7 +84,6 @@ gh search prs "$PHRASE" --repo "$REPO" --updated ">=$SINCE" --limit "$LIMIT" \
 
 `gh search` reports no match total, so a full page is the only truncation signal it gives.
 When either command returns exactly `LIMIT` rows, raise `LIMIT` and rerun until it does not, and record the limit you settled on in `Gaps`.
-`source control` at `--limit 30` returns 30 issues and 30 pull requests, both truncated.
 
 ### Discussions
 
@@ -141,17 +137,15 @@ while read -r tag; do
 done | sort -u
 ```
 
-Both halves of that check have to hold, and a full page on its own proves nothing.
-Upstream has 45 releases surviving `--exclude-pre-releases`, so `--limit 40` comes back full on every survey while its oldest row, `v0.0.0-alpha.9` from `2026-03-03`, sits far outside any derived window.
-The sweep only lost work when the page is full **and** its oldest row is still inside the window, because that is where in-window releases fell off the end.
+Both halves of that check have to hold: **a full page alone proves nothing**.
+The sweep lost work only when the page is full **and** its oldest row is still inside the window.
 
 Raise `RELEASE_LIMIT` and rerun until one half stops holding, and record the limit you settled on.
 If no reachable limit clears it, narrow the header and put the release surface in `Gaps`.
 
 Every hit arrives carrying the first stable tag that shipped it, which is the rebase target the fork issue would otherwise derive.
-`--exclude-pre-releases` drops the nightlies, which republish the same commits under a prerelease tag and would report the same work twice under a tag that is not the first stable one.
-It drops only what GitHub flagged, which is why `v0.0.0-alpha.9` survives: those releases predate `pingdotgg/t3code#344`, which taught the release workflow to mark a suffixed version as a prerelease.
-Nothing that old reaches a derived window, so the date filter keeps them out.
+`--exclude-pre-releases` **drops the nightlies**, which republish the same commits under a tag that is not the first stable one.
+It drops only what GitHub flagged; **the date filter** keeps out older unflagged alphas.
 
 ### Path history
 
@@ -231,16 +225,13 @@ git tag --contains <merge-commit-sha> --sort=v:refname \
 One filter does all the work, because a stable upstream release tag is exactly `v<major>.<minor>.<patch>` with nothing after the patch number.
 Anchoring on that shape drops three wrong answers in one pass:
 
-- **Non-version tags:** `desktop-preview`
-- **Which** `--sort=v:refname` sorts to the front
-- **Prereleases:** `v0.0.4-alpha.1`
-- **And every** `v0.0.35-nightly.20260827.1202`
-- **Fork tags:** `v0.0.34-hyprws.4`
-- **Which are** not upstream releases at all
+- **Non-version tags** that `v:refname` sorts first
+- **Prereleases**, every `-alpha.` and `-nightly.`
+- **Fork tags** (`-hyprws.`): not upstream releases
 
 Excluding prereleases is not tidiness.
 GitHub marks them `isPrerelease: true`, so a prerelease is never the first stable tag, and a recipe that answers one reports a release carrying the fix when none does yet.
-`--list 'v*'` with a `grep -v -e nightly -e hyprws` admits them: against `b74c7a79abbfbb7f6e8c5c4affb20784cea2b11c`, the merge commit of `pingdotgg/t3code#344`, it answers `v0.0.4-alpha.1` where the first stable tag is `v0.0.5`.
+`--list 'v*'` with a `grep -v -e nightly -e hyprws` **admits alphas**, naming a prerelease where a later stable tag is the answer.
 
 That first stable tag is the rebase target to name on the fork issue.
 When nothing comes back, no stable release carries the fix yet, and upstream tags nightlies continuously, so check those before calling it unshipped:
@@ -292,12 +283,12 @@ Remove the worktree with `wt remove` once the verdict is recorded.
 
 Then verify narrowly and stop:
 
-- **Run:** the tests the pull request touches
-- **Typecheck:** the packages it changes
-- **Never:** repo-wide checks
-- **Reproduce:** the original symptom
-- **Confirm:** the reverse case the fork cares about
-- **Record:** adopt, adapt, or reject
+- **Run the tests** the pull request touches
+- **Typecheck** the packages it changes
+- **Never** repo-wide checks
+- **Reproduce** the original symptom
+- **Confirm** the reverse case the fork cares about
+- **Record** adopt, adapt, or reject
 
 The verdict goes on the fork issue.
 The trial branch stays local, is never pushed to `pingdotgg/t3code`, and anything worth telling upstream becomes a saved suggestion for the human.

@@ -92,7 +92,8 @@ https://github.com/user-attachments/assets/78f1f4b6-1162-4498-b5ca-95542e40f15f
 - **Rich and Source** modes for Markdown files
 - **Saves CommonMark**, GFM, frontmatter intact
 - **MDX** stays a read-only preview
-- [Guide](docs/fork/user/markdown-editing.md)
+
+See the **[guide](docs/fork/user/markdown-editing.md)**.
 
 https://github.com/user-attachments/assets/f3b4c546-8c33-4f11-97bc-1c2eff67d195
 
@@ -111,7 +112,8 @@ https://github.com/user-attachments/assets/4dc25fb0-3ed7-4cc2-9eee-d5b34eb3cd57
 - **New worktrees join** the same session
 - **Shared** between T3 Code and the CLI
 - **Pick zmux or plain** in Settings → Terminal
-- [Guide](docs/fork/user/managed-terminals.md)
+
+See the **[guide](docs/fork/user/managed-terminals.md)**.
 
 https://github.com/user-attachments/assets/3fa4a68f-a189-4ca8-98d5-416e8c9eb4fd
 
@@ -194,7 +196,8 @@ https://github.com/user-attachments/assets/ac99f00f-f561-4b8e-b1c6-403708464b54
 - **Global and per-project** collections
 - **Star** to save, move, or remove a page
 - **New tabs list** bookmarks first
-- [Guide](docs/fork/user/browser.md)
+
+See the **[guide](docs/fork/user/browser.md)**.
 
 https://github.com/user-attachments/assets/0992bf8a-37c7-425b-992c-5d08c61cc22e
 
@@ -203,7 +206,8 @@ https://github.com/user-attachments/assets/0992bf8a-37c7-425b-992c-5d08c61cc22e
 - **Reveal** gitignored agent artifacts on demand
 - **Hidden by default**, remembered per device
 - **Containment holds** unless trusted
-- [Guide](docs/fork/user/workspace-files.md)
+
+See the **[guide](docs/fork/user/workspace-files.md)**.
 
 https://github.com/user-attachments/assets/46931a1e-d0f3-41d2-bf61-8fb79db19713
 
@@ -213,7 +217,8 @@ https://github.com/user-attachments/assets/46931a1e-d0f3-41d2-bf61-8fb79db19713
 - **Previews follow** each edit
 - **Any host path**, scratch included
 - **T3 never creates** or deletes the files
-- [Guide](docs/fork/user/thread-artifacts.md)
+
+See the **[guide](docs/fork/user/thread-artifacts.md)**.
 
 https://github.com/user-attachments/assets/39efca0a-eeed-45c0-8f4a-8076da05dfc5
 
@@ -235,7 +240,8 @@ https://github.com/user-attachments/assets/39efca0a-eeed-45c0-8f4a-8076da05dfc5
 - **You approve** each message by default
 - **See each other's draft** live, read-only
 - **Cited passages wear** each person's colour
-- [Guide](docs/fork/user/collaborator-sharing.md)
+
+See the **[guide](docs/fork/user/collaborator-sharing.md)**.
 
 **Host left, collaborator on a separate VM right**
 
@@ -275,7 +281,8 @@ https://github.com/user-attachments/assets/442458b8-dfc8-4bb4-8f99-40207fab03f1
 - **Linux AppImage** releases
 - **Nightly** on every trunk push
 - **Focused fixes**, dropped once upstream lands
-- [Guide](docs/fork/user/install-and-update.md)
+
+See the **[guide](docs/fork/user/install-and-update.md)**.
 
 ## Why a fork?
 
