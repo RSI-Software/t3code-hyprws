@@ -24,6 +24,7 @@ import {
   AuthSessionId,
   EnvironmentId,
   IsoDateTime,
+  type ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import {
@@ -77,12 +78,16 @@ interface ColleagueRow {
   readonly saved_by_session_id: string | null;
 }
 
-const toColleague = (row: ColleagueRow): ColleagueFork => ({
+const toColleague = (
+  row: ColleagueRow,
+  threadIds: ReadonlyMap<string, ReadonlyArray<ThreadId>>,
+): ColleagueFork => ({
   subject: row.subject,
   name: row.name,
   environmentId: EnvironmentId.make(row.environment_id),
   url: row.url,
   savedAt: IsoDateTime.make(row.saved_at),
+  threadIds: threadIds.get(row.subject) ?? [],
 });
 
 const ClientPairingResponse = Schema.Struct({
@@ -194,6 +199,12 @@ const make = Effect.gen(function* () {
 
   // Saves, removals and the lapse sweep take turns, so a sweep never judges a half-saved row.
   const exclusive = (yield* Semaphore.make(1)).withPermits(1);
+  // Saved colleagues with what is shared with each; either side changing re-emits.
+  const changes = Stream.zipLatest(SubscriptionRef.changes(ref), shares.liveThreadIds).pipe(
+    Stream.map(([rows, threadIds]) => rows.map((row) => toColleague(row, threadIds))),
+  );
+  const list = Stream.runHead(changes).pipe(Effect.map(Option.getOrElse(() => [])));
+
   const selfId = environment.getDescriptor.pipe(Effect.map((self) => self.environmentId));
   // The grant `invite` issued per sharer environment, until `connect` saves the row recording it.
   const invited = new Map<
@@ -282,16 +293,8 @@ const make = Effect.gen(function* () {
       ),
     );
     yield* reload;
-    return toColleague({
-      subject,
-      name,
-      environment_id: grant.environmentId,
-      url,
-      secret_name: secretName,
-      saved_at: savedAt,
-      grant_session_id: grantSessionId,
-      saved_by_session_id: savedBy,
-    });
+    const saved = (yield* list).find((colleague) => colleague.subject === subject);
+    return saved ?? (yield* new ColleagueMissingErrorFork({ subject }));
   });
 
   const invite: ColleaguesFork["Service"]["invite"] = Effect.fn("ColleaguesFork.invite")(function* (
@@ -535,8 +538,8 @@ const make = Effect.gen(function* () {
     invite,
     save,
     connect,
-    list: SubscriptionRef.get(ref).pipe(Effect.map((rows) => rows.map(toColleague))),
-    changes: SubscriptionRef.changes(ref).pipe(Stream.map((rows) => rows.map(toColleague))),
+    list,
+    changes,
     shareThread,
     pairClient,
     remove,
