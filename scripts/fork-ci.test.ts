@@ -11,6 +11,9 @@ import { run, type ForkCiStep } from "./fork-ci.ts";
 
 const forkDeltaScript = NodePath.join(import.meta.dirname, "fork-delta.ts");
 const mergeTreeScript = NodePath.join(import.meta.dirname, "fork-merge-tree.sh");
+// The Fork ledger step's fetch, before the first ledger step derives its flags.
+const upstreamFetch = ["git", "fetch", "--no-tags", "upstream", "main"];
+const fetches = [upstreamFetch, ["git", "fetch", "--no-tags", "origin", "hyprws"]];
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync(
@@ -63,7 +66,10 @@ it("fails an untagged tip through the delta check and still runs the rest", () =
     };
     assert.strictEqual(run([], root, step), 1);
     // The CI form from the workflow's Fork ledger step, then the rest of the battery.
-    assert.deepStrictEqual(calls[0], ["vp", "run", "fork:delta", "--check", "--head", head]);
+    assert.deepStrictEqual(calls.slice(0, 3), [
+      ...fetches,
+      ["vp", "run", "fork:delta", "--check", "--head", head],
+    ]);
     assert.deepStrictEqual(calls.at(-1), ["vp", "run", "--filter", "@t3tools/scripts", "test"]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -92,6 +98,7 @@ it("runs delta, stale-delete, fixup fold, merge-tree, scan, knip, check, typeche
     // No origin/hyprws ref in the fixture: since falls back to head^ and
     // replay-of is absent, exactly as deriveForkCiFlags defines.
     assert.deepStrictEqual(calls, [
+      ...fetches,
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "fork:stale-delete", "--base", `${head}^`, "--head", head],
       ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
@@ -142,8 +149,9 @@ it("names every red step and the --only rerun, reformatting nothing", () => {
       `fork:ci: red on ${head.slice(0, 7)}: check, typecheck; green: delta, stale-delete, fixup-fold, merge-tree, scan, knip, scripts\n`,
     );
     assert.include(summary, "vp run fork:ci --only check,typecheck\n");
-    const [delta, staleDelete, fixupFold, mergeTree, scan, knip, check, typecheck, suite] = calls;
-    assert.strictEqual(calls.length, 9);
+    const [delta, staleDelete, fixupFold, mergeTree, scan, knip, check, typecheck, suite] =
+      calls.slice(fetches.length);
+    assert.strictEqual(calls.length, fetches.length + 9);
     assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(staleDelete?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(fixupFold?.slice(0, 2), ["vp", "run"]);
@@ -175,7 +183,8 @@ it("skips stale-delete on a sync candidate and scans from its base", () => {
       return 0;
     };
     assert.strictEqual(run([], root, step), 0);
-    assert.deepStrictEqual(calls.slice(0, 4), [
+    assert.deepStrictEqual(calls.slice(0, 6), [
+      ...fetches,
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
       ["bash", "scripts/fork-merge-tree.sh", head],
@@ -260,6 +269,7 @@ it("--only reruns just the named steps, in battery order", () => {
     };
     assert.strictEqual(run(["--only", "typecheck,delta"], root, step), 0);
     assert.deepStrictEqual(calls, [
+      ...fetches,
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "typecheck"],
     ]);
@@ -267,10 +277,12 @@ it("--only reruns just the named steps, in battery order", () => {
     assert.strictEqual(run(["--only", "typecheck,lint"], root, step), 2);
     assert.strictEqual(run(["--only"], root, step), 2);
     assert.deepStrictEqual(calls, []);
-    // Without the upstream ref the ledger steps go red, and the rest still run.
-    git(root, ["update-ref", "-d", "refs/remotes/upstream/main"]);
-    assert.strictEqual(run(["--only", "delta,fixup-fold,typecheck"], root, step), 1);
-    assert.deepStrictEqual(calls, [["vp", "run", "typecheck"]]);
+    // Offline or without the upstream remote, the ledger steps go red on the stale refs
+    // instead of judging them, fetching once, and the rest still run.
+    const offline: ForkCiStep = (command, args, cwd) =>
+      step(command, args, cwd) === 0 && command === "git" ? 1 : 0;
+    assert.strictEqual(run(["--only", "delta,fixup-fold,typecheck"], root, offline), 1);
+    assert.deepStrictEqual(calls, [upstreamFetch, ["vp", "run", "typecheck"]]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
