@@ -33,13 +33,20 @@ const route = <A>(
       if (session._tag === "None") return json({ error: "Authentication required." }, 401);
       const refused = (error: ColleagueErrorFork) =>
         Effect.succeed(json({ error: error.message }, 403));
+      const failed = (error: ColleagueErrorFork) =>
+        Effect.succeed(json({ error: error.message }, 500));
       return yield* answer(colleagues, session.value).pipe(
         Effect.map((body) => json(body ?? {})),
         Effect.catchTags({
           ColleagueMissingErrorFork: refused,
-          ColleagueRefusedErrorFork: refused,
-          ColleagueStorageErrorFork: (error) => Effect.succeed(json({ error: error.message }, 500)),
-          ColleagueRemoteErrorFork: (error) => Effect.succeed(json({ error: error.message }, 500)),
+          ColleagueSelfErrorFork: refused,
+          ColleagueNotCollaboratorErrorFork: refused,
+          ColleagueSavedAsAnotherErrorFork: refused,
+          ColleagueAddressErrorFork: refused,
+          ColleagueStorageErrorFork: failed,
+          ColleagueSilentErrorFork: failed,
+          ColleagueRevokedErrorFork: failed,
+          ColleagueRemoteErrorFork: failed,
         }),
       );
     }),
