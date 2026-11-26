@@ -8,7 +8,7 @@
 
 ## Before adding to the fork
 
-1. Run `vp run fork:scan --no-typecheck`
+1. **Run** `vp run fork:scan --no-typecheck`
 2. **Prefer one adapter boundary** over scattered edits
 
 The fork **never adds**:
@@ -37,8 +37,8 @@ The fork **never adds**:
 
 ## Testing a fork checkout
 
-`vp run dev` launches; [Development](../../operations/development.md#state-and-ports) owns state and ports.
-Nothing opens a browser; agents **place windows through `donjor hypr`**.
+`vp run dev` launches; [Development](../../operations/00_development.md#running-dev-servers) owns state and ports.
+Nothing opens a browser; agents **place windows through `rsi hypr`**.
 
 - **Explore** in the base checkout
 - **Implement** in a worktree
@@ -68,7 +68,7 @@ A conflict means the domain **shares code with another**: resolve it there, then
 That holds only while each domain keeps these:
 
 - **One domain** per commit
-- **New code in its own files**
+- New code **in its own files**
 - **Contiguous commits** per domain
 
 ### Stack order
@@ -103,7 +103,7 @@ Land onto `hyprws` **by squash**; a merge commit breaks the stack and voids a sy
 - A **pull request** when one is open or due
 - **`wt merge hyprws`** for an explicit local landing
 - **Direct to `hyprws`** for `fork-meta` chores
-- **Never raw `git merge`**
+- **Never** raw `git merge`
 
 `gh pr merge --squash` defaults to the commit messages; pass `--body` with the PR body, so **end the body with trailers**.
 `hyprws-ci.yml` is the **required check**; `hyprws-body.yml` checks the body's trailers and citations, **advisory only**.
@@ -126,7 +126,7 @@ A seam commit carries **one small intent**; intent re-derives the resolution.
 - **One concern** per conventional commit
 - **Refactors apart** from behavior changes
 - **No drive-by** formatting, renames, or bumps
-- **Prefer upstream extension points**
+- **Prefer** upstream extension points
 - **Upstream vocabulary**; new terms for new ideas
 - **Tests beside behavior**, so a resolution checks
 - **Frozen installs**; bumps in their own commit
