@@ -108,9 +108,8 @@ function CollaboratorQueuedRuns<
     >
       <ol className="flex flex-col items-end gap-3">
         {items.map((item, position) => {
-          // The agent's text names the collaborator; people read the words as sent.
           const presentation = item.message ? resolveUserMessagePresentation(item.message) : null;
-          const text = presentation?.text ?? item.text;
+          const text = item.text;
           const previewText = isAttachmentOnlyBootstrapPrompt(text)
             ? ""
             : assistantCitationsToPlainText(
