@@ -49,13 +49,13 @@ Keep:
 
 ## Classify
 
-| Signal on the fix candidate          | Class          |
-| ------------------------------------ | -------------- |
-| PR has a non-null `mergedAt`         | **merged**     |
-| PR open, not a draft                 | **PR pending** |
-| PR open, a draft                     | **draft**      |
-| Issue; every PR closed unmerged      | **issue only** |
-| No upstream issue or PR              | **unknown**    |
+| Signal on the fix candidate     | Class          |
+| ------------------------------- | -------------- |
+| PR has a non-null `mergedAt`    | **merged**     |
+| PR open, not a draft            | **PR pending** |
+| PR open, a draft                | **draft**      |
+| Issue; every PR closed unmerged | **issue only** |
+| No upstream issue or PR         | **unknown**    |
 
 - **Read `isDraft`**, never the title
 - Closed unmerged is **not a fix**
@@ -191,15 +191,15 @@ Unlike triage, a survey **never stops at the first match**:
 **Take the first matching row**; every item gets exactly one.
 **declined** sits above **open**, so a refusal on an open item reads as a refusal; **resolved** is the catch-all.
 
-| State                | Signal                                         |
-| -------------------- | ---------------------------------------------- |
-| **shipped**          | Merged; a stable tag contains it               |
-| **merged, untagged** | Merged; no stable tag yet                      |
-| **declined**         | Upstream refused it, open or closed            |
-| **withdrawn**        | Closed unmerged, no upstream verdict           |
-| **draft**            | PR open, `isDraft: true`                       |
-| **open**             | Open PR, issue, or discussion                  |
-| **resolved**         | Any other closed item                          |
+| State                | Signal                               |
+| -------------------- | ------------------------------------ |
+| **shipped**          | Merged; a stable tag contains it     |
+| **merged, untagged** | Merged; no stable tag yet            |
+| **declined**         | Upstream refused it, open or closed  |
+| **withdrawn**        | Closed unmerged, no upstream verdict |
+| **draft**            | PR open, `isDraft: true`             |
+| **open**             | Open PR, issue, or discussion        |
+| **resolved**         | Any other closed item                |
 
 Declined signals:
 
@@ -230,13 +230,13 @@ Phrase each state by its strength:
 
 Kind is **a second axis**: a fixed defect and a new feature are different news.
 
-| Kind             | Signal                                           |
-| ---------------- | ------------------------------------------------ |
-| **defect**       | `[Bug]:` issue, `fix(...)` PR                    |
-| **feature**      | `[Feature]:` item, `feat(...)` PR                |
-| **performance**  | `perf(...)` PR                                   |
+| Kind             | Signal                                             |
+| ---------------- | -------------------------------------------------- |
+| **defect**       | `[Bug]:` issue, `fix(...)` PR                      |
+| **feature**      | `[Feature]:` item, `feat(...)` PR                  |
+| **performance**  | `perf(...)` PR                                     |
 | **internal**     | `docs`, `chore`, `refactor`, `test`, `build`, `ci` |
-| **unclassified** | None of the above, even after reading the change |
+| **unclassified** | None of the above, even after reading the change   |
 
 - Performance: **gained by rebasing**, so not defect
 - Internal: **no behaviour**; only collisions matter
@@ -259,14 +259,14 @@ An `Ideas` thread is **a request**, however many upvotes.
 
 Match each item to the domain it touches **through the rebase scans**; take **the first matching follow-up**:
 
-| Follow-up         | When                                        |
-| ----------------- | ------------------------------------------- |
-| **rebase target** | shipped, not yet carried, and wanted        |
-| **trial**         | open or draft, wanted now                   |
-| **watch**         | merged untagged, or open the fork waits on  |
-| **fork fix**      | nothing to rebase onto; fork needs it       |
-| **note only**     | in a domain, nothing to do                  |
-| **nothing**       | touches no fork domain                      |
+| Follow-up         | When                                       |
+| ----------------- | ------------------------------------------ |
+| **rebase target** | shipped, not yet carried, and wanted       |
+| **trial**         | open or draft, wanted now                  |
+| **watch**         | merged untagged, or open the fork waits on |
+| **fork fix**      | nothing to rebase onto; fork needs it      |
+| **note only**     | in a domain, nothing to do                 |
+| **nothing**       | touches no fork domain                     |
 
 - Wanted: it **retires or collides** with delta
 - Wanted: or **adds behaviour** the fork wants
@@ -366,19 +366,19 @@ At each upstream rebase, **rerun its hunt and class**, update the citation, and 
 
 ## Troubleshoot
 
-| Symptom                      | Fix                                  |
-| ---------------------------- | ------------------------------------ |
-| Empty results                | Cut the phrase to two or three words |
-| Too many results             | Search by file path                  |
-| Duplicate best match         | Follow it to the canonical issue     |
-| Looks merged, no `mergedAt`  | Closed unmerged; not a fix           |
-| No tag contains it           | Fetch tags; else merged, untagged    |
-| Bad first stable tag         | Restore the stable-shape `grep`      |
-| Window moved                 | By design: `SINCE` tracks the base   |
-| Unenforced window            | Bind `SINCE` once, pass it to all    |
-| `--search` finds nothing     | Quote the phrase before a qualifier  |
-| Issues look empty            | Requests live in Discussions         |
-| Off-domain discussions       | Drop misses by title                 |
-| Several PRs claim one issue  | Cite all; trial the newest           |
+| Symptom                     | Fix                                  |
+| --------------------------- | ------------------------------------ |
+| Empty results               | Cut the phrase to two or three words |
+| Too many results            | Search by file path                  |
+| Duplicate best match        | Follow it to the canonical issue     |
+| Looks merged, no `mergedAt` | Closed unmerged; not a fix           |
+| No tag contains it          | Fetch tags; else merged, untagged    |
+| Bad first stable tag        | Restore the stable-shape `grep`      |
+| Window moved                | By design: `SINCE` tracks the base   |
+| Unenforced window           | Bind `SINCE` once, pass it to all    |
+| `--search` finds nothing    | Quote the phrase before a qualifier  |
+| Issues look empty           | Requests live in Discussions         |
+| Off-domain discussions      | Drop misses by title                 |
+| Several PRs claim one issue | Cite all; trial the newest           |
 
 A bad first stable tag is a **non-version tag** (`desktop-preview`), a **prerelease** (`-alpha.`, `-nightly.`), or a **fork tag** (`-hyprws.`); the prerelease is dangerous, as it looks like an answer.

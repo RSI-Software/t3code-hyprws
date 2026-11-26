@@ -102,9 +102,9 @@ A carried trunk commit conflicts like a seam: resolve, `git add`, rerun.
 - Cause: the owner is **not a pure insertion**
 - Fix: **reshape it** in a tip `fixup!`
 - Shape: **[marked insertions only][hook]**
+- Next sync: **may stop once more**, then folds it
 
 [hook]: ../../../docs/fork/internals/fork-delta.md#marking-a-hook
-- Next sync: **may stop once more**, then folds it
 
 To fold it sooner, [fold](#fold) this session.
 
@@ -142,8 +142,6 @@ Adaptation the candidate needs (build or test fixes, ports) **commits at the tip
 **Fix every red step**, recheck them, then rerun once so the marker covers the tip work.
 
 [reshape]: ../../../docs/fork/operations/fork-sync.md#reshape
-
-[copies]: ../../../docs/fork/operations/fork-sync.md#workflow-copies
 
 ## Replay fresh
 
@@ -298,3 +296,5 @@ The one exception: `fork:fold apply`'s own rebase worktree, which holds no insta
 - **Move** published tags
 - **Force** past a refused lease: inspect, rerun
 - **Edit** a report; a comment decides nothing
+
+[copies]: ../../../docs/fork/operations/fork-sync.md#workflow-copies
