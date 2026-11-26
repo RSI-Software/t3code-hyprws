@@ -23,36 +23,74 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 
 /** The whole reply the agent gives when a shared-thread message is between people. */
-const QUIET_MARKER_SPIKE = "(listening)";
+export const QUIET_MARKER_SPIKE = "(listening)";
+/** Spike RSI-714: the structured "no reply"; the agent calls this tool instead of writing text. */
+export const QUIET_TOOL_SPIKE = "stay_quiet";
 
 /**
- * Spike RSI-712: every message in a shared thread reaches the agent with its author and one
- * rule: answer only what is for you, otherwise reply with the quiet marker alone.
+ * Spike RSI-712/714: how the agent learns whether to answer. `marker712` is RSI-712's rule as
+ * shipped; `marker` and `tool` use the RSI-714 criteria and stay quiet by text marker or by tool
+ * call; `answer` is a message a router or its sender already marked as for the agent.
  */
-const sharedThreadRule = (others: string) =>
-  `This thread is shared: ${others} read it and your replies live, and people here also talk to each other. ` +
-  `Reply only when the message is for you: it asks you (the agent) to do, check, explain or decide something, or names you. ` +
-  `When it is people talking to each other (addressed to a person by name, a question only a person can answer, thanks, agreement, small talk, plans between them), ` +
-  `do nothing: no tools, no work, and reply with exactly ${QUIET_MARKER_SPIKE} and nothing else.`;
+export type SharedThreadModeSpike = "marker712" | "marker" | "tool" | "answer";
 
-const collaboratorPromptPrefix = (name: string) =>
-  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${sharedThreadRule(`the owner and ${name}`)}]\n\n`;
+/** Spike RSI-714: when a shared-thread line is for the agent. The router reads the same text. */
+export const FOR_AGENT_CRITERIA_SPIKE =
+  `A message is for the agent when it asks the agent to do, check, explain, change or decide something, even with no name ("can you...", "it should...", "let's add..." said to the room); ` +
+  `when it passes a request to the agent through a person ("Jordan, can you get it to add a test?", "ask it to...", "have the agent..."); ` +
+  `when it answers a question the agent just asked ("yes, option 2", "sounds good, go ahead"); ` +
+  `or when it says the agent's work is wrong or incomplete. ` +
+  `A message is between people when it is addressed to a person about something only people can answer or do (meetings, plans, a person's opinion), ` +
+  `or is thanks, agreement or small talk that asks nothing of the agent, or talks about what the agent made without asking for a change. ` +
+  `When unsure, treat it as for the agent.`;
 
-const ownerPromptPrefix = (owner: string, others: string) =>
-  `[${owner}, the owner of this thread, wrote the message below. ${sharedThreadRule(`${owner} and ${others}`)}]\n\n`;
+const quietBy: Record<"marker712" | "marker" | "tool", string> = {
+  marker712: `reply with exactly ${QUIET_MARKER_SPIKE} and nothing else`,
+  marker: `reply with exactly ${QUIET_MARKER_SPIKE} and nothing else`,
+  tool: `call the ${QUIET_TOOL_SPIKE} tool and end your turn without writing any text`,
+};
 
-export const collaboratorPrompt = (name: string, text: string) =>
-  `${collaboratorPromptPrefix(name)}${text}`;
+const sharedThreadRule = (others: string, mode: SharedThreadModeSpike) =>
+  mode === "answer"
+    ? `This thread is shared: ${others} read it and your replies live. This message is for you: answer it.`
+    : mode === "marker712"
+      ? `This thread is shared: ${others} read it and your replies live, and people here also talk to each other. ` +
+        `Reply only when the message is for you: it asks you (the agent) to do, check, explain or decide something, or names you. ` +
+        `When it is people talking to each other (addressed to a person by name, a question only a person can answer, thanks, agreement, small talk, plans between them), ` +
+        `do nothing: no tools, no work, and ${quietBy[mode]}.`
+      : `This thread is shared: ${others} read it and your replies live, and people here also talk to each other. ` +
+        `${FOR_AGENT_CRITERIA_SPIKE} ` +
+        `When the message is not for you, do nothing: no tools, no work, and ${quietBy[mode]}.`;
 
-const stripPrefix = (prefix: string, text: string) =>
-  text.startsWith(prefix) ? text.slice(prefix.length) : text;
+const MODES: ReadonlyArray<SharedThreadModeSpike> = ["marker712", "marker", "tool", "answer"];
+
+const collaboratorPromptPrefix = (name: string, mode: SharedThreadModeSpike) =>
+  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${sharedThreadRule(`the owner and ${name}`, mode)}]\n\n`;
+
+const ownerPromptPrefix = (owner: string, others: string, mode: SharedThreadModeSpike) =>
+  `[${owner}, the owner of this thread, wrote the message below. ${sharedThreadRule(`${owner} and ${others}`, mode)}]\n\n`;
+
+export const collaboratorPrompt = (
+  name: string,
+  text: string,
+  mode: SharedThreadModeSpike = "marker",
+) => `${collaboratorPromptPrefix(name, mode)}${text}`;
+
+/** A queued edit or a forced resend starts from attributed text, so no prefix is repeated. */
+const stripPrefix = (prefixFor: (mode: SharedThreadModeSpike) => string, text: string) => {
+  const prefix = MODES.map(prefixFor).find((candidate) => text.startsWith(candidate));
+  return prefix === undefined ? text : text.slice(prefix.length);
+};
 
 /** The attributed text and the context that shows the collaborator's own words beside their name. */
-export const collaboratorAttribution = (name: string, text: string) => {
-  // A queued edit starts from the already attributed text, so the prefix is not repeated.
-  const own = stripPrefix(collaboratorPromptPrefix(name), text);
+export const collaboratorAttribution = (
+  name: string,
+  text: string,
+  mode: SharedThreadModeSpike = "marker",
+) => {
+  const own = stripPrefix((m) => collaboratorPromptPrefix(name, m), text);
   return {
-    text: collaboratorPrompt(name, own),
+    text: collaboratorPrompt(name, own, mode),
     context: { collaboratorFork: { name, text: own } },
   };
 };
@@ -62,11 +100,12 @@ export const ownerAttributionSpike = (
   owner: string,
   others: ReadonlyArray<string>,
   text: string,
+  mode: SharedThreadModeSpike = "marker",
 ) => {
-  const prefix = ownerPromptPrefix(owner, others.join(" and "));
-  const own = stripPrefix(prefix, text);
+  const joined = others.join(" and ");
+  const own = stripPrefix((m) => ownerPromptPrefix(owner, joined, m), text);
   return {
-    text: `${prefix}${own}`,
+    text: `${ownerPromptPrefix(owner, joined, mode)}${own}`,
     context: { collaboratorFork: { name: owner, text: own } },
   };
 };
