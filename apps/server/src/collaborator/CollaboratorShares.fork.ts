@@ -701,7 +701,11 @@ const make = Effect.gen(function* () {
     subject === null || !isCollaboratorSubject(subject)
       ? {
           [MESSAGES]: () =>
-            messages.visible((message) => isShared(message.subject, message.threadId)),
+            // The host's work is what still waits; a dismissed message is its author's to clear.
+            messages.visible(
+              (message) =>
+                message.outcome === undefined && isShared(message.subject, message.threadId),
+            ),
           [SUBMIT]: () => Effect.fail(notCollaborator),
           [RESOLVE]: (input) => messages.resolve(input, null),
         }
@@ -723,7 +727,7 @@ const make = Effect.gen(function* () {
             : Effect.fail(notShared(AuthOrchestrationOperateScope));
         }),
       ),
-    // A collaborator can withdraw a message, never send it past the host.
+    // A collaborator can withdraw or clear a message, never send it past the host.
     [RESOLVE]: (input) =>
       input.decision === "dismiss"
         ? messages.resolve(input, subject)
