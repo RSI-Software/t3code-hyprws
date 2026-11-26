@@ -232,6 +232,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   issueTrackerAccounts: Schema.optionalKey(Schema.Boolean),
   threadGroupsFork: Schema.optionalKey(Schema.Boolean), // fork-hook: thread-ordering/environment-thread-groups-capability
   collaboratorsFork: Schema.optionalKey(Schema.Boolean), // fork-hook: colleague-collab/environment-capability
+  colleaguesFork: Schema.optionalKey(Schema.Boolean), // fork-hook: colleague-collab/colleagues-capability
   speechRemoteModelFork: Schema.optionalKey(Schema.Boolean), // fork-hook: voice-input/environment-capability
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;

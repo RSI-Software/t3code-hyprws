@@ -232,6 +232,7 @@ export const make = Effect.gen(function* () {
       pullRequestChecks: true,
       threadGroupsFork: true, // fork-hook: thread-ordering/server-environment-thread-groups-capability
       collaboratorsFork: true, // fork-hook: colleague-collab/server-environment-capability
+      colleaguesFork: true, // fork-hook: colleague-collab/server-colleagues-capability
       speechRemoteModelFork: true, // fork-hook: voice-input/server-environment-capability
       issues: true,
       linkedThreadRefreshes: true,

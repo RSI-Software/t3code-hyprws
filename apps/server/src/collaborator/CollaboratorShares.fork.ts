@@ -34,6 +34,7 @@ import {
   OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
   RpcScopeAuthorization,
+  ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
 import { isPrivateNetworkHost } from "@t3tools/shared/hostClassification";
@@ -62,21 +63,13 @@ import {
 } from "../startupAccess.ts";
 import { collaboratorAttribution, makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
-import { COLLABORATOR_SUBJECT_PREFIX, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
+import { collaboratorSubject, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
 
 const SHARE_LINK_TTL = Duration.hours(24);
 
 // Every host session types as one typist, so a host never sees their own other device.
 const HOST_TYPIST: CollaboratorTypistFork = { subject: "host" };
-
-// Case and punctuation fold on purpose, so "Sam" and "sam " reach the same paired collaborator.
-const collaboratorSubject = (name: string) =>
-  `${COLLABORATOR_SUBJECT_PREFIX}${name
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
-    .replace(/^-|-$/g, "")}`;
 
 interface CollaboratorShare {
   readonly name: string;
@@ -368,6 +361,8 @@ const COLLABORATOR_OPEN_RPCS: ReadonlySet<string> = new Set([
   SHELL,
   THREAD,
   MESSAGES,
+  // Accepting an invite saves the host as a colleague; `ColleaguesFork.save` refuses non-sharers.
+  WS_METHODS.colleagueSaveFork,
 ]);
 const COLLABORATOR_THREAD_RPCS: ReadonlySet<string> = new Set([
   SUBMIT,
@@ -419,6 +414,23 @@ export class CollaboratorSharesFork extends Context.Service<
       CollaboratorShareThreadResultFork,
       CollaboratorShareErrorFork | CollaboratorThreadMissingErrorFork
     >;
+    /** Shares with a known subject, such as a saved colleague's, minting no link. */
+    readonly shareWith: (input: {
+      readonly threadId: string;
+      readonly subject: string;
+      readonly name: string;
+      readonly access?: CollaboratorAccessFork | undefined;
+    }) => Effect.Effect<void, CollaboratorShareErrorFork | CollaboratorThreadMissingErrorFork>;
+    /** Stops every live share with the subject, as `unshare` does one. */
+    readonly unshareAll: (subject: string) => Effect.Effect<void, CollaboratorUnshareErrorFork>;
+    /** The collaborator's name, from their first share; undefined when nothing was shared. */
+    readonly nameOf: (subject: string) => string | undefined;
+    /** Whether any thread is shared live with the subject. */
+    readonly sharesLive: (subject: string) => boolean;
+    /** The origin other machines reach this server on, as for a share link. */
+    readonly publicBaseUrl: (
+      linkBaseUrl: string | undefined,
+    ) => Effect.Effect<{ readonly base: string; readonly localOnly: boolean }>;
     readonly threadShares: (threadId: string) => Effect.Effect<CollaboratorThreadSharesResultFork>;
     readonly unshare: (
       input: CollaboratorUnshareThreadInputFork,
@@ -503,10 +515,7 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  const share = Effect.fn("CollaboratorSharesFork.share")(function* (
-    input: CollaboratorShareThreadInputFork,
-  ) {
-    const { threadId } = input;
+  const readThread = Effect.fn("CollaboratorSharesFork.readThread")(function* (threadId: ThreadId) {
     const thread = yield* threads
       .getThreadShell(threadId)
       .pipe(
@@ -517,6 +526,38 @@ const make = Effect.gen(function* () {
     if (thread === null || thread.deletedAt !== null) {
       return yield* new CollaboratorThreadMissingErrorFork({ threadId });
     }
+    return thread;
+  });
+
+  const record = Effect.fn("CollaboratorSharesFork.record")(function* (
+    threadId: ThreadId,
+    subject: string,
+    name: string,
+    access: CollaboratorAccessFork | null,
+  ) {
+    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    yield* sql`
+      INSERT INTO fork_colleague_shares (subject, thread_id, colleague_name, created_at, access)
+      VALUES (${subject}, ${threadId}, ${name}, ${createdAt}, ${access ?? "approve"})
+      ON CONFLICT (subject, thread_id) DO UPDATE
+      SET frozen_shell_json = NULL, access = COALESCE(${access}, access)
+    `.pipe(
+      Effect.mapError(
+        (cause) => new CollaboratorShareErrorFork({ operation: "record-share", threadId, cause }),
+      ),
+    );
+    yield* reload.pipe(
+      Effect.mapError(
+        (cause) => new CollaboratorShareErrorFork({ operation: "read-shares", threadId, cause }),
+      ),
+    );
+  });
+
+  const share = Effect.fn("CollaboratorSharesFork.share")(function* (
+    input: CollaboratorShareThreadInputFork,
+  ) {
+    const { threadId } = input;
+    const thread = yield* readThread(threadId);
     const subject = collaboratorSubject(input.collaboratorName);
     // A known colleague keeps their saved spelling, however the host typed it this time.
     const collaboratorName = current.get(subject)?.name ?? input.collaboratorName;
@@ -537,28 +578,19 @@ const make = Effect.gen(function* () {
           (cause) => new CollaboratorShareErrorFork({ operation: "pair", threadId, cause }),
         ),
       );
-    const createdAt = DateTime.formatIso(yield* DateTime.now);
-    const access = input.access ?? null;
-    yield* sql`
-      INSERT INTO fork_colleague_shares (subject, thread_id, colleague_name, created_at, access)
-      VALUES (${subject}, ${thread.id}, ${collaboratorName}, ${createdAt}, ${access ?? "approve"})
-      ON CONFLICT (subject, thread_id) DO UPDATE
-      SET frozen_shell_json = NULL, access = COALESCE(${access}, access)
-    `.pipe(
-      Effect.mapError(
-        (cause) => new CollaboratorShareErrorFork({ operation: "record-share", threadId, cause }),
-      ),
-    );
-    yield* reload.pipe(
-      Effect.mapError(
-        (cause) => new CollaboratorShareErrorFork({ operation: "read-shares", threadId, cause }),
-      ),
-    );
+    yield* record(thread.id, subject, collaboratorName, input.access ?? null);
     // Pairing ignores the query, so the thread rides inside the pairing URL to the collaborator's app.
     const { base, localOnly } = yield* pairingBaseUrl(input.linkBaseUrl);
     const pairing = new URL(buildPairingUrl(base, issued.credential));
     pairing.searchParams.set(COLLABORATOR_THREAD_LINK_PARAM, thread.id);
     return { pairingUrl: pairing.toString(), localOnly, knownCollaborator, collaboratorName };
+  });
+
+  const shareWith: CollaboratorSharesFork["Service"]["shareWith"] = Effect.fn(
+    "CollaboratorSharesFork.shareWith",
+  )(function* (input) {
+    const thread = yield* readThread(ThreadId.make(input.threadId));
+    yield* record(thread.id, input.subject, input.name, input.access ?? null);
   });
 
   const isShared = (subject: string, threadId: string) =>
@@ -611,6 +643,12 @@ const make = Effect.gen(function* () {
       }),
     );
     yield* typing.drop(threadId, subject);
+  });
+
+  const unshareAll = Effect.fn("CollaboratorSharesFork.unshareAll")(function* (subject: string) {
+    for (const threadId of current.get(subject)?.threadIds.keys() ?? []) {
+      yield* unshare({ subject, threadId: ThreadId.make(threadId) });
+    }
   });
 
   const setAccess = Effect.fn("CollaboratorSharesFork.setAccess")(function* (
@@ -856,6 +894,11 @@ const make = Effect.gen(function* () {
 
   return CollaboratorSharesFork.of({
     share,
+    shareWith,
+    unshareAll,
+    nameOf: (subject) => current.get(subject)?.name,
+    sharesLive: (subject) => (current.get(subject)?.threadIds.size ?? 0) > 0,
+    publicBaseUrl: pairingBaseUrl,
     threadShares,
     unshare,
     setAccess,
