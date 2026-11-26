@@ -51,6 +51,19 @@ const useHostSessionFork = (environmentId: EnvironmentId) =>
     (session) => session !== null && !isCollaboratorGrantFork(session.permissions),
   );
 
+/** A collaborator's session on the host's environment; false for the host, and while it loads. */
+export const useCollaboratorSessionFork = (environmentId: EnvironmentId) =>
+  useAtomValue(
+    environmentSession.sessionStateValueAtom(environmentId),
+    (session) => session !== null && isCollaboratorGrantFork(session.permissions),
+  );
+
+/** Thread details rows that act on the host's machine; the server refuses them to a collaborator. */
+export const hostOnlyDetailsFork = (collaborator: boolean) =>
+  collaborator
+    ? { openIn: false, scripts: false, branch: false, git: false, repositories: false }
+    : {};
+
 /** Automations stay the host's: a collaborator session, or one still loading, never asks for them. */
 export const useHostScheduledTasksFork = (environmentId: EnvironmentId, needed = true) =>
   useHostSessionFork(environmentId) && needed

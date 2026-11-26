@@ -18,6 +18,7 @@ import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { HostMessageNameFork } from "./CollaboratorAuthor.fork";
 import { useCollaboratorCitationsFork } from "./CollaboratorChat.fork";
 
 type PresentedMessage = Parameters<typeof resolveUserMessagePresentation>[0];
@@ -149,6 +150,11 @@ function CollaboratorQueuedRuns<
               aria-current={isEditing ? "true" : undefined}
               className="group/queued flex w-full flex-col items-end gap-1"
             >
+              <HostMessageNameFork
+                environmentId={rowProps.environmentId}
+                attribution={presentation?.attribution}
+                announce
+              />
               <Row
                 {...rowProps}
                 message={item.message}

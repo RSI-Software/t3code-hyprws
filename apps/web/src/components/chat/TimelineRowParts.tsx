@@ -1,6 +1,7 @@
 import { useMessages } from "gt-react";
 import { type ReactNode } from "react";
 import { cn } from "~/lib/utils";
+import { useHostHeadingFork } from "../collaborator/CollaboratorAuthor.fork"; // fork-hook: colleague-collab/host-heading-import
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { SharedTooltipTrigger } from "../ui/shared-tooltip";
@@ -8,6 +9,8 @@ import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 export const MESSAGE_HEADING_LEVEL = 3;
 
 export function MessageAuthorHeading({ children }: { children: string }) {
+  const hostHeadingFork = useHostHeadingFork(children); // fork-hook: colleague-collab/host-heading
+  if (hostHeadingFork) return hostHeadingFork; // fork-hook: colleague-collab/host-heading-return
   return <h3 className="sr-only select-none">{children}</h3>;
 }
 
