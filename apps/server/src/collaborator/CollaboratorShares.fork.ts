@@ -839,22 +839,16 @@ const make = Effect.gen(function* () {
   };
 
   /** Who wrote a queued run's message, as the server attributed it; undefined refuses. */
-  const queuedAuthor = (threadId: ThreadId, runId: RunId) =>
-    threads.getThreadRecords(threadId, ["runs"], { runIds: [runId] }).pipe(
-      Effect.flatMap(({ runs }) => {
-        const run = runs.find((candidate) => candidate.id === runId);
-        return run === undefined
-          ? Effect.undefined
-          : threads
-              .getMessagesById(threadId, [run.userMessageId])
-              .pipe(
-                Effect.map(
-                  (messages) => messages.get(run.userMessageId)?.context?.collaboratorFork?.name,
-                ),
-              );
-      }),
-      Effect.orElseSucceed(() => undefined),
-    );
+  const queuedAuthor = Effect.fn("CollaboratorSharesFork.queuedAuthor")(
+    function* (threadId: ThreadId, runId: RunId) {
+      const { runs } = yield* threads.getThreadRecords(threadId, ["runs"], { runIds: [runId] });
+      const run = runs.find((candidate) => candidate.id === runId);
+      if (run === undefined) return undefined;
+      const messages = yield* threads.getMessagesById(threadId, [run.userMessageId]);
+      return messages.get(run.userMessageId)?.context?.collaboratorFork?.name;
+    },
+    Effect.orElseSucceed(() => undefined),
+  );
 
   const wrapHandlers: CollaboratorSharesFork["Service"]["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
