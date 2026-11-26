@@ -11,6 +11,7 @@ import {
 import {
   type CollaboratorAccessFork,
   CollaboratorNameFork,
+  type CollaboratorShareThreadResultFork,
   type ScopedThreadRef,
   WS_METHODS,
 } from "@t3tools/contracts";
@@ -109,13 +110,7 @@ export function CollaboratorShareDialogHostFork() {
 type ShareState =
   | { readonly status: "idle" }
   | { readonly status: "creating" }
-  | {
-      readonly status: "created";
-      readonly name: string;
-      readonly pairingUrl: string;
-      readonly localOnly: boolean;
-      readonly knownCollaborator: boolean;
-    }
+  | ({ readonly status: "created" } & CollaboratorShareThreadResultFork)
   | { readonly status: "failed"; readonly message: string };
 
 function CollaboratorShareDialog({
@@ -163,7 +158,7 @@ function CollaboratorShareDialog({
     refreshShares();
     if (result._tag === "Success") {
       setName("");
-      setState({ status: "created", name: collaboratorName, ...result.value });
+      setState({ status: "created", ...result.value });
       return;
     }
     if (isAtomCommandInterrupted(result)) {
@@ -250,8 +245,8 @@ function CollaboratorShareDialog({
               <div className="flex flex-col gap-2">
                 <p className="text-sm">
                   {state.knownCollaborator
-                    ? `${state.name} already sees it in their sidebar. For another device, send this link.`
-                    : `Send ${state.name} this link to open the thread in T3 Code.`}
+                    ? `${state.collaboratorName} already sees it in their sidebar. For another device, send this link.`
+                    : `Send ${state.collaboratorName} this link to open the thread in T3 Code.`}
                 </p>
                 <div className="flex items-center gap-2">
                   <Input
