@@ -466,13 +466,13 @@ it.effect("a collaborator cannot save over another colleague's environment", () 
       yield* host.shares.share({ threadId: ThreadId.make("eve-thread"), collaboratorName: "Eve" });
       host.sessions.set("eve-app", { sessionId: "eve-app", subject: "colleague:eve" });
 
-      const evicted = yield* Effect.exit(
+      const evicted = yield* Effect.flip(
         host.colleagues.save(
           { subject: "colleague:eve", sessionId: AuthSessionId.make("eve-app") },
           { grant: { ...grantFrom(sam), url: "http://127.0.0.1:3899" } },
         ),
       );
-      assert.isTrue(Exit.isFailure(evicted));
+      assert.strictEqual(evicted._tag, "ColleagueSavedAsAnotherErrorFork");
       assert.deepStrictEqual(
         (yield* host.colleagues.list).map(({ subject, url }) => ({ subject, url })),
         [{ subject: "colleague:sam", url: sam.origin }],
@@ -552,7 +552,7 @@ it.effect("a pairing code never carries more than the colleague's grant", () =>
       const scopeless = yield* Effect.flip(
         sam.colleagues.issueClientPairing({ subject: "colleague:jo", scopes: [] }),
       );
-      assert.deepInclude(scopeless, { _tag: "ColleagueRefusedErrorFork", rule: "no-scope" });
+      assert.strictEqual(scopeless._tag, "ColleagueNotCollaboratorErrorFork");
     }),
   ),
 );
