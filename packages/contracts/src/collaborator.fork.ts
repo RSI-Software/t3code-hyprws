@@ -180,13 +180,15 @@ export const CollaboratorSetTypingInputFork = Schema.Struct({
 });
 export type CollaboratorSetTypingInputFork = typeof CollaboratorSetTypingInputFork.Type;
 
-/** Who wrote a user message the host's agent got from a collaborator. Only the server sets it. */
+/** Who wrote a user message the host's agent got in a shared thread. Only the server sets it. */
 export const CollaboratorAttributionFork = Schema.Struct({
   name: Schema.String,
   /** The collaborator's own words; the message text carries the attributed form the agent reads. */
   text: Schema.String,
   /** Set when the message waited for approval and the host sent it. */
   sentByHost: Schema.optional(Schema.Literal(true)),
+  /** The host's own message in a shared thread: named for the agent, shown as the host's. */
+  host: Schema.optional(Schema.Literal(true)),
 });
 export type CollaboratorAttributionFork = typeof CollaboratorAttributionFork.Type;
 
