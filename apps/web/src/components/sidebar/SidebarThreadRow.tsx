@@ -134,6 +134,8 @@ import { useThreadRunningTerminalIds } from "../../state/terminalSessions";
 import { InlineButton } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { ThreadArtifactBadgeFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-artifact-badge-import
+import { collaboratorRequestedLabelFork } from "../collaborator/collaboratorRequests.logic.fork"; // fork-hook: colleague-collab/sidebar-requests-import
+import { useThreadWithCollaboratorRequestsFork } from "../collaborator/useCollaboratorRequests.fork"; // fork-hook: colleague-collab/sidebar-requests-import
 import { ThreadHoverCardArtifactsFork } from "../threadArtifacts/ThreadArtifactBadge.fork"; // fork-hook: thread-artifacts/thread-hover-card-artifacts-import
 import {
   SHARED_THREAD_CARD_CLASS_FORK,
@@ -554,12 +556,13 @@ export function SortableThreadRow(
     scopeThreadRef(rowProps.thread.environmentId, rowProps.thread.id),
   );
   // A runtime on the arranged copy but not the run-less live shell is the list's launch overlay.
-  const thread =
+  const thread = useThreadWithCollaboratorRequestsFork(
     liveThread === null
       ? rowProps.thread
       : rowProps.thread.runtime !== null
         ? asLaunchingThread(liveThread)
-        : liveThread;
+        : liveThread,
+  ); // fork-hook: colleague-collab/sidebar-row-requests
   // Keyed by variant so a card/slim switch remounts the row.
   return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }
@@ -866,6 +869,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             : status === "request"
               ? {
                   label: gt("Request", { $context: "thread status: guest request" }),
+                  ...collaboratorRequestedLabelFork(gt, thread), // fork-hook: colleague-collab/sidebar-requested-label
                   icon: "request" as const,
                   className: "text-guest-foreground",
                 }
