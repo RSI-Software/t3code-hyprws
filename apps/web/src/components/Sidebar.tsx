@@ -3920,16 +3920,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       section: SidebarSection,
                       // The tree row of the project folder this row sits in.
                       folderRow?: string,
-                        groupState?: { grouped?: boolean; parent?: boolean; compact?: boolean }, // fork-hook: thread-ordering/group-row-state
+                      groupState?: { grouped?: boolean; parent?: boolean; compact?: boolean }, // fork-hook: thread-ordering/group-row-state
                     ) => {
                       const threadKey = scopedThreadKey(
                         scopeThreadRef(thread.environmentId, thread.id),
                       );
-                        const inheritedSnoozePropsFork = inheritedSidebarSnoozePropsFork(
-                          threadKey,
-                          snoozeOwnersFork,
-                          new Date().toISOString(),
-                        ); // fork-hook: thread-ordering/group-snooze-label
+                      const inheritedSnoozePropsFork = inheritedSidebarSnoozePropsFork(
+                        threadKey,
+                        snoozeOwnersFork,
+                        new Date().toISOString(),
+                      ); // fork-hook: thread-ordering/group-snooze-label
                       const isCard =
                         section === "active" || section === "pinned" || section === "working";
                       const rowVariant = folderRow
@@ -3967,13 +3967,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           settlementSupported={serverConfigs.has(thread.environmentId)}
                           snoozeSupported={serverConfigs.has(thread.environmentId)}
                           pinningSupported={serverConfigs.has(thread.environmentId)}
-                            {...collaboratorRowControlsFork(
-                              thread,
-                            )} /* fork-hook: colleague-collab/sidebar-row-controls */
+                          {...collaboratorRowControlsFork(
+                            thread,
+                          )} /* fork-hook: colleague-collab/sidebar-row-controls */
                           isPinned={thread.pinnedAt != null}
-                            grouped={groupState?.grouped} // fork-hook: thread-ordering/group-member-state
-                            groupParent={groupState?.parent} // fork-hook: thread-ordering/group-parent
-                            groupCompact={groupState?.compact} // fork-hook: thread-ordering/group-compact
+                          grouped={groupState?.grouped} // fork-hook: thread-ordering/group-member-state
+                          groupParent={groupState?.parent} // fork-hook: thread-ordering/group-parent
+                          groupCompact={groupState?.compact} // fork-hook: thread-ordering/group-compact
                           dropVerb={
                             dragState?.activeKey === threadKey
                               ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -4065,33 +4065,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       if (item.kind === "thread") {
                         // Folders draw active rows in their own place below.
                         if (projectFolders !== null && item.section === "active") continue;
-                          const groupEntry =
-                            item.section === "pinned" ||
-                            item.section === "active" ||
-                            item.section === "working" ||
-                            item.section === "snoozed"
-                              ? activeGroupByThreadKey.get(item.key)
-                              : undefined; // fork-hook: thread-ordering/group-member-entry
-                          const groupKey = groupEntry?.group.id ?? null; // fork-hook: thread-ordering/group-drag-dissolving
-                          const isDissolving =
-                            groupKey !== null &&
-                            threadGroupDragFork.dissolvingGroupKey === groupKey; // fork-hook: thread-ordering/group-drag-dissolving
-                          if (
-                            groupEntry?.isAnchor &&
-                            groupEntry.group.collapsed &&
-                            !groupEntry.isParent
-                          )
-                            continue; // fork-hook: thread-ordering/group-parent-fold
-                          if (groupEntry) {
-                            items.push(
-                              renderThreadRow(threadByKey.get(item.key)!, item.section, undefined, {
-                                grouped: !isDissolving && !groupEntry.isParent,
-                                parent: groupEntry.isParent && !isDissolving,
-                                compact: item.section === "active" && !groupEntry.isParent,
-                              }),
-                            );
-                            continue;
-                          } // fork-hook: thread-ordering/group-member-state
+                        const groupEntry =
+                          item.section === "pinned" ||
+                          item.section === "active" ||
+                          item.section === "working" ||
+                          item.section === "snoozed"
+                            ? activeGroupByThreadKey.get(item.key)
+                            : undefined; // fork-hook: thread-ordering/group-member-entry
+                        const groupKey = groupEntry?.group.id ?? null; // fork-hook: thread-ordering/group-drag-dissolving
+                        const isDissolving =
+                          groupKey !== null && threadGroupDragFork.dissolvingGroupKey === groupKey; // fork-hook: thread-ordering/group-drag-dissolving
+                        if (
+                          groupEntry?.isAnchor &&
+                          groupEntry.group.collapsed &&
+                          !groupEntry.isParent
+                        )
+                          continue; // fork-hook: thread-ordering/group-parent-fold
+                        if (groupEntry) {
+                          items.push(
+                            renderThreadRow(threadByKey.get(item.key)!, item.section, undefined, {
+                              grouped: !isDissolving && !groupEntry.isParent,
+                              parent: groupEntry.isParent && !isDissolving,
+                              compact: item.section === "active" && !groupEntry.isParent,
+                            }),
+                          );
+                          continue;
+                        } // fork-hook: thread-ordering/group-member-state
                         items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
                         continue;
                       }
@@ -4148,7 +4147,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       }
                       const threadGroupMarkerFork = parseSidebarThreadGroupMarker(item.marker); // fork-hook: thread-ordering/group-span-marker-parse
                       if (threadGroupMarkerFork !== null) {
-                          const span = threadGroupSpans.find(
+                        const span = threadGroupSpans.find(
                           (candidate) => candidate.groupKey === threadGroupMarkerFork.groupKey,
                         );
                         if (span === undefined) continue;
@@ -4156,18 +4155,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           <SortableSidebarMarker
                             key={item.marker}
                             marker={item.marker}
-                              // A parent's tab lines up with the card edge below it.
-                              className={span.parentKey === null ? "mx-0.5" : ""}
+                            // A parent's tab lines up with the card edge below it.
+                            className={span.parentKey === null ? "mx-0.5" : ""}
                           >
                             <SidebarThreadGroupHeader
                               group={span.group}
-                                childThreads={
-                                  span.parentKey === null ? null : span.threads.slice(1)
-                                }
-                                canEdit={
-                                  threadGroupsFork.canGroupThreadsFork(span.group.threadIds) &&
-                                  canOperateThreads(span.threads)
-                                }
+                              childThreads={span.parentKey === null ? null : span.threads.slice(1)}
+                              canEdit={
+                                threadGroupsFork.canGroupThreadsFork(span.group.threadIds) &&
+                                canOperateThreads(span.threads)
+                              }
                               memberCount={span.threads.length}
                               isGenerating={generatingGroupIds.has(span.groupKey)}
                               isDissolving={
