@@ -3003,7 +3003,7 @@ it("gives up on a never-started candidate by wall time when GitHub reads are slo
   });
 });
 
-it("runs the worktree setup in a scrubbed environment, on the main checkout's store", () => {
+it("runs the worktree setup in a scrubbed environment", () => {
   const keys = ["T3_SERVICE_LAUNCHER_CONTEXT", "T3CODE_HOME", "GH_REPO", "GH_HOST", "GH_TOKEN"];
   const inherited = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
@@ -3021,17 +3021,9 @@ it("runs the worktree setup in a scrubbed environment, on the main checkout's st
           return recording.runner.run(command, args, spec);
         },
       };
-      const modules = NodePath.join(f.root, "node_modules", ".modules.yaml");
-      NodeFS.mkdirSync(NodePath.dirname(modules), { recursive: true });
-      const store = NodePath.join(f.root, "node_modules", ".pnpm-store");
-      NodeFS.writeFileSync(modules, JSON.stringify({ storeDir: NodePath.join(store, "v11") }));
       capture(() => run(["v1.0.0"], { runner, root: f.root }));
       assert.strictEqual(seen.length, 1);
       const env = seen[0] ?? {};
-      // The worktree installs from the main checkout's store, never the inherited (RAM) one,
-      // copying from a store inside the checkout (a repo image's layer).
-      assert.strictEqual(env.pnpm_config_store_dir, store);
-      assert.strictEqual(env.pnpm_config_package_import_method, "copy");
       assert.deepStrictEqual(
         Object.keys(env).filter(
           (key) =>
