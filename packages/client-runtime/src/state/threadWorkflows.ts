@@ -210,6 +210,7 @@ export function deriveThreadQueueWorkflowState(
       run,
       // A queued guest message shows the guest's words; the agent still gets the attributed text.
       text: message?.context?.guest?.text ?? message?.text ?? resolve(msg("Queued message")),
+      ...(message?.context?.collaboratorFork && { text: message.context.collaboratorFork.text }), // fork-hook: colleague-collab/queued-own-words
       attachments: message?.attachments ?? [],
       messageId: run.userMessageId,
       ...(message?.context ? { context: message.context } : {}),
