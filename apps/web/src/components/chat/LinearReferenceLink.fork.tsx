@@ -48,8 +48,8 @@ export function LinearReferenceLink({
       : null;
   const [open, setOpen] = useState(false);
   const read = useReferenceReadFork(environmentId, href, preferredProjectId);
-  const chip = writtenText !== null && referenceStyle === "chip";
-  const { summary, revalidate } = useReferenceSummaryFork(read, chip || open);
+  // Only an open card reads: every chip reading on mount spends the account's Linear quota.
+  const { summary, revalidate } = useReferenceSummaryFork(read, open);
   const state = useReferenceStateFork(summary);
   const title = summary?.title ?? written ?? linearIssueSlugTitle(href);
   const Icon = state?.Icon ?? CircleDashedIcon;
