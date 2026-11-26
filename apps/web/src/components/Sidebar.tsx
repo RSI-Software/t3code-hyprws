@@ -103,6 +103,7 @@ import {
   openCollaboratorShareDialog,
 } from "./collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
 import { collaboratorRowControlsFork } from "./collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/sidebar-row-controls-import
+import { useSharedCardPropsFork } from "./collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -1008,6 +1009,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectGroupByScopeKey,
     projectScopeItems: lookupProjectScopeItems,
   } = useSidebarLookups();
+  const sharedCardPropsFork = useSharedCardPropsFork(); // fork-hook: colleague-collab/shared-card
   const delegatedUnderParent = useDelegatedUnderParent();
   const threadGroups = threadGroupsFork.useThreadGroupStoreFork((store) => store.threadGroups); // fork-hook: thread-ordering/group-state
   const {
@@ -3958,6 +3960,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           environmentMachine={
                             environmentMachineById.get(thread.environmentId) ?? "server"
                           }
+                          {...sharedCardPropsFork(
+                            thread,
+                          )} /* fork-hook: colleague-collab/shared-card */
                           project={
                             projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
                           }
