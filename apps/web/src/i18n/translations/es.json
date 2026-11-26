@@ -1682,6 +1682,15 @@
     },
     " y trae los archivos locales que git no rastrea."
   ],
+  "8cc15a6f70507c21": "Compartido contigo",
+  "3b725f8fc56f81e0": [
+    "Compartido por ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "77494a56d6315a2e": "Clonar por",
   "1c7a3992dd8e38af": "Copiar archivos ignorados",
   "7d4bb884e519b298": "Los archivos se copian cuando termina la clonación. Las carpetas que git ignora por completo, como node_modules, se omiten.",

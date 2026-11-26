@@ -41,12 +41,12 @@ export const colleaguesAtom = (environmentId: EnvironmentId) =>
 export const colleaguesServedFork = (
   configs: ReadonlyMap<
     EnvironmentId,
-    { readonly environment: { readonly capabilities: { readonly colleaguesFork?: boolean } } }
+    { readonly environment?: { readonly capabilities: { readonly colleaguesFork?: boolean } } }
   >,
   environmentId: EnvironmentId | null,
 ) =>
   environmentId !== null &&
-  configs.get(environmentId)?.environment.capabilities.colleaguesFork === true;
+  configs.get(environmentId)?.environment?.capabilities.colleaguesFork === true;
 
 const pairClientCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "colleagues:pair-client",

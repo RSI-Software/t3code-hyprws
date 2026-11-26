@@ -1682,6 +1682,15 @@
     },
     " and bring the local files git does not track."
   ],
+  "8cc15a6f70507c21": "Shared with you",
+  "3b725f8fc56f81e0": [
+    "Shared by ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "77494a56d6315a2e": "Clone over",
   "1c7a3992dd8e38af": "Copy ignored files",
   "7d4bb884e519b298": "Files are copied after the clone finishes. Folders git ignores whole, like node_modules, are left out.",

@@ -1682,6 +1682,15 @@
     },
     " och ta med de lokala filer som git inte spårar."
   ],
+  "8cc15a6f70507c21": "Delad med dig",
+  "3b725f8fc56f81e0": [
+    "Delad av ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "77494a56d6315a2e": "Klona via",
   "1c7a3992dd8e38af": "Kopiera ignorerade filer",
   "7d4bb884e519b298": "Filerna kopieras när kloningen är klar. Mappar som git ignorerar helt, som node_modules, utelämnas.",
