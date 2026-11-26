@@ -518,6 +518,8 @@ const make = Effect.gen(function* () {
       return yield* new CollaboratorThreadMissingErrorFork({ threadId });
     }
     const subject = collaboratorSubject(input.collaboratorName);
+    // A known colleague keeps their saved spelling, however the host typed it this time.
+    const collaboratorName = current.get(subject)?.name ?? input.collaboratorName;
     const knownCollaborator = yield* auth.listSessions().pipe(
       Effect.map((sessions) => sessions.some((session) => session.subject === subject)),
       Effect.orElseSucceed(() => false),
@@ -526,7 +528,7 @@ const make = Effect.gen(function* () {
     const issued = yield* auth
       .createPairingLink({
         subject,
-        label: `Collaborator ${input.collaboratorName}`,
+        label: `Collaborator ${collaboratorName}`,
         scopes: COLLABORATOR_SCOPES,
         ttl: SHARE_LINK_TTL,
       })
@@ -539,7 +541,7 @@ const make = Effect.gen(function* () {
     const access = input.access ?? null;
     yield* sql`
       INSERT INTO fork_colleague_shares (subject, thread_id, colleague_name, created_at, access)
-      VALUES (${subject}, ${thread.id}, ${input.collaboratorName}, ${createdAt}, ${access ?? "approve"})
+      VALUES (${subject}, ${thread.id}, ${collaboratorName}, ${createdAt}, ${access ?? "approve"})
       ON CONFLICT (subject, thread_id) DO UPDATE
       SET frozen_shell_json = NULL, access = COALESCE(${access}, access)
     `.pipe(
@@ -556,7 +558,7 @@ const make = Effect.gen(function* () {
     const { base, localOnly } = yield* pairingBaseUrl(input.linkBaseUrl);
     const pairing = new URL(buildPairingUrl(base, issued.credential));
     pairing.searchParams.set(COLLABORATOR_THREAD_LINK_PARAM, thread.id);
-    return { pairingUrl: pairing.toString(), localOnly, knownCollaborator };
+    return { pairingUrl: pairing.toString(), localOnly, knownCollaborator, collaboratorName };
   });
 
   const isShared = (subject: string, threadId: string) =>
