@@ -21,6 +21,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { CollaboratorSentByHostFork } from "../collaborator/CollaboratorMessageOutcome.fork"; // fork-hook: colleague-collab/queued-sent-by-host-import
+import { useCollaboratorQueueFork } from "../collaborator/CollaboratorQueuedRuns.fork"; // fork-hook: colleague-collab/queued-read-only-import
 import { Link } from "@tanstack/react-router";
 import {
   ArrowUpIcon,
@@ -123,6 +124,7 @@ export function QueuedRunsControl({
     queuedImageAttachmentResources,
   );
   const workflow = projection ? deriveThreadQueueWorkflowState(projection, messages) : null;
+  const collaboratorQueueFork = useCollaboratorQueueFork(props.environmentId, props.threadId); // fork-hook: colleague-collab/queued-read-only
   const queued = workflow?.queuedRuns ?? [];
   const activeRun = workflow?.activeRun ?? null;
   // A fresh message starts its own turn: it may skip compaction, but not steer into a turn.
@@ -211,6 +213,7 @@ export function QueuedRunsControl({
 
   useImperativeHandle(ref, () => ({
     steerNext(repeat) {
+      if (collaboratorQueueFork) return false; // fork-hook: colleague-collab/queued-read-only-steer
       const next = queued[0];
       if (!next || !canSendRun(next.run.freshContext === true)) return false;
       if (!repeat && busyRunId === null) void sendQueuedMessage(next.run.id);
@@ -218,6 +221,7 @@ export function QueuedRunsControl({
     },
     // Leave the key to caret navigation while editing.
     editLatest(repeat) {
+      if (collaboratorQueueFork) return false; // fork-hook: colleague-collab/queued-read-only-edit
       const latest = queued.at(-1);
       if (
         !latest ||
@@ -242,6 +246,7 @@ export function QueuedRunsControl({
   }));
 
   if (items.length === 0) return null;
+  if (collaboratorQueueFork) return collaboratorQueueFork(items, QueuedMessage, props); // fork-hook: colleague-collab/queued-read-only-list
 
   const remove = async (runId: RunId) => {
     setBusyRunId(runId);
