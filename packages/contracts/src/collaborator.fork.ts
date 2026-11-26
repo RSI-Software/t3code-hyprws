@@ -47,6 +47,8 @@ export const CollaboratorShareThreadResultFork = Schema.Struct({
   localOnly: Schema.Boolean,
   /** The collaborator already had a share, so their paired app shows this thread without the link. */
   knownCollaborator: Schema.Boolean,
+  /** The name the share went to: a known collaborator's saved spelling, else the name as typed. */
+  collaboratorName: Schema.String,
 });
 export type CollaboratorShareThreadResultFork = typeof CollaboratorShareThreadResultFork.Type;
 

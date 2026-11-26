@@ -50,6 +50,7 @@ const sharedProject = ProjectId.make("p-shared");
 const otherProject = ProjectId.make("p-other");
 const projectOf = { [shared]: sharedProject, [other]: otherProject } as Record<string, ProjectId>;
 const pairedSubjects = new Set<string>();
+const pairingLabels: Array<string> = [];
 const decodeSetTyping = Schema.decodeExit(CollaboratorSetTypingInputFork);
 const decodeSubmitMessage = Schema.decodeEffect(CollaboratorSubmitMessageInputFork);
 
@@ -99,7 +100,10 @@ const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
     ),
 });
 const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
-  createPairingLink: () => Effect.succeed({ credential: "token" } as never),
+  createPairingLink: (input) =>
+    Effect.sync(() => pairingLabels.push(input?.label ?? "")).pipe(
+      Effect.as({ credential: "token" } as never),
+    ),
   listSessions: () => Effect.succeed([...pairedSubjects].map((subject) => ({ subject }) as never)),
 });
 const config = Layer.succeed(ServerConfig.ServerConfig, {
@@ -678,7 +682,9 @@ database("CollaboratorSharesFork", (it) => {
           assert.deepStrictEqual(Option.getOrThrow(again), idle(true));
 
           // Typing "sam" for another thread reaches the same person, who stays "Sam".
-          yield* service.share({ threadId: other, collaboratorName: "sam" });
+          const typedLower = yield* service.share({ threadId: other, collaboratorName: "sam" });
+          assert.strictEqual(typedLower.collaboratorName, "Sam");
+          assert.strictEqual(pairingLabels.at(-1), "Collaborator Sam");
           const renamed = yield* sam["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
             Stream.runHead,
           );
