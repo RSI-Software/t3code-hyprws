@@ -324,10 +324,6 @@ database("CollaboratorSharesFork", (it) => {
         const sent = yield* dispatch(message(shared), undefined as never);
         assert.strictEqual(sentText(sent), attributed);
         assert.deepStrictEqual(sentAuthor(sent), { name: "Sam", text: "hi" });
-        for (const text of ["hi", attributed]) {
-          const edit = message(shared, "queued-run.edit", text);
-          assert.strictEqual(sentText(yield* dispatch(edit, undefined as never)), attributed);
-        }
         const refused = yield* Effect.exit(dispatch(message(other), undefined as never));
         assert.isTrue(Exit.isFailure(refused));
         for (const type of [
@@ -340,7 +336,16 @@ database("CollaboratorSharesFork", (it) => {
             type,
           );
         }
-        for (const type of ["thread.archive", "thread.settle", "thread.runtime-mode.set"]) {
+        for (const type of [
+          "thread.archive",
+          "thread.settle",
+          "thread.runtime-mode.set",
+          "queued-run.edit",
+          "queued-run.cancel",
+          "queued-run.start",
+          "queued-run.reorder",
+          "queued-message.promote-to-steer",
+        ]) {
           const hostOnly = yield* Effect.exit(dispatch(message(shared, type), undefined as never));
           assert.isTrue(Exit.isFailure(hostOnly));
         }

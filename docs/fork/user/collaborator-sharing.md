@@ -56,6 +56,7 @@ To **cut all access**, revoke their session in **Settings → Connections**; a s
 - **Only threads** you shared
 - **Diffs and search** in those threads
 - **No terminals**, files, or settings
+- **No queue controls**; queued messages stay yours
 
 ## Reachability
 

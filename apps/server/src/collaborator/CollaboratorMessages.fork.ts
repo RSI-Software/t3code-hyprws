@@ -28,22 +28,13 @@ import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.t
  * agent answers them here instead of drafting replies for the host to pass on.
  */
 export const collaboratorPrompt = (name: string, text: string) =>
-  `${collaboratorPromptPrefix(name)}${text}`;
-
-const collaboratorPromptPrefix = (name: string) =>
-  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${name} reads this thread and your replies live, so answer ${name} here directly, as you would the owner.]\n\n`;
+  `[${name}, a collaborator the owner shared this thread with, wrote the message below. ${name} reads this thread and your replies live, so answer ${name} here directly, as you would the owner.]\n\n${text}`;
 
 /** The attributed text and the context that shows the collaborator's own words beside their name. */
-export const collaboratorAttribution = (name: string, text: string) => {
-  // A queued edit starts from the already attributed text, so the prefix is not repeated.
-  const own = text.startsWith(collaboratorPromptPrefix(name))
-    ? text.slice(collaboratorPromptPrefix(name).length)
-    : text;
-  return {
-    text: collaboratorPrompt(name, own),
-    context: { collaboratorFork: { name, text: own } },
-  };
-};
+export const collaboratorAttribution = (name: string, text: string) => ({
+  text: collaboratorPrompt(name, text),
+  context: { collaboratorFork: { name, text } },
+});
 
 interface MessageRow {
   readonly id: string;
