@@ -733,7 +733,7 @@ function TerminalSessionViewport({
   });
   const canAddSelectionToChat = useEffectEvent(() => onAddTerminalContext !== undefined);
   const resolveTerminalPath = useEffectEvent((target: string) =>
-    resolveTerminalLinkTarget(target, cwd),
+    resolveTerminalLinkTarget(target, cwd, readHostname()),
   ); // fork-hook: zmux-estate/terminal-path-context
   const readTerminalContextIdentity = useEffectEvent(() => ({
     terminalId,
