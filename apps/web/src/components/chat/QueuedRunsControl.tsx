@@ -20,6 +20,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
+import { CollaboratorSentByHostFork } from "../collaborator/CollaboratorMessageOutcome.fork"; // fork-hook: colleague-collab/queued-sent-by-host-import
 import { Link } from "@tanstack/react-router";
 import {
   ArrowUpIcon,
@@ -624,6 +625,12 @@ function QueuedMessage(props: {
             />
           </span>
         ) : null}
+        {/* fork-hook: colleague-collab/queued-sent-by-host */}
+        <CollaboratorSentByHostFork
+          context={props.message?.context}
+          environmentId={props.environmentId}
+        />
+        {/* fork-hook-end */}
         {props.children}
       </div>
     </>
