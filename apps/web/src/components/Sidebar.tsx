@@ -137,6 +137,7 @@ import { isMacPlatform } from "~/lib/utils";
 import * as threadGroupsFork from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
 import { SidebarThreadGroupDropLayerFork, SidebarThreadGroupHeader } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
+import { useThreadsWithCollaboratorRequestsFork } from "./collaborator/useCollaboratorRequests.fork"; // fork-hook: colleague-collab/sidebar-requests-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
 import { sidebarThreadGroupLayoutFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
 import { useThreadGroupTitlesFork } from "./SidebarThreadGroup.title"; // fork-hook: thread-ordering/group-titles-import
@@ -1251,7 +1252,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
-  const threads = useQuietThreadShells();
+  const threads = useThreadsWithCollaboratorRequestsFork(useQuietThreadShells()); // fork-hook: colleague-collab/sidebar-requests
   const promotingDraftThreadKeys = usePromotingDraftThreadKeys();
   const listedThreads =
     promotingDraftThreadKeys.length === 0

@@ -6,7 +6,6 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   createEnvironmentRpcCommand,
-  createEnvironmentRpcSubscriptionAtomFamily,
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -41,13 +40,9 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { DismissedMessageFork, useWaitingListLabelFork } from "./CollaboratorMessageOutcome.fork";
+import { collaboratorMessages } from "./useCollaboratorRequests.fork";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
-
-const collaboratorMessages = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
-  label: "environment-data:collaborator:messages",
-  tag: WS_METHODS.collaboratorSubscribeMessagesFork,
-});
 
 const submitMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "send message for approval",
