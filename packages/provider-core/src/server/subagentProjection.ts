@@ -74,6 +74,7 @@ export function makeSubagentChildThread(input: {
     titleRenamed: false,
     linkedPullRequest: null,
     pullRequests: [],
+    issues: [], // fork-hook: upstream-fixes/subagent-issue-links
     historyOrigin: undefined,
     providerInstanceId: input.providerInstanceId,
     modelSelection: input.modelSelection,
