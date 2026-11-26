@@ -366,69 +366,85 @@ export class ColleagueStorageErrorFork extends Schema.TaggedError<ColleagueStora
   }
 }
 
-/** A request this server will not act on; `origin` is the address's scheme and host only. */
-export class ColleagueRefusedErrorFork extends Schema.TaggedError<ColleagueRefusedErrorFork>()(
-  "ColleagueRefusedErrorFork",
-  {
-    rule: Schema.Literals([
-      "own-environment",
-      "own-grant",
-      "not-collaborator",
-      "no-live-share",
-      "saved-as-another",
-      "not-http",
-      "public-http",
-      "no-scope",
-    ]),
-    origin: Schema.optional(Schema.String),
-  },
+export class ColleagueSelfErrorFork extends Schema.TaggedError<ColleagueSelfErrorFork>()(
+  "ColleagueSelfErrorFork",
+  {},
 ) {
   override get message(): string {
-    return this.rule === "public-http" && this.origin !== undefined
-      ? `${this.origin} is public plain http.`
-      : COLLEAGUE_REFUSALS[this.rule];
+    return "That is this environment.";
   }
 }
 
-const COLLEAGUE_REFUSALS: Record<ColleagueRefusedErrorFork["rule"], string> = {
-  "own-environment": "That is this environment.",
-  "own-grant": "That grant is from this environment.",
-  "not-collaborator": "That subject is not a collaborator's.",
-  "no-live-share": "Only a collaborator with a shared thread saves its sharer.",
-  "saved-as-another": "That environment is saved here as another colleague.",
-  "not-http": "Their address is not an http or https address.",
-  "public-http": "Their address is public plain http.",
-  "no-scope": "That grant cannot attach a client.",
-};
+/** The caller holds no live collaborator share, or a grant without its scopes. */
+export class ColleagueNotCollaboratorErrorFork extends Schema.TaggedError<ColleagueNotCollaboratorErrorFork>()(
+  "ColleagueNotCollaboratorErrorFork",
+  {},
+) {
+  override get message(): string {
+    return "Only a collaborator with a shared thread saves its sharer.";
+  }
+}
 
-/** The colleague's server failed a call: silent, refused this side's grant, or answered wrong. */
+export class ColleagueSavedAsAnotherErrorFork extends Schema.TaggedError<ColleagueSavedAsAnotherErrorFork>()(
+  "ColleagueSavedAsAnotherErrorFork",
+  {},
+) {
+  override get message(): string {
+    return "That environment is saved here as another colleague.";
+  }
+}
+
+export class ColleagueAddressErrorFork extends Schema.TaggedError<ColleagueAddressErrorFork>()(
+  "ColleagueAddressErrorFork",
+  {},
+) {
+  override get message(): string {
+    return "Their address must be https, or http on loopback, Tailscale or a private network.";
+  }
+}
+
+export class ColleagueSilentErrorFork extends Schema.TaggedError<ColleagueSilentErrorFork>()(
+  "ColleagueSilentErrorFork",
+  { colleague: Schema.String, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `${this.colleague}'s server did not answer.`;
+  }
+}
+
+/** Their server answered 401 or 403 to this side's grant. */
+export class ColleagueRevokedErrorFork extends Schema.TaggedError<ColleagueRevokedErrorFork>()(
+  "ColleagueRevokedErrorFork",
+  { colleague: Schema.String },
+) {
+  override get message(): string {
+    return `${this.colleague}'s server no longer accepts this one.`;
+  }
+}
+
+/** Their server failed the call: `status` for an error answer, `cause` for an unknown shape. */
 export class ColleagueRemoteErrorFork extends Schema.TaggedError<ColleagueRemoteErrorFork>()(
   "ColleagueRemoteErrorFork",
   {
     colleague: Schema.String,
-    outcome: Schema.Literals(["silent", "refused", "failed", "unknown-shape"]),
     status: Schema.optional(Schema.Number),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
-    switch (this.outcome) {
-      case "silent":
-        return `${this.colleague}'s server did not answer.`;
-      case "refused":
-        return `${this.colleague}'s server no longer accepts this one.`;
-      case "failed":
-        return `${this.colleague}'s server answered ${this.status}.`;
-      case "unknown-shape":
-        return `${this.colleague}'s server answered in an unknown shape.`;
-    }
+    return `${this.colleague}'s server could not do that.`;
   }
 }
 
 export const ColleagueErrorFork = Schema.Union([
   ColleagueMissingErrorFork,
   ColleagueStorageErrorFork,
-  ColleagueRefusedErrorFork,
+  ColleagueSelfErrorFork,
+  ColleagueNotCollaboratorErrorFork,
+  ColleagueSavedAsAnotherErrorFork,
+  ColleagueAddressErrorFork,
+  ColleagueSilentErrorFork,
+  ColleagueRevokedErrorFork,
   ColleagueRemoteErrorFork,
 ]);
 export type ColleagueErrorFork = typeof ColleagueErrorFork.Type;
