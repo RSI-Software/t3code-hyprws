@@ -68,21 +68,20 @@ Already in the base means **the symptom is something else**.
 
 ### Merged
 
-**Resolve the first stable tag** containing the merge commit, verify the fix on it, and file a fork issue to **rebase onto that tag**.
+The [sync](../../../docs/fork/operations/fork-sync.md) rebases `hyprws` onto **the newest upstream release tag, nightly included**, so a merged fix **arrives with the first tag** containing it.
 **Never carry a fork patch** for a fix one rebase away.
+
+- Carried: **`git merge-base --is-ancestor`**
+- Tagged, not carried: **the sync is stuck**
+- **Verify** on the fork build carrying it
 
 #### Merged, untagged
 
-No upstream release carries it; **never name a tag that does not exist**.
+No upstream tag carries it; **never name a tag that does not exist**.
 
 - **Cite** merge commit and merge date
-- **File** an `upstream-watch` fork issue
-- **Rebase** onto the next stable tag
-- **Re-check** at every rebase
-- **Name the tag** once one exists
-
-When it **blocks work** before that tag, name the **nightly tag** that contains it, the exception [Fork development](../../../docs/fork/internals/fork-development.md) allows.
-**Fix under `upstream-fixes`** only when no tag contains it, small enough to drop on the real fix's rebase.
+- The **next upstream nightly** brings it in
+- Blocks work: **fix under `upstream-fixes`**
 
 ### PR pending
 
@@ -142,11 +141,11 @@ File through the **`linear` skill**, as the user, in team `RSI`:
 2. Match: **update its body**; never file a replacement
 3. No match: **`save_issue`**, state **Triage**
 
-Labels: `Bug`, `RSI-Software/t3code-hyprws`, `agent-filed`.
+Labels per the `linear` skill: Type **`Bug`**, repo **`RSI-Software/t3code-hyprws`**.
 Priority **High only when it blocks work**.
 
 An `upstream-watch` issue is one whose body says **`Fork action: watch`**; Linear has no such label.
-It covers the classes that wait: **merged, untagged**, **PR pending**, **draft**, **issue only**.
+It covers the classes that wait: **PR pending**, **draft**, **issue only**.
 
 ## Survey a domain
 
@@ -259,14 +258,14 @@ An `Ideas` thread is **a request**, however many upvotes.
 
 Match each item to the domain it touches **through the rebase scans**; take **the first matching follow-up**:
 
-| Follow-up         | When                                       |
-| ----------------- | ------------------------------------------ |
-| **rebase target** | shipped, not yet carried, and wanted       |
-| **trial**         | open or draft, wanted now                  |
-| **watch**         | merged untagged, or open the fork waits on |
-| **fork fix**      | nothing to rebase onto; fork needs it      |
-| **note only**     | in a domain, nothing to do                 |
-| **nothing**       | touches no fork domain                     |
+| Follow-up         | When                                  |
+| ----------------- | ------------------------------------- |
+| **rebase target** | shipped, not yet carried, and wanted  |
+| **trial**         | open or draft, wanted now             |
+| **watch**         | open, and the fork waits on it        |
+| **fork fix**      | nothing to rebase onto; fork needs it |
+| **note only**     | in a domain, nothing to do            |
+| **nothing**       | touches no fork domain                |
 
 - Wanted: it **retires or collides** with delta
 - Wanted: or **adds behaviour** the fork wants

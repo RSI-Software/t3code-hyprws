@@ -233,15 +233,13 @@ Excluding prereleases is not tidiness.
 GitHub marks them `isPrerelease: true`, so a prerelease is never the first stable tag, and a recipe that answers one reports a release carrying the fix when none does yet.
 `--list 'v*'` with a `grep -v -e nightly -e hyprws` **admits alphas**, naming a prerelease where a later stable tag is the answer.
 
-That first stable tag is the rebase target to name on the fork issue.
-When nothing comes back, no stable release carries the fix yet, and upstream tags nightlies continuously, so check those before calling it unshipped:
+That first stable tag is the release to cite.
+The sync also rebases onto upstream nightlies, so the first nightly containing the fix is the one that brings it into the fork:
 
 ```bash
-git tag --contains <merge-commit-sha> --sort=v:refname | grep nightly | head -1
+git tag --contains <merge-commit-sha> --sort=v:refname | grep -- '-nightly\.' | grep -v hyprws | head -1
 ```
 
-A nightly is the one prerelease the fork may rebase onto, and only as the deliberate exception [Fork development](../../../../docs/fork/internals/fork-development.md) allows.
-Name it as the rebase target only when the symptom blocks work before the next stable release, and say on the fork issue that the target is a nightly rather than a release.
 When neither line answers, the fix merged after every existing tag.
 
 To see whether the fork already carries it:
