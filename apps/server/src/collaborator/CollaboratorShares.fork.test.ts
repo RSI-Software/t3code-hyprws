@@ -1,6 +1,10 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  AuthAccessWriteScope,
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  type AuthEnvironmentScope,
   COLLABORATOR_DRAFT_TEXT_MAX_CHARS,
   type CollaboratorDraftFork,
   CollaboratorSetTypingInputFork,
@@ -33,6 +37,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as RpcAuthorization from "../auth/RpcAuthorization.ts";
 import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
@@ -193,6 +198,39 @@ const sentText = (command: OrchestrationV2Command) => ("text" in command ? comma
 const sentContext = (command: OrchestrationV2Command) =>
   "context" in command ? command.context : undefined;
 const sentAuthor = (command: OrchestrationV2Command) => sentContext(command)?.collaboratorFork;
+
+it.effect("hands out the collaborator grant only to a session holding it", () =>
+  Effect.gen(function* () {
+    const denied = (scopes: ReadonlyArray<AuthEnvironmentScope>, method: string) =>
+      Effect.service(RpcScopeAuthorization).pipe(
+        Effect.flatMap((authorize) =>
+          authorize(
+            Effect.void as never,
+            {
+              rpc: { _tag: method },
+              payload: { threadId: shared, collaboratorName: "Sam", access: "send" },
+            } as never,
+          ),
+        ),
+        Effect.provide(RpcAuthorization.layer(scopes)),
+        Effect.flip,
+        Effect.map(
+          (error) => (error as { requiredPermission: AuthEnvironmentScope }).requiredPermission,
+        ),
+        Effect.orElseSucceed(() => null),
+      );
+    const manager = [AuthAccessWriteScope];
+    const reader = [AuthAccessWriteScope, AuthOrchestrationReadScope];
+    const host = [...reader, AuthOrchestrationOperateScope];
+    const share = WS_METHODS.collaboratorShareThreadFork;
+    const setAccess = WS_METHODS.collaboratorSetAccessFork;
+    assert.strictEqual(yield* denied(manager, share), AuthOrchestrationReadScope);
+    assert.strictEqual(yield* denied(reader, share), AuthOrchestrationOperateScope);
+    assert.strictEqual(yield* denied(reader, setAccess), AuthOrchestrationOperateScope);
+    assert.isNull(yield* denied(host, share));
+    assert.isNull(yield* denied(manager, WS_METHODS.collaboratorUnshareThreadFork));
+  }),
+);
 
 database("CollaboratorSharesFork", (it) => {
   it.effect("narrows a collaborator's shell live, from a fresh snapshot on every change", () =>

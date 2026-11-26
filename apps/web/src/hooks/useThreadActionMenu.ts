@@ -35,7 +35,10 @@ import {
   useThreadForkDispatchFork,
 } from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
-import { openCollaboratorShareDialog } from "../components/collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/menu-dispatch-import
+import {
+  canShareWithCollaboratorFork,
+  openCollaboratorShareDialog,
+} from "../components/collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/menu-dispatch-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { m } from "../i18n/messages";
@@ -167,6 +170,7 @@ export function useThreadActionMenu(input: {
         ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
       ), // fork-hook: thread-fork/header-menu-state
       openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
+      canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
       supports,
       snoozePresets,
       canShareWithGuest,
