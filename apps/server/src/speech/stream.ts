@@ -16,6 +16,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as Socket from "effect/socket/Socket";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as SpeechService from "./SpeechService.ts";
+import { isCollaboratorSubject } from "../collaborator/collaboratorSubject.fork.ts"; // fork-hook: colleague-collab/media-refuse-import
 
 // A recording client streams audio continuously; behind a proxy a vanished
 // client never closes the server side, so silence is the only sign it is gone.
@@ -129,6 +130,8 @@ export const speechStreamRouteLayer = Layer.unwrap(
         if (session._tag === "Failure") return HttpServerResponse.empty({ status: 401 });
         if (!session.success.scopes.includes(AuthOrchestrationOperateScope))
           return HttpServerResponse.empty({ status: 403 });
+        if (isCollaboratorSubject(session.success.subject))
+          return HttpServerResponse.empty({ status: 403 }); // fork-hook: colleague-collab/media-refuse
         const socket = yield* request.upgrade;
         yield* runSpeechSocket(socket, speech).pipe(Effect.scoped);
         return HttpServerResponse.empty();

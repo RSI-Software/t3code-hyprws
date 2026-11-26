@@ -863,14 +863,6 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(CollaboratorSharesFork, make);
 
-/** Collaborator sessions read the shell over the socket, where it is filtered; refuse the HTTP copy. */
-export const refuseCollaboratorHttpShellFork = Effect.gen(function* () {
-  const principal = yield* EnvironmentAuthenticatedPrincipal;
-  if (isCollaboratorSubject(principal.subject)) {
-    return yield* failEnvironmentScopeRequired(AuthOrchestrationReadScope);
-  }
-});
-
 /** Refuses a collaborator's HTTP read of a thread not shared with it live, failing closed. */
 export const requireCollaboratorHttpThreadFork = Effect.fn("requireCollaboratorHttpThreadFork")(
   function* (threadId: string) {
