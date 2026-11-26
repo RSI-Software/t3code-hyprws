@@ -86,11 +86,17 @@ const AGENT_STEPS: ReadonlySet<string> = new Set(["carry", "hooks", "ci"]);
 /**
  * Every labelling write stamps its time. An unlabelled issue whose body has not
  * moved since then holds a job that failed, lost its push, or made no progress;
- * once its sticky comment settles, or the job budget (45 min run, 12 min push)
- * has surely passed, that body relabels once, and a second miss waits for a human.
+ * once its sticky comment settles, or the job budget has surely passed, that
+ * body relabels once, and a second miss waits for a human.
  */
 const AGENT_STAMP_PATTERN = /^<!-- agent-labelled:(\S+)( retried)? -->$/m;
-const AGENT_RETRY_AFTER_MS = 75 * 60 * 1000;
+/** `timeout` in `.rsi-agent/workflows/fork-sync.md`, then its push. */
+const AGENT_RUN_MS = 45 * 60 * 1000;
+const AGENT_PUSH_MS = 12 * 60 * 1000;
+/** rsi-agent's `MAX_TRIES` and 1 then 2 min backoff; its sticky reads running until the last try ends. */
+const AGENT_TRIES = 3;
+const AGENT_BACKOFF_MS = (1 + 2) * 60 * 1000;
+const AGENT_RETRY_AFTER_MS = AGENT_TRIES * AGENT_RUN_MS + AGENT_BACKOFF_MS + AGENT_PUSH_MS;
 /** rsi-agent's one sticky comment per issue; hyprws-sync-resolution.yml reads the same states. */
 const AGENT_STICKY_MARKER = "<!-- rsi:fork-sync -->";
 const AGENT_LIVE_STATES = ["**running**", "**pushing**"];
