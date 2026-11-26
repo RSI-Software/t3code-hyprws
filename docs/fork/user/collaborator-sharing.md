@@ -35,6 +35,7 @@ The share dialog and command palette offer the same.
 ## Approve their messages
 
 By default each collaborator **Needs approval**: their messages **wait for you** at the end of the thread, with **Send** and **Dismiss**.
+Until you answer, the thread's card reads **Requested by** their name and **comes back** from Settled or a snooze.
 Switch them to **Can send** to let messages **reach the agent** at once.
 Change it beside their name in the share dialog, or under **Collaborators** in the thread details.
 
