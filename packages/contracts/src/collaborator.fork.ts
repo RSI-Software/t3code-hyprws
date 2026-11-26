@@ -81,7 +81,7 @@ export const CollaboratorSetAccessInputFork = Schema.Struct({
 });
 export type CollaboratorSetAccessInputFork = typeof CollaboratorSetAccessInputFork.Type;
 
-/** A collaborator's message waiting for the host to send or dismiss it. */
+/** A collaborator's message waiting for the host, or one the host dismissed, until its author clears it. */
 export const CollaboratorMessageFork = Schema.Struct({
   id: TrimmedNonEmptyString,
   threadId: ThreadId,
@@ -89,6 +89,7 @@ export const CollaboratorMessageFork = Schema.Struct({
   name: Schema.String,
   text: Schema.String,
   submittedAt: IsoDateTime,
+  outcome: Schema.optional(Schema.Literal("dismissed")),
 });
 export type CollaboratorMessageFork = typeof CollaboratorMessageFork.Type;
 
@@ -101,7 +102,7 @@ export const CollaboratorSubmitMessageInputFork = Schema.Struct({
 });
 export type CollaboratorSubmitMessageInputFork = typeof CollaboratorSubmitMessageInputFork.Type;
 
-/** The host sends or dismisses; a collaborator may only dismiss, withdrawing their own. */
+/** The host sends or dismisses; a collaborator may only dismiss, withdrawing or clearing their own. */
 export const CollaboratorResolveMessageInputFork = Schema.Struct({
   threadId: ThreadId,
   messageId: TrimmedNonEmptyString,
@@ -178,6 +179,8 @@ export const CollaboratorAttributionFork = Schema.Struct({
   name: Schema.String,
   /** The collaborator's own words; the message text carries the attributed form the agent reads. */
   text: Schema.String,
+  /** Set when the message waited for approval and the host sent it. */
+  sentByHost: Schema.optional(Schema.Literal(true)),
 });
 export type CollaboratorAttributionFork = typeof CollaboratorAttributionFork.Type;
 

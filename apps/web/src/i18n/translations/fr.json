@@ -5142,6 +5142,12 @@
     },
     "."
   ],
+  "bc1ebf16b72c9ce5": "Effacer le message refusé",
+  "60b68a9c401acc81": "Refusé par l’hôte",
+  "4f113bb0bc732b3d": "Effacer",
+  "0bbf2aafc8237b02": "Envoyé par l’hôte",
+  "24c8dfc068a42d78": "Messages refusés par l’hôte",
+  "0294b3d077615215": "{count, plural, one {{count} message en attente de l’hôte} other {{count} messages en attente de l’hôte}}",
   "3bd17825c03a079e": "Retirer de cet appareil",
   "0c908cde609c9b94": "Associez un compte T3 Chat payant pour plus de tunnels T3 Connect : jusqu’à {pro} avec Pro, {premier} avec Premier.",
   "fa83ec856513632c": "Non associé",

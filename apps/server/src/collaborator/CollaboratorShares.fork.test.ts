@@ -137,10 +137,7 @@ const tunnelClient = (ingress?: Ingress) =>
     ),
   );
 
-const withService = <A, E>(
-  effect: Effect.Effect<A, E, CollaboratorShares.CollaboratorSharesFork | SqlClient.SqlClient>,
-  tunnel?: Ingress,
-) =>
+const withService = <A, E, R>(effect: Effect.Effect<A, E, R>, tunnel?: Ingress) =>
   Effect.andThen(
     ensureForkSchema(),
     Effect.provide(effect, CollaboratorShares.layer.pipe(Layer.provide(tunnelClient(tunnel)))),
@@ -449,8 +446,33 @@ database("CollaboratorSharesFork", (it) => {
         assert.deepStrictEqual(yield* waiting(host), []);
         assert.deepStrictEqual(
           hostDispatches.map((command) => [sentText(command), sentAuthor(command)]),
-          [[collaboratorPrompt("Sam", "first"), { name: "Sam", text: "first" }]],
+          [[collaboratorPrompt("Sam", "first"), { name: "Sam", text: "first", sentByHost: true }]],
         );
+
+        // A dismissal stays with Sam, past a restart, until Sam clears it, and holds no slot.
+        yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "maybe" });
+        const resolve = (handlers: typeof host, messageId: string, decision: "send" | "dismiss") =>
+          handlers["collaborator.resolveMessageFork"]({ threadId: shared, messageId, decision });
+        const [maybe] = yield* waiting(sam);
+        yield* resolve(host, maybe!.id, "dismiss");
+        assert.deepStrictEqual(yield* waiting(host), []);
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(resolve(host, maybe!.id, "send"))));
+        const restarted = yield* Effect.provide(
+          Effect.flatMap(CollaboratorShares.CollaboratorSharesFork, (restarted) =>
+            waiting(restarted.messageHandlers("colleague:sam")),
+          ),
+          CollaboratorShares.layer.pipe(Layer.provide(tunnelClient())),
+        );
+        assert.deepStrictEqual(
+          restarted.map(({ text, outcome }) => ({ text, outcome })),
+          [{ text: "maybe", outcome: "dismissed" }],
+        );
+        for (const text of ["a", "b", "c"]) {
+          yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text });
+        }
+        for (const { id } of yield* waiting(sam)) yield* resolve(sam, id, "dismiss");
+        assert.deepStrictEqual(yield* waiting(sam), []);
+        assert.strictEqual(hostDispatches.length, 1);
 
         // Send access lets Sam's messages through directly, and refuses the approval path.
         yield* service.setAccess({ subject: "colleague:sam", threadId: shared, access: "send" });

@@ -5141,6 +5141,12 @@
     },
     "."
   ],
+  "bc1ebf16b72c9ce5": "Limpar mensagem descartada",
+  "60b68a9c401acc81": "Descartada pelo anfitrião",
+  "4f113bb0bc732b3d": "Limpar",
+  "0bbf2aafc8237b02": "Enviada pelo anfitrião",
+  "24c8dfc068a42d78": "Mensagens descartadas pelo anfitrião",
+  "0294b3d077615215": "{count, plural, one {{count} mensagem aguardando o anfitrião} other {{count} mensagens aguardando o anfitrião}}",
   "3bd17825c03a079e": "Remover deste dispositivo",
   "0c908cde609c9b94": "Vincule uma conta paga do T3 Chat para ter mais túneis do T3 Connect: até {pro} com o Pro e {premier} com o Premier.",
   "fa83ec856513632c": "Não vinculado",

@@ -19,6 +19,8 @@ const FORK_COLUMNS: ReadonlyArray<{
   { table: "fork_colleague_shares", column: "frozen_shell_json", definition: "TEXT" },
   // What a live share's collaborator messages may do: `send`, or `approve` to wait for the host.
   { table: "fork_colleague_shares", column: "access", definition: "TEXT" },
+  // `dismissed` once the host dismisses a collaborator's message; null while it waits.
+  { table: "fork_collaborator_messages", column: "outcome", definition: "TEXT" },
 ];
 
 /**

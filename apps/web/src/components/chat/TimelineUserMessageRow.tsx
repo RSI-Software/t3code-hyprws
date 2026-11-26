@@ -57,6 +57,7 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { GuestMessageName, guestBubbleClassName } from "./guestMessageStyle";
+import { CollaboratorSentByHostFork } from "../collaborator/CollaboratorMessageOutcome.fork"; // fork-hook: colleague-collab/sent-by-host-import
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { PierreEntryIcon } from "./PierreEntryIcon";
@@ -1120,6 +1121,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         ) : null}
       </div>
       <UserMessageProjectedStatus row={row} />
+      {/* fork-hook: colleague-collab/sent-by-host */}
+      <CollaboratorSentByHostFork
+        context={row.message.context}
+        environmentId={ctx.activeThreadEnvironmentId}
+      />
+      {/* fork-hook-end */}
       {!folded || expanded ? (
         <div
           className={cn(

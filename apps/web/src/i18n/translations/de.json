@@ -5143,6 +5143,12 @@
     },
     "."
   ],
+  "bc1ebf16b72c9ce5": "Verworfene Nachricht entfernen",
+  "60b68a9c401acc81": "Vom Gastgeber verworfen",
+  "4f113bb0bc732b3d": "Entfernen",
+  "0bbf2aafc8237b02": "Vom Gastgeber gesendet",
+  "24c8dfc068a42d78": "Vom Gastgeber verworfene Nachrichten",
+  "0294b3d077615215": "{count, plural, one {{count} Nachricht wartet auf den Gastgeber} other {{count} Nachrichten warten auf den Gastgeber}}",
   "3bd17825c03a079e": "Von diesem Gerät entfernen",
   "0c908cde609c9b94": "Verknüpfe ein kostenpflichtiges T3-Chat-Konto für mehr T3-Connect-Tunnel: bis zu {pro} mit Pro, {premier} mit Premier.",
   "fa83ec856513632c": "Nicht verknüpft",
