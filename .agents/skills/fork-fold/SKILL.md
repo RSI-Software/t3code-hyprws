@@ -95,11 +95,11 @@ A tree-equal fold needs no retest.
 
 ## Stops
 
-| Output                                | Move                               |
-| ------------------------------------- | ---------------------------------- |
-| `does not apply at its plan position` | Reorder or split that line         |
-| `plan does not cover the stack`       | Fix the listed shas                |
-| `prove` fails                         | Fix the plan, or hand off unfolded |
+| Output                          | Move                               |
+| ------------------------------- | ---------------------------------- |
+| `stopped: <sha> <subject>`      | Resolve in the worktree; rerun     |
+| `plan does not cover the stack` | Fix the listed shas                |
+| `prove` fails                   | Fix the plan, or hand off unfolded |
 
 ## Cadence
 
