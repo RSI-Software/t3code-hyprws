@@ -269,7 +269,7 @@ export function buildThreadActionMenuItems(
     ...(state.canShareWithGuest
       ? [{ id: "share-guest" as const, label: resolve(msg("Share with guest")), icon: "user-plus" }]
       : []),
-    ...collaboratorShareMenuItems(state), // fork-hook: colleague-collab/menu-items
+    ...collaboratorShareMenuItems(state, resolve), // fork-hook: colleague-collab/menu-items
     ...(state.projectFilter
       ? [
           {

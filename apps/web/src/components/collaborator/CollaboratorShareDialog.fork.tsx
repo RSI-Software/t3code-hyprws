@@ -16,6 +16,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { useGT, useMessages } from "gt-react";
 import { CheckIcon, CopyIcon, PlusIcon, UserIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -39,6 +40,7 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ACCESS, setAccessCommand, threadSharesQuery } from "./collaboratorAccess.fork";
+import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
 
 const isCollaboratorName = Schema.is(CollaboratorNameFork);
@@ -64,6 +66,7 @@ function AccessSelect({
   readonly disabled: boolean;
   readonly onChange: (access: CollaboratorAccessFork) => void;
 }) {
+  const messages = useMessages();
   return (
     <Select
       value={value}
@@ -73,14 +76,18 @@ function AccessSelect({
       }}
     >
       <SelectTrigger size="sm" aria-label={label} className="w-auto shrink-0">
-        <SelectValue>{(selected: CollaboratorAccessFork) => ACCESS[selected].label}</SelectValue>
+        <SelectValue>
+          {(selected: CollaboratorAccessFork) => messages(ACCESS[selected].label)}
+        </SelectValue>
       </SelectTrigger>
       <SelectPopup align="end" alignItemWithTrigger={false} matchTriggerWidth={false}>
         {(["approve", "send"] as const).map((access) => (
           <SelectItem key={access} value={access}>
             <span className="flex flex-col py-0.5">
-              <span>{ACCESS[access].label}</span>
-              <span className="text-muted-foreground text-xs">{ACCESS[access].detail}</span>
+              <span>{messages(ACCESS[access].label)}</span>
+              <span className="text-muted-foreground text-xs">
+                {messages(ACCESS[access].detail)}
+              </span>
             </span>
           </SelectItem>
         ))}
@@ -120,6 +127,7 @@ function CollaboratorShareDialog({
   readonly threadRef: ScopedThreadRef;
   readonly onClose: () => void;
 }) {
+  const gt = useGT();
   const canShare = useAtomValue(
     shareThreadWithCollaboratorCommand.permissionAtom(threadRef.environmentId),
   );
@@ -133,7 +141,7 @@ function CollaboratorShareDialog({
   const shares = useEnvironmentQuerySelector(sharesAtom, selectEnvironmentQueryData);
   const { refresh: refreshShares } = useEnvironmentQueryRefresh(sharesAtom);
   const { copyToClipboard, isCopied } = useCopyToClipboard({
-    target: namedClipboardTarget("collaborator link"),
+    target: namedClipboardTarget(gt("collaborator link")),
   });
   const [name, setName] = useState("");
   const [state, setState] = useState<ShareState>({ status: "idle" });
@@ -168,7 +176,7 @@ function CollaboratorShareDialog({
     const error = squashAtomCommandFailure(result);
     setState({
       status: "failed",
-      message: error instanceof Error ? error.message : "Could not create a collaborator link.",
+      message: collaboratorErrorTextFork(error) ?? gt("Could not create a collaborator link."),
     });
   };
 
@@ -199,9 +207,9 @@ function CollaboratorShareDialog({
     >
       <DialogPopup className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Share with collaborator</DialogTitle>
+          <DialogTitle>{gt("Share with collaborator")}</DialogTitle>
           <DialogDescription>
-            Collaborators follow this thread live and message the agent under their name.
+            {gt("Collaborators follow this thread live and message the agent under their name.")}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -215,18 +223,18 @@ function CollaboratorShareDialog({
             >
               <Input
                 autoFocus
-                aria-label="Collaborator name"
-                placeholder="Name"
+                aria-label={gt("Collaborator name")}
+                placeholder={gt("Name")}
                 value={name}
                 onChange={(event) => setName(event.currentTarget.value)}
               />
               <Button type="submit" size="sm" disabled={!canShare || !validName || busy}>
-                {busy ? "Sharing..." : "Share"}
+                {busy ? gt("Sharing...") : gt("Share")}
               </Button>
             </form>
             {suggestions.length > 0 ? (
               <div className="-mt-2 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
-                <span>Shared before:</span>
+                <span>{gt("Shared before:")}</span>
                 {suggestions.map((collaborator) => (
                   <Button
                     key={collaborator.subject}
@@ -245,13 +253,18 @@ function CollaboratorShareDialog({
               <div className="flex flex-col gap-2">
                 <p className="text-sm">
                   {state.knownCollaborator
-                    ? `${state.collaboratorName} already sees it in their sidebar. For another device, send this link.`
-                    : `Send ${state.collaboratorName} this link to open the thread in T3 Code.`}
+                    ? gt(
+                        "{name} already sees it in their sidebar. For another device, send this link.",
+                        { name: state.collaboratorName },
+                      )
+                    : gt("Send {name} this link to open the thread in T3 Code.", {
+                        name: state.collaboratorName,
+                      })}
                 </p>
                 <div className="flex items-center gap-2">
                   <Input
                     readOnly
-                    aria-label="Collaborator link"
+                    aria-label={gt("Collaborator link")}
                     value={state.pairingUrl}
                     onFocus={(event) => event.currentTarget.select()}
                   />
@@ -261,12 +274,12 @@ function CollaboratorShareDialog({
                     onClick={() => copyToClipboard(state.pairingUrl)}
                   >
                     {isCopied ? <CheckIcon /> : <CopyIcon />}
-                    {isCopied ? "Copied" : "Copy"}
+                    {isCopied ? gt("Copied") : gt("Copy")}
                   </Button>
                 </div>
                 {state.localOnly ? (
                   <p role="status" className="text-warning text-xs">
-                    No public address found, so this link works only on your network.
+                    {gt("No public address found, so this link works only on your network.")}
                   </p>
                 ) : null}
               </div>
@@ -285,7 +298,7 @@ function CollaboratorShareDialog({
                   id="collaborator-access-heading"
                   className="font-medium text-muted-foreground text-xs"
                 >
-                  People with access
+                  {gt("People with access")}
                 </h3>
                 <ul className="flex flex-col">
                   {sharedWith.map((collaborator) => (
@@ -294,7 +307,7 @@ function CollaboratorShareDialog({
                       <span className="min-w-0 flex-1 truncate text-sm">{collaborator.name}</span>
                       <AccessSelect
                         value={collaborator.access}
-                        label={`${collaborator.name}'s access`}
+                        label={gt("{name}'s access", { name: collaborator.name })}
                         disabled={!canShare}
                         onChange={(next) => void changeAccess(collaborator.subject, next)}
                       />
@@ -305,14 +318,16 @@ function CollaboratorShareDialog({
                               size="icon-xs"
                               variant="ghost-muted"
                               disabled={!canShare}
-                              aria-label={`Stop sharing with ${collaborator.name}`}
+                              aria-label={gt("Stop sharing with {name}", {
+                                name: collaborator.name,
+                              })}
                               onClick={() => void stopSharing(collaborator.subject)}
                             />
                           }
                         >
                           <XIcon />
                         </TooltipTrigger>
-                        <TooltipPopup>Stop sharing</TooltipPopup>
+                        <TooltipPopup>{gt("Stop sharing")}</TooltipPopup>
                       </Tooltip>
                     </li>
                   ))}
@@ -323,7 +338,7 @@ function CollaboratorShareDialog({
         </DialogPanel>
         <DialogFooter>
           <Button size="sm" variant="outline" onClick={onClose} disabled={busy}>
-            Done
+            {gt("Done")}
           </Button>
         </DialogFooter>
       </DialogPopup>
