@@ -41,6 +41,7 @@ import {
   type T3Team,
   type Template,
 } from "./LinearApi.graphql.ts";
+import * as LinearApiReadCache from "./LinearApiReadCache.fork.ts"; // fork-hook: upstream-fixes/linear-read-cache
 
 export type { IssueFilter } from "../../schema/linear.graphql.ts";
 export type {
@@ -423,6 +424,10 @@ export const make = Effect.gen(function* () {
           })),
         );
 
+  const readCache = yield* LinearApiReadCache.make(
+    { viewer, getIssue, createIssue, updateIssue, createComment, createReaction, deleteReaction },
+    storedToken,
+  ); // fork-hook: upstream-fixes/linear-read-cache
   return LinearApi.of({
     viewer,
     listIssues,
@@ -435,6 +440,7 @@ export const make = Effect.gen(function* () {
     createReaction,
     deleteReaction,
     listReactions,
+    ...readCache, // fork-hook: upstream-fixes/linear-read-cache
   });
 });
 
