@@ -766,11 +766,11 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       ).push(thread);
     }
   }
-  liftCollaboratorRequestsFork(active, working); // fork-hook: colleague-collab/sidebar-requests-active
   regroupSidebarSectionsFork(active, working, input.threadGroups, pinned, workingShelfEnabled, {
     snoozed,
     canInheritSnooze: (thread) => !threadRaisedHandWhileSnoozed(thread),
   }); // fork-hook: thread-ordering/group-working-partition
+  liftCollaboratorRequestsFork(active, working, input.threadGroups); // fork-hook: colleague-collab/sidebar-requests-active
   const inheritedSnoozes = inheritedSidebarSnoozeOwnersFork(snoozed, input.threadGroups, (thread) =>
     effectiveSnoozed(thread, { now: preciseNow }),
   ); // fork-hook: thread-ordering/group-snooze-drag

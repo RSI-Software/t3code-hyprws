@@ -2,6 +2,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import { type CollaboratorMessageFork, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import { regroupSidebarSectionsFork } from "../Sidebar.groupSections.fork";
 import { resolveSidebarRowStatus } from "../Sidebar.logic";
 import {
   collaboratorRequestKeyFork,
@@ -78,16 +79,31 @@ describe("collaborator requests on the host's sidebar", () => {
     }
   });
 
-  it("a running thread with a request leaves the Working shelf for Active", () => {
-    const running = thread("divide", { settledOverride: null, settledAt: null });
-    const busy = thread("other", { settledOverride: null, settledAt: null });
-    const requested = withCollaboratorRequestsFork(running, [request("divide")]);
-    const active: EnvironmentThreadShell[] = [];
-    const working = [requested, busy];
+  it("a request lifts its thread out of Working after regrouping, group and all", () => {
+    const running = { settledOverride: null, settledAt: null };
+    const parent = thread("parent", running);
+    const child = thread("child");
+    const other = thread("other", running);
+    const group = {
+      id: "host:g",
+      title: "G",
+      threadIds: ["host:parent", "host:child"],
+      parentThreadId: "host:parent",
+      collapsed: false,
+    };
+    // Sidebar.tsx's order: the shelves, then regrouping, then the lift.
+    const partition = (active: EnvironmentThreadShell[], working: EnvironmentThreadShell[]) => {
+      regroupSidebarSectionsFork(active, working, [group], [], true);
+      liftCollaboratorRequestsFork(active, working, [group]);
+      return [active.map((t) => t.id), working.map((t) => t.id)];
+    };
 
-    liftCollaboratorRequestsFork(active, working);
+    // A requested child stays in Active though its working parent regroups it onto the shelf.
+    const asked = withCollaboratorRequestsFork(child, [request("child")]);
+    expect(partition([asked], [parent, other])).toEqual([["child"], ["parent", "other"]]);
 
-    expect(active).toEqual([requested]);
-    expect(working).toEqual([busy]);
+    // A requested running parent brings its group to Active.
+    const askedParent = withCollaboratorRequestsFork(parent, [request("parent")]);
+    expect(partition([child], [askedParent, other])).toEqual([["child", "parent"], ["other"]]);
   });
 });
