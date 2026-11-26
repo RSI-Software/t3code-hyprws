@@ -80,6 +80,16 @@ export function withCollaboratorRequestsFork<T extends CollaboratorRequestShellF
   };
 }
 
+/** A request is attention, as an approval is: a running thread it waits on leaves Working for Active. */
+export function liftCollaboratorRequestsFork<
+  T extends Pick<EnvironmentThreadShell, "id"> & CollaboratorRequestersFork,
+>(active: T[], working: T[]): void {
+  const lifted = working.filter((thread) => thread.collaboratorRequestersFork !== undefined);
+  if (lifted.length === 0) return;
+  working.splice(0, working.length, ...working.filter((thread) => !lifted.includes(thread)));
+  active.push(...lifted);
+}
+
 /** The card's status label naming who asked; empty leaves upstream's guest label. */
 export function collaboratorRequestedLabelFork(
   gt: ReturnType<typeof useGT>,

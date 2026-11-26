@@ -6,6 +6,7 @@ import { resolveSidebarRowStatus } from "../Sidebar.logic";
 import {
   collaboratorRequestKeyFork,
   groupCollaboratorRequestsFork,
+  liftCollaboratorRequestsFork,
   requestedFamiliesToMountFork,
   withCollaboratorRequestsFork,
 } from "./collaboratorRequests.logic.fork";
@@ -75,5 +76,18 @@ describe("collaborator requests on the host's sidebar", () => {
       // Settlement decides: the same row comes back.
       expect(shown).toBe(card);
     }
+  });
+
+  it("a running thread with a request leaves the Working shelf for Active", () => {
+    const running = thread("divide", { settledOverride: null, settledAt: null });
+    const busy = thread("other", { settledOverride: null, settledAt: null });
+    const requested = withCollaboratorRequestsFork(running, [request("divide")]);
+    const active: EnvironmentThreadShell[] = [];
+    const working = [requested, busy];
+
+    liftCollaboratorRequestsFork(active, working);
+
+    expect(active).toEqual([requested]);
+    expect(working).toEqual([busy]);
   });
 });
