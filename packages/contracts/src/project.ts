@@ -3,6 +3,7 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { TeamProjectFieldFork } from "./teamProject.fork.ts"; // fork-hook: colleague-collab/team-project-import
 import {
   CommandId,
   ForwardCompatibleUnion,
@@ -194,6 +195,7 @@ export const Project = Schema.Struct({
   trackedFolders: Schema.optional(ProjectTrackedFolders),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  ...TeamProjectFieldFork, // fork-hook: colleague-collab/team-project-field
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -254,6 +256,7 @@ export const ProjectMutation = Schema.Union([
     // Applied to the list as the server has it, so two clients' edits do not undo each other.
     trackFolders: Schema.optional(ProjectAddedFolders),
     untrackFolders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+    ...TeamProjectFieldFork, // fork-hook: colleague-collab/team-project-update
   }),
   Schema.Struct({
     type: Schema.Literal("project.delete"),

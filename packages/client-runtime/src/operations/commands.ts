@@ -31,6 +31,7 @@ import {
   type UploadChatAttachment,
   type GuestMessageId,
 } from "@t3tools/contracts";
+import { teamProjectChangeFork } from "@t3tools/contracts"; // fork-hook: colleague-collab/team-project-import
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -83,6 +84,7 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly untrackFolders?: ReadonlyArray<string>;
   readonly pinned?: boolean;
   readonly archived?: boolean;
+  readonly teamFork?: boolean; // fork-hook: colleague-collab/team-project-input
 }
 
 export interface DeleteProjectInput extends CommandMetadata {
@@ -485,6 +487,7 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
     ...(input.untrackFolders === undefined ? {} : { untrackFolders: input.untrackFolders }),
     ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
     ...(input.archived === undefined ? {} : { archived: input.archived }),
+    ...teamProjectChangeFork(input), // fork-hook: colleague-collab/team-project-update
   });
 });
 
