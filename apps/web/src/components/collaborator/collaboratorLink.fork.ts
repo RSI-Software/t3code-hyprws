@@ -21,10 +21,11 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
+import { useSaveColleagueFork } from "./colleagues.fork";
 
 /** The shared thread a collaborator link names, if any. */
 export const linkThreadIdFork = (pairingUrl: string) =>
-  new URL(pairingUrl).searchParams.get(COLLABORATOR_THREAD_LINK_PARAM)?.trim();
+  URL.parse(pairingUrl)?.searchParams.get(COLLABORATOR_THREAD_LINK_PARAM)?.trim();
 
 /** The shared thread on this server, or home when the server cannot name its environment. */
 export const sharedThreadPathFork = (threadId: string) =>
@@ -49,9 +50,15 @@ export function useCollaboratorLinkPairingFork() {
     );
   const router = useRouter();
   const connect = useAtomCommand(connectPairing, { reportFailure: false });
-  return async (pairingUrl: string, origin: string, paired: Set<string>): Promise<boolean> => {
+  const saveColleague = useSaveColleagueFork();
+  return async (
+    pairingUrl: string,
+    linkOrigin?: string,
+    paired = new Set<string>(),
+  ): Promise<boolean> => {
     const threadId = linkThreadIdFork(pairingUrl);
     if (!threadId) return false;
+    const origin = linkOrigin ?? new URL(pairingUrl).origin;
     const confirmed =
       (await requestConfirmDialog(
         gt("Open the thread shared with you from {origin}? Your messages run on their machine.", {
@@ -65,6 +72,7 @@ export function useCollaboratorLinkPairingFork() {
       return true;
     }
     paired.add(pairingUrl);
+    void saveColleague(result.value);
     toastManager.add({
       type: "success",
       title: gt("Shared thread added"),
@@ -74,6 +82,17 @@ export function useCollaboratorLinkPairingFork() {
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(result.value, ThreadId.make(threadId))),
     });
+    return true;
+  };
+}
+
+/** Takes a collaborator link pasted where a backend address goes; false for anything else. */
+export function usePastedCollaboratorLinkFork() {
+  const pair = useCollaboratorLinkPairingFork();
+  return (value: string, onDone: () => void) => {
+    const link = value.trim();
+    if (!linkThreadIdFork(link)) return false;
+    void pair(link).then(onDone);
     return true;
   };
 }

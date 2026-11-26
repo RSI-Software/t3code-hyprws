@@ -143,6 +143,16 @@ import {
   CollaboratorTypingStateFork,
   CollaboratorUnshareErrorFork,
   CollaboratorUnshareThreadInputFork,
+  ColleagueClientPairingFork,
+  ColleagueConnectInputFork,
+  ColleagueErrorFork,
+  ColleagueFork,
+  ColleagueGrantFork,
+  ColleagueInviteInputFork,
+  ColleagueRemoveResultFork,
+  ColleagueSaveInputFork,
+  ColleagueShareThreadInputFork,
+  ColleagueSubjectInputFork,
 } from "./collaborator.fork.ts";
 
 export const collaboratorRpcFork = {
@@ -156,6 +166,13 @@ export const collaboratorRpcFork = {
     collaboratorResolveMessageFork: "collaborator.resolveMessageFork",
     collaboratorSetTypingFork: "collaborator.setTypingFork",
     collaboratorSubscribeTypingFork: "collaborator.subscribeTypingFork",
+    colleagueInviteFork: "colleague.inviteFork",
+    colleagueSaveFork: "colleague.saveFork",
+    colleagueConnectFork: "colleague.connectFork",
+    colleagueSubscribeFork: "colleague.subscribeFork",
+    colleagueRemoveFork: "colleague.removeFork",
+    colleaguePairClientFork: "colleague.pairClientFork",
+    colleagueShareThreadFork: "colleague.shareThreadFork",
   } as const,
   rpcs: [
     Rpc.make("collaborator.shareThreadFork", {
@@ -205,6 +222,48 @@ export const collaboratorRpcFork = {
       success: CollaboratorTypingStateFork,
       error: EnvironmentAuthorizationError,
       stream: true,
+    }),
+    // Saved colleagues: accepting an invite runs invite (own server), save (the sharer's, as the
+    // collaborator), then connect (own server). See `docs/fork/user/collaborator-sharing.md`.
+    Rpc.make("colleague.inviteFork", {
+      payload: ColleagueInviteInputFork,
+      success: ColleagueGrantFork,
+      error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("colleague.saveFork", {
+      payload: ColleagueSaveInputFork,
+      success: ColleagueGrantFork,
+      error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("colleague.connectFork", {
+      payload: ColleagueConnectInputFork,
+      success: ColleagueFork,
+      error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("colleague.subscribeFork", {
+      payload: Schema.Struct({}),
+      success: Schema.Array(ColleagueFork),
+      error: EnvironmentAuthorizationError,
+      stream: true,
+    }),
+    Rpc.make("colleague.removeFork", {
+      payload: ColleagueSubjectInputFork,
+      success: ColleagueRemoveResultFork,
+      error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("colleague.pairClientFork", {
+      payload: ColleagueSubjectInputFork,
+      success: ColleagueClientPairingFork,
+      error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("colleague.shareThreadFork", {
+      payload: ColleagueShareThreadInputFork,
+      error: Schema.Union([
+        ColleagueErrorFork,
+        CollaboratorShareErrorFork,
+        CollaboratorThreadMissingErrorFork,
+        EnvironmentAuthorizationError,
+      ]),
     }),
   ] as const,
 };
