@@ -197,7 +197,7 @@ through the pages you have visited, like a browser's back and forward buttons.
 
 `window.new` opens a new desktop window on all projects and defaults to `mod+shift+w`.
 `window.openProject` focuses a window opened on the active project, or opens one filtered to it, and defaults to `mod+alt+o`.
-It was named `project.openWindow`, then `window.openInNew`; a saved binding with either old name keeps working.
+A saved binding named `project.openWindow` or `window.openInNew` still works.
 Both window commands and their keybindings are shown only in the desktop app.
 `projectFilter.choose` opens the window's [project chooser](./thread-sidebar.md#choose-a-windows-projects) and defaults to `mod+alt+f`.
 

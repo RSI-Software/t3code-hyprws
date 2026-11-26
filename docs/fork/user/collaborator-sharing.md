@@ -7,10 +7,10 @@ Passages either of you cites stay **marked in the transcript** in that person's 
 
 ## Share a thread
 
-1. Right-click the thread in the sidebar
+1. **Right-click** the thread in the sidebar
 2. Choose **Share with collaborator**
 3. Type their name and choose **Share**
-4. Send them the link
+4. **Send them** the link
 
 The link opens in their desktop app or browser; unopened, it **expires after 24 hours**.
 Once they open it, their access **does not expire**; it lasts until you stop sharing or remove their device.
