@@ -13,7 +13,6 @@ import { useGT, useMessages } from "gt-react-native";
 import { type ComponentProps, type ReactNode, useId, useMemo, useState } from "react";
 import { Platform, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import { useAtomValue } from "@effect/atom-react";
 import {
   type AssetResource,
   EnvironmentId,
@@ -21,7 +20,7 @@ import {
   type ProjectReadFileResult,
   ThreadId,
 } from "@t3tools/contracts";
-import { AsyncResult } from "effect/reactivity";
+import { AsyncResult } from "effect/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import * as Schema from "effect/Schema";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
