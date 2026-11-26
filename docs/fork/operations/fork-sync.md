@@ -177,8 +177,21 @@ A marker is **ignored**, with a printed note and a fresh rebase, when:
 
 **Anything else** on the branch is ignored with a note.
 
-A push to `sync/resolution` runs `hyprws-sync-resolution.yml`, which **dispatches `hyprws-upstream-sync.yml`** on `hyprws`.
-An rsi-agent **sticky that settles without a push** fires the same workflow; a pod killed mid-job leaves it `running`, and the **sync schedule** covers that.
+A push to `sync/resolution` runs `hyprws-sync-resolution.yml`, which **dispatches `hyprws-upstream-sync.yml`** on `hyprws` with **`rerun`**.
+An rsi-agent **sticky that settles without a push** fires the same workflow; a pod killed mid-job leaves it `running`, and the **hourly rerun** covers that.
+
+### Repeat runs
+
+rsi-agent's [workflow heartbeat](https://github.com/RSI-Software/rsi/blob/main/apps/rsi-agent/docs/control-plane.md#workflow-heartbeats) **dispatches the sync every 15 min**; the workflow has **no `schedule`**.
+The mirror job keys the run's inputs: **upstream tags, `hyprws`, `sync/resolution`**, and the **UTC hour**.
+
+- Key **reached the driver** this hour: **Sync skips**
+- So the same inputs run **once an hour**, any outcome
+- The hour bounds the **agent retry** and the **marker pin**
+- `rerun: true` **never skips**
+- The **stable cut** follows only a Sync that ran
+
+Rerun by hand with `gh workflow run hyprws-upstream-sync.yml --ref hyprws -f rerun=true`.
 
 ### The land run
 
@@ -219,8 +232,8 @@ The run **adopts the newest open `ci` issue** titled `hyprws sync blocked` or `h
 - **Never post** a sync issue to `pingdotgg/t3code`
 
 A blocked run, or one failed at **`carry`, `hooks`, or `ci`**, adds **`rsi:fork-sync`**, which starts rsi-agent's `fork-sync` job; it labels on create or on a **new key line** (`sync-failure` or `blocking-sha`).
-A rerun on the **same key relabels once**, as soon as the job's sticky comment **settles** (a refused push too), else after the job budget (`AGENT_RETRY_AFTER_MS` in `scripts/fork-sync.ts`); a **second miss waits for a human**.
-The settled sticky itself dispatches that rerun, so the retry never waits on GitHub's best-effort `schedule`.
+A rerun on the **same key relabels once**, as soon as the job's sticky comment **settles** (a refused push too), else at the first [hourly run](#repeat-runs) past the job budget (`AGENT_RETRY_AFTER_MS` in `scripts/fork-sync.ts`); a **second miss waits for a human**.
+The settled sticky itself dispatches that rerun, so the retry **never waits** for the hour.
 While the issue carries **`rsi:agent-halted`**, the driver adds no label and the body says a human must act.
 
 The land run also keeps **one driver comment**, `<!-- hyprws:sync-driver -->`, edited in place at each step.
@@ -299,7 +312,7 @@ Applied **by hand** in **Settings > Rules > Rulesets**, all `active`; **nothing 
 `hyprws-release.yml` **publishes a nightly** on every trunk landing that passes the release gate, with a **scheduled fallback**.
 It **prunes old nightlies** with their tags; **stable is never pruned**.
 
-`hyprws-stable.yml` **cuts stable automatically** after every sync run:
+`hyprws-stable.yml` **cuts stable automatically** after every sync run that [reaches Sync](#repeat-runs):
 
 1. **Newest upstream stable** without a fork stable
 2. **Fork nightly on exactly its commit**, newest first
@@ -322,6 +335,7 @@ T3 Connect **stays dark** unless every `T3CODE_RELAY_URL` and `T3CODE_CLERK_*` *
 - **Check the app key** when the mirror fails
 - A **refused mirror** means someone wrote `main`
 - A **refused lease**: rerun; it carries new commits
+- **Rerun** with **`-f rerun=true`**, or it may skip
 - **Never `--force`** the trunk or `main`
 - An **open issue**: resolve its stop
 - A **red candidate**: fix at the tip in a session

@@ -1,18 +1,27 @@
 name: hyprws Stable
 
-# Cuts fork stable releases. After every upstream sync run, the newest upstream
-# stable without a fork stable is cut from the fork nightly built on exactly that
-# upstream commit. A manual dispatch recuts the trunk tip instead, named after the
-# newest upstream stable it contains. A cut dispatches hyprws-release.yml from the
-# trunk with its tag and sha; the publish creates the tag, so a failed release is
-# retried on the next run. It also files a refold issue for the fork-sync agent
-# unless one is open (docs/fork/operations/fork-sync.md); a landing closes it.
+# Cuts fork stable releases. After every upstream sync run that reaches Sync
+# (hyprws-upstream-sync.yml calls this; a repeat waits for the next hour), the
+# newest upstream stable without a fork stable is cut from the fork nightly
+# built on exactly that upstream commit. A manual dispatch recuts the trunk tip
+# instead, named after the newest upstream stable it contains. A cut dispatches
+# hyprws-release.yml from the trunk with its tag and sha; the publish creates
+# the tag, so a failed release is retried on the next run. It also files a
+# refold issue for the fork-sync agent unless one is open
+# (docs/fork/operations/fork-sync.md); a landing closes it.
 
 on:
-  workflow_run:
-    workflows: ["hyprws upstream sync"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      recut:
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      recut:
+        description: Recut the trunk tip
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -39,7 +48,7 @@ jobs:
 
       - id: decide
         name: Pick the stable commit and tag
-        run: node scripts/fork-stable-cut.ts ${{ github.event_name == 'workflow_dispatch' && '--recut' || '' }} --github-output
+        run: node scripts/fork-stable-cut.ts ${{ inputs.recut && '--recut' || '' }} --github-output
 
       - name: Release and request a refold
         if: steps.decide.outputs.tag != ''
