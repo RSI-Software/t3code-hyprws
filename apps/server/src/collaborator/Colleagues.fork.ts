@@ -9,6 +9,7 @@ import {
   type AuthEnvironmentScope,
   type CollaboratorShareErrorFork,
   type CollaboratorThreadMissingErrorFork,
+  ColleagueAddressErrorFork,
   type ColleagueClientPairingFork,
   type ColleagueConnectInputFork,
   type ColleagueErrorFork,
@@ -16,8 +17,12 @@ import {
   type ColleagueGrantFork,
   type ColleagueInviteInputFork,
   ColleagueMissingErrorFork,
-  ColleagueRefusedErrorFork,
+  ColleagueNotCollaboratorErrorFork,
   ColleagueRemoteErrorFork,
+  ColleagueRevokedErrorFork,
+  ColleagueSavedAsAnotherErrorFork,
+  ColleagueSelfErrorFork,
+  ColleagueSilentErrorFork,
   type ColleagueSaveInputFork,
   type ColleagueShareThreadInputFork,
   ColleagueStorageErrorFork,
@@ -103,7 +108,7 @@ export type ColleagueClientPairingResponseFork = typeof ClientPairingResponse.Ty
 const grantOrigin = (url: string) => {
   const parsed = URL.parse(url);
   if (parsed === null || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-    return Effect.fail(new ColleagueRefusedErrorFork({ rule: "not-http" }));
+    return Effect.fail(new ColleagueAddressErrorFork());
   }
   const { hostname } = parsed;
   if (
@@ -112,9 +117,7 @@ const grantOrigin = (url: string) => {
     !isTailnetHost(hostname) &&
     !isPrivateNetworkHost(hostname)
   ) {
-    return Effect.fail(
-      new ColleagueRefusedErrorFork({ rule: "public-http", origin: parsed.origin }),
-    );
+    return Effect.fail(new ColleagueAddressErrorFork());
   }
   return Effect.succeed(parsed.origin);
 };
@@ -252,11 +255,11 @@ const make = Effect.gen(function* () {
     savedBy: string | null,
   ) {
     if (grant.environmentId === (yield* selfId)) {
-      return yield* new ColleagueRefusedErrorFork({ rule: "own-grant" });
+      return yield* new ColleagueSelfErrorFork();
     }
     const rows = yield* SubscriptionRef.get(ref);
     if (rows.some((row) => row.environment_id === grant.environmentId && row.subject !== subject)) {
-      return yield* new ColleagueRefusedErrorFork({ rule: "saved-as-another" });
+      return yield* new ColleagueSavedAsAnotherErrorFork();
     }
     const url = yield* grantOrigin(grant.url);
     const secretName = `colleague-${Hex.encode(yield* random.randomBytes(16).pipe(Effect.orDie))}`;
@@ -301,7 +304,7 @@ const make = Effect.gen(function* () {
     input,
   ) {
     if (input.environmentId === (yield* selfId)) {
-      return yield* new ColleagueRefusedErrorFork({ rule: "own-environment" });
+      return yield* new ColleagueSelfErrorFork();
     }
     const rows = yield* SubscriptionRef.get(ref);
     const saved = rows.find((row) => row.environment_id === input.environmentId);
@@ -353,7 +356,7 @@ const make = Effect.gen(function* () {
         ? shares.nameOf(subject)
         : undefined;
     if (name === undefined) {
-      return yield* new ColleagueRefusedErrorFork({ rule: "no-live-share" });
+      return yield* new ColleagueNotCollaboratorErrorFork();
     }
     const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl);
     yield* store(subject, name, input.grant, sessionId, caller).pipe(
@@ -365,7 +368,7 @@ const make = Effect.gen(function* () {
   const connect: ColleaguesFork["Service"]["connect"] = Effect.fn("ColleaguesFork.connect")(
     function* (input) {
       if (!isCollaboratorSubject(input.subject)) {
-        return yield* new ColleagueRefusedErrorFork({ rule: "not-collaborator" });
+        return yield* new ColleagueNotCollaboratorErrorFork();
       }
       const pending = invited.get(input.grant.environmentId);
       const sessionId = pending?.subject === input.subject ? pending.sessionId : null;
@@ -398,16 +401,13 @@ const make = Effect.gen(function* () {
       )
       .pipe(
         Effect.timeout(REMOTE_TIMEOUT),
-        Effect.mapError(
-          (cause) =>
-            new ColleagueRemoteErrorFork({ colleague: row.name, outcome: "silent", cause }),
-        ),
+        Effect.mapError((cause) => new ColleagueSilentErrorFork({ colleague: row.name, cause })),
         Effect.filterOrFail(
           (response) => response.status < 300,
           ({ status }) =>
             status === 401 || status === 403
-              ? new ColleagueRemoteErrorFork({ colleague: row.name, outcome: "refused", status })
-              : new ColleagueRemoteErrorFork({ colleague: row.name, outcome: "failed", status }),
+              ? new ColleagueRevokedErrorFork({ colleague: row.name })
+              : new ColleagueRemoteErrorFork({ colleague: row.name, status }),
         ),
       );
   });
@@ -418,10 +418,7 @@ const make = Effect.gen(function* () {
     const row = yield* rowOf(subject);
     const response = yield* callRemote(row, COLLEAGUE_PAIR_CLIENT_ROUTE_FORK);
     const pairing = yield* HttpClientResponse.schemaBodyJson(ClientPairingResponse)(response).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ColleagueRemoteErrorFork({ colleague: row.name, outcome: "unknown-shape", cause }),
-      ),
+      Effect.mapError((cause) => new ColleagueRemoteErrorFork({ colleague: row.name, cause })),
     );
     return { environmentId: EnvironmentId.make(row.environment_id), url: row.url, ...pairing };
   });
@@ -506,7 +503,7 @@ const make = Effect.gen(function* () {
     const name = pending?.name ?? (yield* rowOf(subject)).name;
     // Never wider than the grant the colleague's server called with.
     const scopes = COLLABORATOR_SCOPES.filter((scope) => held.includes(scope));
-    if (scopes.length === 0) return yield* new ColleagueRefusedErrorFork({ rule: "no-scope" });
+    if (scopes.length === 0) return yield* new ColleagueNotCollaboratorErrorFork();
     const issued = yield* auth
       .createPairingLink({ subject, label: `Colleague ${name}`, scopes, ttl: CLIENT_PAIRING_TTL })
       .pipe(Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })));
