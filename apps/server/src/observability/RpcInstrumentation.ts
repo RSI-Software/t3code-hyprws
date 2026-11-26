@@ -193,6 +193,13 @@ const RPC_AGGREGATES = {
   [WS_METHODS.collaboratorResolveMessageFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.collaboratorSetTypingFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.collaboratorSubscribeTypingFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueInviteFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueSaveFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueConnectFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueSubscribeFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueRemoveFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleaguePairClientFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueShareThreadFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.sourceControlLookupRepository]: "source-control",
   [WS_METHODS.sourceControlCloneRepository]: "source-control",
   [WS_METHODS.sourceControlPublishRepository]: "source-control",

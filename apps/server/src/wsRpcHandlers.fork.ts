@@ -3,9 +3,10 @@
 // under TypeScript's instantiation limit, so the fork's handlers ride the same table.
 import * as Effect from "effect/Effect";
 import { RpcGroup } from "effect/rpc";
-import { RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
+import { type AuthSessionId, RpcScopeAuthorization, wsRpcsFork } from "@t3tools/contracts";
 
 import * as CollaboratorShares from "./collaborator/CollaboratorShares.fork.ts";
+import * as Colleagues from "./collaborator/Colleagues.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
@@ -17,11 +18,15 @@ const WsRpcGroupFork = RpcGroup.make(...wsRpcsFork)
   .middleware(RpcScopeAuthorization)
   .middleware(RpcInstrumentation);
 
-export const makeWsRpcHandlersFork = Effect.gen(function* () {
+export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function* (session: {
+  readonly subject: string;
+  readonly sessionId: AuthSessionId;
+}) {
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
   const collaborators = yield* CollaboratorShares.CollaboratorSharesFork;
+  const colleagues = yield* Colleagues.ColleaguesFork;
   return WsRpcGroupFork.of({
     ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),
     "pullRequests.createAttachmentUploadUrl": (input) =>
@@ -45,5 +50,12 @@ export const makeWsRpcHandlersFork = Effect.gen(function* () {
       collaborators.typingHandlers(null)["collaborator.setTypingFork"](input),
     "collaborator.subscribeTypingFork": (input) =>
       collaborators.typingHandlers(null)["collaborator.subscribeTypingFork"](input),
+    "colleague.inviteFork": (input) => colleagues.invite(input),
+    "colleague.saveFork": (input) => colleagues.save(session, input),
+    "colleague.connectFork": (input) => colleagues.connect(input),
+    "colleague.subscribeFork": () => colleagues.changes,
+    "colleague.removeFork": (input) => colleagues.remove(input.subject),
+    "colleague.pairClientFork": (input) => colleagues.pairClient(input.subject),
+    "colleague.shareThreadFork": (input) => colleagues.shareThread(input),
   });
 });

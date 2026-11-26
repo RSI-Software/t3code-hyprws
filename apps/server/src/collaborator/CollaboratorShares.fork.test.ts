@@ -530,6 +530,9 @@ database("CollaboratorSharesFork", (it) => {
         assert.isTrue(yield* check("owner", WS_METHODS.terminalOpen));
         const turnDiff = ORCHESTRATION_V2_WS_METHODS.getTurnDiff;
         assert.isTrue(yield* allowed(WS_METHODS.serverGetConfig));
+        // Accepting an invite saves the host; the colleague RPCs that manage others stay out.
+        assert.isTrue(yield* allowed(WS_METHODS.colleagueSaveFork));
+        assert.isFalse(yield* allowed(WS_METHODS.colleagueInviteFork));
         assert.isTrue(yield* allowed(turnDiff, { threadId: shared }));
         assert.isFalse(yield* allowed(turnDiff, { threadId: other }));
         const typing = WS_METHODS.collaboratorSetTypingFork;
