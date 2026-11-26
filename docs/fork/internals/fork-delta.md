@@ -835,7 +835,7 @@ The link token is **single-use**, so a browser already paired opens the thread w
 Shell items carry **`collaboratorFork`**: `send`, `approve`, or `frozen`.
 `approve` **refuses dispatch**; messages wait in `fork_collaborator_messages` until the host sends.
 A waiting message **rides upstream's guest-request state** on the host's card, derived client-side from the host's message stream. A requested thread the shells leave out (older settled) is read **by its thread family**, as an open thread's route reads it.
-`send` dispatches **conversation commands only**; managing the thread **and its queue** stays the host's.
+`send` dispatches **conversation commands only**; managing the thread **and its queue** stays the host's, except that a collaborator **edits or removes their own** queued messages.
 **Only the server sets** `context.collaboratorFork`; the agent text names the collaborator.
 Unsharing **re-snapshots the shell**, drops waiting messages, and pauses an open thread stream.
 Drafts live **in memory only**: a heartbeat lasts 5 seconds, unsharing drops it, and **each open composer** holds its own entry, so a person's devices never replace or stop each other's; a draft **untouched for 30 seconds** stops showing.

@@ -1,8 +1,8 @@
 // Fork-only (colleague-collab): the queue stays the host's to run. On a collaborator's copy, queued
-// messages read like sent ones: the words as written, with no Send now, edit, or remove.
+// messages read like sent ones, in the words as written; only their own carry edit and remove.
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { ChatAttachment, EnvironmentId, MessageId, RunId, ThreadId } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import {
   isAttachmentOnlyBootstrapPrompt,
@@ -10,19 +10,41 @@ import {
 } from "@t3tools/shared/composerContextReferences";
 import { composerFileLinksToPlainText } from "@t3tools/shared/composerInlineTokens";
 import { T, useGT } from "gt-react";
-import { Clock3Icon } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import { Clock3Icon, PencilIcon, XIcon } from "lucide-react";
+import { useState, type ComponentType, type ReactNode } from "react";
 
 import { useQuietThreadShell } from "~/state/entities";
+import { threadEnvironment } from "~/state/threads";
+import { useAtomCommand } from "~/state/use-atom-command";
+import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { useCollaboratorCitationsFork } from "./CollaboratorChat.fork";
 
 type PresentedMessage = Parameters<typeof resolveUserMessagePresentation>[0];
 
 interface QueuedItem<Message, Thumbnail> {
   readonly key: string;
   readonly message: Message | undefined;
+  readonly runId: RunId | null;
+  readonly messageId: MessageId | null;
   readonly text: string;
+  readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly thumbnails: ReadonlyArray<Thumbnail>;
   readonly pending: boolean;
+}
+
+interface QueueProps {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly editingRunId: RunId | null;
+  readonly editBlockedReason: string | null;
+  readonly onEditQueuedRun: (request: {
+    readonly runId: RunId;
+    readonly messageId: MessageId;
+    readonly text: string;
+    readonly attachments: ReadonlyArray<ChatAttachment>;
+  }) => void;
+  readonly onCancelEdit: () => void;
 }
 
 type QueuedRow<Message, Thumbnail, Props> = ComponentType<
@@ -35,29 +57,46 @@ type QueuedRow<Message, Thumbnail, Props> = ComponentType<
   }
 >;
 
-/** On a collaborator's copy, draws the queue read-only; null for the host, who keeps the controls. */
+/** On a collaborator's copy, draws the queue for them; null for the host, who keeps the controls. */
 export function useCollaboratorQueueFork(environmentId: EnvironmentId, threadId: ThreadId) {
-  const asCollaborator =
-    useQuietThreadShell(scopeThreadRef(environmentId, threadId))?.collaboratorFork !== undefined;
+  const threadRef = scopeThreadRef(environmentId, threadId);
+  const asCollaborator = useQuietThreadShell(threadRef)?.collaboratorFork !== undefined;
+  const { you } = useCollaboratorCitationsFork(asCollaborator ? threadRef : null);
   return asCollaborator
-    ? <Message extends PresentedMessage, Thumbnail, Props extends object>(
+    ? <Message extends PresentedMessage, Thumbnail, Props extends QueueProps>(
         items: ReadonlyArray<QueuedItem<Message, Thumbnail>>,
         row: QueuedRow<Message, Thumbnail, Props>,
         rowProps: Props,
-      ) => <CollaboratorQueuedRuns items={items} row={row} rowProps={rowProps} />
+      ) => <CollaboratorQueuedRuns items={items} row={row} rowProps={rowProps} you={you} />
     : null;
 }
 
-function CollaboratorQueuedRuns<Message extends PresentedMessage, Thumbnail, Props extends object>({
+function CollaboratorQueuedRuns<
+  Message extends PresentedMessage,
+  Thumbnail,
+  Props extends QueueProps,
+>({
   items,
   row: Row,
   rowProps,
+  you,
 }: {
   readonly items: ReadonlyArray<QueuedItem<Message, Thumbnail>>;
   readonly row: QueuedRow<Message, Thumbnail, Props>;
   readonly rowProps: Props;
+  readonly you: string | null;
 }) {
   const gt = useGT();
+  const cancel = useAtomCommand(threadEnvironment.cancelQueuedRun);
+  const [busyRunId, setBusyRunId] = useState<RunId | null>(null);
+  const remove = async (runId: RunId) => {
+    setBusyRunId(runId);
+    await cancel({
+      environmentId: rowProps.environmentId,
+      input: { threadId: rowProps.threadId, runId },
+    });
+    setBusyRunId(null);
+  };
   return (
     <section
       aria-label={gt(
@@ -70,7 +109,8 @@ function CollaboratorQueuedRuns<Message extends PresentedMessage, Thumbnail, Pro
       <ol className="flex flex-col items-end gap-3">
         {items.map((item, position) => {
           // The agent's text names the collaborator; people read the words as sent.
-          const text = item.message ? resolveUserMessagePresentation(item.message).text : item.text;
+          const presentation = item.message ? resolveUserMessagePresentation(item.message) : null;
+          const text = presentation?.text ?? item.text;
           const previewText = isAttachmentOnlyBootstrapPrompt(text)
             ? ""
             : assistantCitationsToPlainText(
@@ -78,6 +118,20 @@ function CollaboratorQueuedRuns<Message extends PresentedMessage, Thumbnail, Pro
                   replaceComposerContextReferences(text, (reference) => reference.label),
                 ),
               ).trim();
+          // The server attributes a collaborator's message and lets them change only their own.
+          const ownRun =
+            you !== null &&
+            presentation?.guestName === you &&
+            item.runId !== null &&
+            item.messageId !== null
+              ? {
+                  runId: item.runId,
+                  messageId: item.messageId,
+                  text,
+                  attachments: item.attachments,
+                }
+              : null;
+          const isEditing = ownRun !== null && ownRun.runId === rowProps.editingRunId;
           return (
             <li
               key={item.key}
@@ -85,6 +139,7 @@ function CollaboratorQueuedRuns<Message extends PresentedMessage, Thumbnail, Pro
                 position: position + 1,
                 total: items.length,
               })}
+              aria-current={isEditing ? "true" : undefined}
               className="group/queued flex w-full flex-col items-end gap-1"
             >
               <Row
@@ -92,7 +147,7 @@ function CollaboratorQueuedRuns<Message extends PresentedMessage, Thumbnail, Pro
                 message={item.message}
                 previewText={previewText}
                 thumbnails={item.thumbnails}
-                isEditing={false}
+                isEditing={isEditing}
               >
                 {item.pending ? (
                   <span className="flex items-center gap-1 px-1">
@@ -100,6 +155,59 @@ function CollaboratorQueuedRuns<Message extends PresentedMessage, Thumbnail, Pro
                     <T>Saving</T>
                   </span>
                 ) : null}
+                {ownRun === null ? null : isEditing ? (
+                  <>
+                    <span className="px-1 text-foreground">
+                      <T>Editing in the composer</T>
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      aria-label={gt("Cancel editing queued message")}
+                      onClick={rowProps.onCancelEdit}
+                    >
+                      <T>Cancel</T>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Tooltip>
+                      {/* The span keeps the tooltip, and its reason, on a disabled button. */}
+                      <TooltipTrigger render={<span className="flex shrink-0" />}>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost-muted"
+                          aria-label={gt("Edit queued message")}
+                          disabled={busyRunId !== null || rowProps.editBlockedReason !== null}
+                          onClick={() => rowProps.onEditQueuedRun(ownRun)}
+                        >
+                          <PencilIcon />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        {rowProps.editBlockedReason ?? gt("Edit in the composer")}
+                      </TooltipPopup>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-xs"
+                            variant="ghost-muted"
+                            aria-label={gt("Remove queued message")}
+                            disabled={busyRunId !== null}
+                            onClick={() => void remove(ownRun.runId)}
+                          />
+                        }
+                      >
+                        <XIcon />
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        <T>Remove from queue</T>
+                      </TooltipPopup>
+                    </Tooltip>
+                  </>
+                )}
               </Row>
             </li>
           );

@@ -33,6 +33,7 @@ import {
   type OrchestrationV2SubscribeThreadInput,
   OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
+  type RunId,
   RpcScopeAuthorization,
   ThreadId,
   WS_METHODS,
@@ -276,6 +277,19 @@ const commandThreadId = (command: OrchestrationV2Command) =>
       ? command.parentThreadId
       : command.threadId;
 
+/** Names the collaborator in the text the agent reads; their own words ride the context. */
+const attributed = <Command extends Extract<OrchestrationV2Command, { readonly text: string }>>(
+  name: string,
+  command: Command,
+): Command => {
+  const attribution = collaboratorAttribution(name, command.text);
+  return {
+    ...command,
+    text: attribution.text,
+    context: { version: 1, records: [], ...command.context, ...attribution.context },
+  };
+};
+
 /** Only the server attributes a message to a collaborator; a client's claim is dropped. */
 const withoutCollaboratorAttribution = (
   command: OrchestrationV2Command,
@@ -318,7 +332,8 @@ const needsApproval = new EnvironmentAuthorizationError({
 });
 
 // A `send` collaborator takes part in the conversation; managing the thread, its queued
-// messages, its runtime mode, and its checkpoints stays the host's.
+// messages, its runtime mode, and its checkpoints stays the host's. Their own queued messages
+// are the exception: they may edit or remove them.
 const COLLABORATOR_COMMANDS: ReadonlySet<OrchestrationV2Command["type"]> = new Set([
   "message.dispatch",
   "queue.resume",
@@ -823,6 +838,24 @@ const make = Effect.gen(function* () {
     };
   };
 
+  /** Who wrote a queued run's message, as the server attributed it; undefined refuses. */
+  const queuedAuthor = (threadId: ThreadId, runId: RunId) =>
+    threads.getThreadRecords(threadId, ["runs"], { runIds: [runId] }).pipe(
+      Effect.flatMap(({ runs }) => {
+        const run = runs.find((candidate) => candidate.id === runId);
+        return run === undefined
+          ? Effect.undefined
+          : threads
+              .getMessagesById(threadId, [run.userMessageId])
+              .pipe(
+                Effect.map(
+                  (messages) => messages.get(run.userMessageId)?.context?.collaboratorFork?.name,
+                ),
+              );
+      }),
+      Effect.orElseSucceed(() => undefined),
+    );
+
   const wrapHandlers: CollaboratorSharesFork["Service"]["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
     const { [DISPATCH]: dispatch, [SHELL]: subscribeShell, [THREAD]: subscribeThread } = handlers;
@@ -847,17 +880,24 @@ const make = Effect.gen(function* () {
           return Effect.fail(notShared(AuthOrchestrationOperateScope));
         }
         if (access === "approve") return Effect.fail(needsApproval);
+        if (command.type === "queued-run.edit" || command.type === "queued-run.cancel") {
+          return queuedAuthor(command.threadId, command.runId).pipe(
+            Effect.flatMap((author) =>
+              author !== undefined && collaboratorSubject(author) === subject
+                ? Effect.void
+                : Effect.fail(hostOnly),
+            ),
+            Effect.andThen(() =>
+              dispatch(
+                command.type === "queued-run.edit" ? attributed(share.name, command) : command,
+                options,
+              ),
+            ),
+          );
+        }
         if (!COLLABORATOR_COMMANDS.has(command.type)) return Effect.fail(hostOnly);
         if (command.type !== "message.dispatch") return dispatch(command, options);
-        const attribution = collaboratorAttribution(share.name, command.text);
-        return dispatch(
-          {
-            ...command,
-            text: attribution.text,
-            context: { version: 1, records: [], ...command.context, ...attribution.context },
-          },
-          options,
-        );
+        return dispatch(attributed(share.name, command), options);
       },
       [SHELL]: (input, options) => shell(subject, input, (fresh) => subscribeShell(fresh, options)),
       // Unshared pauses silently, since the client retries a failed stream every 250ms.

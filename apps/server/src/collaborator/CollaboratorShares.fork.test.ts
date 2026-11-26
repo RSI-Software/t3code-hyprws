@@ -90,8 +90,29 @@ const threadShell = (id: ThreadId): OrchestrationV2ThreadShell => ({
 });
 
 const hostDispatches: Array<OrchestrationV2Command> = [];
+// Queued runs by id, with who the server attributed each message to; no name is the host.
+const queuedAuthors: Record<string, string | undefined> = {
+  "run-sam": "Sam",
+  "run-pat": "Pat",
+  "run-host": undefined,
+};
 const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
   getThreadShell: (threadId) => Effect.succeed(threadShell(ThreadId.make(threadId))),
+  getThreadRecords: (_threadId, _fields, filter) =>
+    Effect.succeed({
+      runs: (filter?.runIds ?? [])
+        .filter((id) => id in queuedAuthors)
+        .map((id) => ({ id, userMessageId: `message-${id}` })),
+    } as never),
+  getMessagesById: (_threadId, messageIds) =>
+    Effect.succeed(
+      new Map(
+        messageIds.map((id) => {
+          const name = queuedAuthors[id.replace("message-", "")];
+          return [id, { context: name === undefined ? undefined : { collaboratorFork: { name } } }];
+        }),
+      ) as never,
+    ),
   // Yields first, as a real dispatch does, so concurrent sends interleave.
   dispatch: (command) =>
     Effect.yieldNow.pipe(
@@ -340,14 +361,37 @@ database("CollaboratorSharesFork", (it) => {
           "thread.archive",
           "thread.settle",
           "thread.runtime-mode.set",
-          "queued-run.edit",
-          "queued-run.cancel",
           "queued-run.start",
           "queued-run.reorder",
           "queued-message.promote-to-steer",
         ]) {
           const hostOnly = yield* Effect.exit(dispatch(message(shared, type), undefined as never));
           assert.isTrue(Exit.isFailure(hostOnly));
+        }
+        // Their own queued message is theirs to remove or reword; an edit stays attributed.
+        const queued = (type: string, runId: string, text = "hi") =>
+          ({
+            ...(message(shared, type, text) as object),
+            runId,
+          }) as never as OrchestrationV2Command;
+        const cancelled = yield* dispatch(
+          queued("queued-run.cancel", "run-sam"),
+          undefined as never,
+        );
+        assert.strictEqual(cancelled.type, "queued-run.cancel");
+        for (const text of ["hi", attributed]) {
+          const edited = yield* dispatch(
+            queued("queued-run.edit", "run-sam", text),
+            undefined as never,
+          );
+          assert.strictEqual(sentText(edited), attributed);
+          assert.deepStrictEqual(sentAuthor(edited), { name: "Sam", text: "hi" });
+        }
+        for (const runId of ["run-host", "run-pat", "run-missing"]) {
+          for (const type of ["queued-run.cancel", "queued-run.edit"]) {
+            const notTheirs = yield* Effect.exit(dispatch(queued(type, runId), undefined as never));
+            assert.isTrue(Exit.isFailure(notTheirs));
+          }
         }
         const live = yield* Queue.unbounded<OrchestrationV2ThreadStreamItem>();
         const open = yield* wrapped["orchestration.subscribeThread"](
