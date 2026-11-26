@@ -5199,7 +5199,6 @@
   "4f113bb0bc732b3d": "Clear",
   "0bbf2aafc8237b02": "Sent by the host",
   "24c8dfc068a42d78": "Messages the host dismissed",
-  "0294b3d077615215": "{count, plural, one {{count} message waiting for the host} other {{count} messages waiting for the host}}",
   "3bd17825c03a079e": "Remove from this device",
   "0c908cde609c9b94": "Link a paid T3 Chat account for more T3 Connect tunnels: up to {pro} with Pro, {premier} with Premier.",
   "fa83ec856513632c": "Not linked",

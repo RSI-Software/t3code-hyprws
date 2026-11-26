@@ -160,6 +160,8 @@ export function clientRpcRequiredScopes(
   }
   if (method === WS_METHODS.collaboratorShareThreadFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   if (method === WS_METHODS.collaboratorSetAccessFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
+  if (method === WS_METHODS.colleagueInviteFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
+  if (method === WS_METHODS.colleagueShareThreadFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   return Object.hasOwn(CLIENT_GUARDED_RPC_SCOPES, method)
     ? [CLIENT_GUARDED_RPC_SCOPES[method as ClientGuardedRpcTag]]
     : [];

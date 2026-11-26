@@ -138,6 +138,7 @@ import * as threadGroupsFork from "../state/threadGroups"; // fork-hook: thread-
 import { SidebarThreadGroupDropLayerFork, SidebarThreadGroupHeader } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
 import { useThreadsWithCollaboratorRequestsFork } from "./collaborator/useCollaboratorRequests.fork"; // fork-hook: colleague-collab/sidebar-requests-import
+import { liftCollaboratorRequestsFork } from "./collaborator/collaboratorRequests.logic.fork"; // fork-hook: colleague-collab/sidebar-requests-active-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
 import { sidebarThreadGroupLayoutFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
 import { useThreadGroupTitlesFork } from "./SidebarThreadGroup.title"; // fork-hook: thread-ordering/group-titles-import
@@ -788,6 +789,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     snoozed,
     canInheritSnooze: (thread) => !threadRaisedHandWhileSnoozed(thread),
   }); // fork-hook: thread-ordering/group-working-partition
+  liftCollaboratorRequestsFork(active, working, input.threadGroups); // fork-hook: colleague-collab/sidebar-requests-active
   const inheritedSnoozes = inheritedSidebarSnoozeOwnersFork(snoozed, input.threadGroups, (thread) =>
     effectiveSnoozed(thread, { now: preciseNow }),
   ); // fork-hook: thread-ordering/group-snooze-drag
