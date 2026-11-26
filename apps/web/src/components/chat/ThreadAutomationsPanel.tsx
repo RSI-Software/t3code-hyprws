@@ -26,6 +26,7 @@ import { scheduleLabel } from "../settings/scheduledTasksSettings.logic";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useHostScheduledTasksFork } from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/automations-host-import
 
 import { readEnvironmentScope } from "../../state/session";
 import { Switch } from "../ui/switch";
@@ -81,7 +82,7 @@ export function ThreadAutomationsPanel(props: {
     serverEnvironment.runScheduledTaskNow.permissionAtom(props.environmentId),
   );
   const tasksQuery = useEnvironmentQuery(
-    serverEnvironment.scheduledTasksLive({ environmentId: props.environmentId, input: {} }),
+    useHostScheduledTasksFork(props.environmentId), // fork-hook: colleague-collab/automations-host-only
     useMessages(),
   );
   const setTaskEnabled = useAtomCommand(serverEnvironment.setScheduledTaskEnabled, {
