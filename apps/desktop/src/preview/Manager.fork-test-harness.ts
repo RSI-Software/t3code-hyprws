@@ -44,6 +44,7 @@ export const previewManagerFixtureLayer = (
         DesktopEnvironment.DesktopEnvironment.of({
           browserArtifactsDir: "/tmp/t3/dev/browser-artifacts",
           dirname: "/tmp/t3/desktop",
+          previewPickPreloadPath: "/tmp/t3/desktop/previewPickPreload.js",
           path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
         } as DesktopEnvironment.DesktopEnvironment["Service"]),
       ),
