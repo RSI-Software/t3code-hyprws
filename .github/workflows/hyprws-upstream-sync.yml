@@ -229,7 +229,7 @@ jobs:
           path: ${{ runner.temp }}/fork-sync.log
           key: ${{ needs.mirror.outputs.key }}
 
-  # The cut reads only tags, so a skipped repeat has nothing new for it.
+  # The cut reads only tags; a new fork nightly waits for the next hour's run.
   stable:
     name: Stable
     needs: [sync]
