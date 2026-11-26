@@ -5183,7 +5183,6 @@
   "4f113bb0bc732b3d": "Rensa",
   "0bbf2aafc8237b02": "Skickat av värden",
   "24c8dfc068a42d78": "Meddelanden som värden avvisade",
-  "0294b3d077615215": "{count, plural, one {{count} meddelande väntar på värden} other {{count} meddelanden väntar på värden}}",
   "3bd17825c03a079e": "Ta bort från den här enheten",
   "0c908cde609c9b94": "Länka ett betalt T3 Chat-konto för fler T3 Connect-tunnlar: upp till {pro} med Pro, {premier} med Premier.",
   "fa83ec856513632c": "Inte länkat",

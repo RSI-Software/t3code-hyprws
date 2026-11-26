@@ -7,7 +7,6 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   AuthAccessWriteScope,
   type ColleagueFork,
@@ -31,6 +30,7 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "~/state/server";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { threadSharesQuery } from "./collaboratorAccess.fork";
+import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import {
   colleagueForMenuId,
   colleagueShareTargets,
@@ -167,7 +167,7 @@ async function toggleColleagueShareFork(
               ? m(msg("Could not stop sharing with {name}", { name }))
               : m(msg("Could not share with {name}", { name })),
             description:
-              thrownErrorMessage(squashAtomCommandFailure(result), m) ??
+              collaboratorErrorTextFork(squashAtomCommandFailure(result)) ??
               m(msg("An error occurred.")),
           },
     ),
