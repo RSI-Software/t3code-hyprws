@@ -6,26 +6,30 @@ This checkout is `RSI-Software/t3code-hyprws`.
 Fork rules override upstream guidance below; keep those upstream sections unchanged.
 [Fork development](docs/fork/internals/fork-development.md) and [Fork delta](docs/fork/internals/fork-delta.md) own the detailed procedures and domain boundaries.
 
-**Every change must satisfy all three priorities.**
+**Every change must satisfy all three priorities:**
 
-| Priority                      | Required approach                                                                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Limit sync conflicts**      | Design every fork feature and change for frequent `fork-sync` rebases: isolate fork code and keep upstream edits to narrow extension hooks |
-| **Easy retirement**           | Keep each implementation separable so it can be removed cleanly when upstream supersedes it                                                |
-| **Long-term maintainability** | For lasting features, favor designs that remain simple to maintain across many upstream syncs                                              |
+- Limit sync conflicts: **isolate fork code**
+- Easy retirement: **separable implementations**
+- Maintainability: **simple across many syncs**
 
 Judge each design by: **How hard is the next sync? How cleanly can we remove this? What must we keep maintaining?**
 Correctness and client compatibility remain the baseline.
 
-| Concern     | Rule                                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `main`      | Keep local `main` identical to `upstream/main`; never add fork commits                                                   |
-| Base branch | `hyprws` is the fork trunk; base fork worktrees on freshly fetched `origin/hyprws`, not potentially stale local `hyprws` |
-| Topology    | Rebase onto upstream release tags, stable or nightly; never merge upstream or target an untagged commit                  |
-| Trailers    | Every fork commit needs `Fork-Domain` and `Fork-Tier`; bugfixes also need `Fork-Upstreamable: yes` or `no`               |
-| PR gate     | Run `vp run fork:ci` before every PR; it overrides the upstream restriction on repo-wide checks                          |
-| Windows     | Keep all-projects available; share Electron, backend, auth, providers, and state; leave placement to Hyprland            |
-| Citations   | Upstream items stay in code spans or fences; fork references use the full `RSI-Software/t3code-hyprws#108` form          |
+**Fork rules:**
+
+- `main`: **mirrors `upstream/main`**, no fork commits
+- Base: **freshly fetched `origin/hyprws`**
+- Topology: **rebase onto release tags**; never merge
+- Every commit: **`Fork-Domain`, `Fork-Tier`**
+- Bugfixes: **also `Fork-Upstreamable`**, `yes` or `no`
+- PR gate: **`vp run fork:ci`** before every PR
+- Windows: **one shared backend**; Hyprland places
+- Upstream citations: **code spans** or fences
+- Fork citations: **full `owner/repo#N` form**
+
+Rebase targets are **stable or nightly tags**, never an untagged commit; never base on stale local `hyprws`.
+Upstream edits stay **narrow extension hooks**; `fork:ci` **overrides the upstream restriction** on repo-wide checks.
+Windows keep all-projects available and share Electron, backend, auth, providers, and state.
 
 **Mobile:** we ship no mobile build; skip `apps/mobile` in the surface walk.
 Fork server and contract changes must stay usable from the stock upstream app, which simply lacks fork features.
