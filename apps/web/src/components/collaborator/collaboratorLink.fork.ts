@@ -21,6 +21,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
+import { collaboratorLinkInputFork } from "./collaboratorLinkInput.logic.fork";
 import { useSaveColleagueFork } from "./colleagues.fork";
 
 /** The shared thread a collaborator link names, if any. */
@@ -86,13 +87,14 @@ export function useCollaboratorLinkPairingFork() {
   };
 }
 
-/** Takes a collaborator link pasted where a backend address goes; false for anything else. */
+/** Takes a collaborator link typed or pasted where a backend address goes; false for anything else. */
 export function usePastedCollaboratorLinkFork() {
   const pair = useCollaboratorLinkPairingFork();
-  return (value: string, onDone: () => void) => {
-    const link = value.trim();
-    if (!linkThreadIdFork(link)) return false;
-    void pair(link).then(onDone);
+  return (value: string, setValue: (value: string) => void, onDone: () => void) => {
+    const input = collaboratorLinkInputFork(value);
+    if (input.kind === "other") return false;
+    setValue(value);
+    if (input.kind === "whole") void pair(input.link).then(onDone);
     return true;
   };
 }
