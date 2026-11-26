@@ -827,6 +827,7 @@ Ducking stays fork scope until upstream lowers speaker volume while recording.
 
 Code says **collaborator**; the subject prefix, tables, and this domain id **keep `colleague`**.
 A pairing link for subject **`colleague:<slug>`** carries only the orchestration read and operate scopes.
+Sharing or changing access **needs `access:write` plus that grant**, as any pairing link does; unsharing needs `access:write` alone.
 Its session **never expires on time**: a browser session gets a century, a desktop session renews; unsharing or revoking ends access.
 The link token is **single-use**, so a browser already paired opens the thread without spending it.
 `fork_colleague_shares` holds **one row per subject and thread**, with its `access`.

@@ -13,6 +13,7 @@ import {
   type AuthEnvironmentScope,
   mcpClientScopes,
 } from "./auth.ts";
+import { COLLABORATOR_SHARE_SCOPES } from "./collaborator.fork.ts"; // fork-hook: colleague-collab/rpc-share-scopes-import
 import { PeerLinkLinkPairingInput } from "./peerLink.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS } from "./rpc.ts";
@@ -151,6 +152,8 @@ export function clientRpcRequiredScopes(
   if (method === WS_METHODS.serverCheckSecretSource) {
     return [AuthSettingsWriteScope, AuthProvidersManageScope];
   }
+  if (method === WS_METHODS.collaboratorShareThreadFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
+  if (method === WS_METHODS.collaboratorSetAccessFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   return Object.hasOwn(CLIENT_GUARDED_RPC_SCOPES, method)
     ? [CLIENT_GUARDED_RPC_SCOPES[method as ClientGuardedRpcTag]]
     : [];
