@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 
 import type { UnsequencedProjectEvent } from "../persistence/OrchestrationEventStore.ts";
 import type { ProjectRow } from "./ProjectStore.ts";
+import { teamProjectChangeFork } from "@t3tools/contracts"; // fork-hook: colleague-collab/team-project-import
 
 export interface ProjectCreateCommand {
   readonly type: "project.create";
@@ -42,6 +43,7 @@ export interface ProjectMetaUpdateCommand {
   readonly trackedFolders?: ReadonlyArray<ProjectTrackedFolder>;
   readonly pinned?: boolean;
   readonly archived?: boolean;
+  readonly teamFork?: boolean; // fork-hook: colleague-collab/team-project-command
 }
 
 export interface ProjectDeleteCommand {
@@ -226,6 +228,7 @@ export function planProjectCommand(input: {
           ...(command.archived === undefined
             ? {}
             : { archivedAt: command.archived ? (project.archivedAt ?? occurredAt) : null }),
+          ...teamProjectChangeFork(command), // fork-hook: colleague-collab/team-project-event
           updatedAt: occurredAt,
         },
       });

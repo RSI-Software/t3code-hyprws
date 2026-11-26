@@ -1,4 +1,5 @@
 import { type ProjectMutation } from "@t3tools/contracts";
+import { teamProjectChangeFork } from "@t3tools/contracts"; // fork-hook: colleague-collab/team-project-import
 import * as Effect from "effect/Effect";
 
 import { type ProjectCloneTracker } from "./ProjectCloneTracker.ts";
@@ -54,6 +55,7 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           : { untrackFolders: mutation.untrackFolders }),
         ...(mutation.pinned === undefined ? {} : { pinned: mutation.pinned }),
         ...(mutation.archived === undefined ? {} : { archived: mutation.archived }),
+        ...teamProjectChangeFork(mutation), // fork-hook: colleague-collab/team-project-mutation
       });
 
     case "project.delete":
