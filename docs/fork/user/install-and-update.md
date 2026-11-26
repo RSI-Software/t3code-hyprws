@@ -15,23 +15,12 @@ It **replaces an upstream `t3`**; running both is unsupported.
 
 ## Update
 
-- Desktop app alone **updates with the app**
-- A background service uses **Update** in its notice
-
-The sidebar update icon updates **only the desktop app**, never a separate server.
-
-When the notice offers **Copy update command**, run it on the server's host:
-
-```bash
-t3 update <version>
-```
-
-[Updating T3 Code](../../user/updating.md) covers restarts and failed updates.
+Update as [Updating T3 Code](../../user/updating.md) describes; `t3 update` reads this repository's releases.
 
 ## Switch channel
 
 - **Stable** follows each upstream stable
-- **Nightly** follows every upstream nightly
+- **Nightly** ships every **`hyprws` landing**
 
 Move a server to stable with the command below; nightly is `--channel nightly`.
 
