@@ -846,7 +846,11 @@ The thread id **rides the pairing URL query**, which pairing ignores; the deskto
 
 ### Retirement condition
 
-A tagged upstream release shares a single thread with another person's client and attributes their messages.
+Upstream guest links (`pingdotgg/t3code#24104`, tagged since `v0.1.3`) **overlap approve mode**: a guest follows one thread live, and each message waits for the owner's **Send** or **Dismiss**, sent under the guest's name.
+They still **differ**: one guest per thread, in a **browser page over T3 Connect**, the owner **always approves**, and the link **expires in 24 hours**.
+The fork adds **pairing without T3 Connect**, **named collaborators** in their own app and sidebar, **send mode**, live drafts and cites, and access until unshared.
+Upstream creation also needs **`orchestration:read`** (`pingdotgg/t3code#41742`, `v0.1.12`); a fork share needs `access:write` alone.
+The domain **retires onto guest links** once a tagged upstream release lets a guest join **without T3 Connect** and **send without approval**.
 
 ### Rebase scan
 
