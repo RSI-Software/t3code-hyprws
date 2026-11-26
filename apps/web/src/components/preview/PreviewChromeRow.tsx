@@ -216,24 +216,24 @@ export function PreviewChromeRow({
               <span className="flex gap-0.5">
                 {onOpenInBrowser && !inputFocused ? (
                   <span className="pointer-events-none flex opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/address:pointer-events-auto group-hover/address:opacity-100">
-                <SharedTooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={onOpenInBrowser}
-                      aria-label={gt("Open in system browser")}
-                      type="button"
-                    />
-                  }
-                  label={
-                    <>
-                      <T>Open in system browser</T>
-                    </>
-                  }
-                >
-                  <ExternalLink />
-                </SharedTooltipTrigger>
+                    <SharedTooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={onOpenInBrowser}
+                          aria-label={gt("Open in system browser")}
+                          type="button"
+                        />
+                      }
+                      label={
+                        <>
+                          <T>Open in system browser</T>
+                        </>
+                      }
+                    >
+                      <ExternalLink />
+                    </SharedTooltipTrigger>
                   </span>
                 ) : null}
                 {onBookmarkScopeChange && onRemoveBookmark ? (
