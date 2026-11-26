@@ -17,7 +17,7 @@ import { Link } from "@tanstack/react-router";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironment } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
-import { serverEnvironment } from "../../state/server";
+import { useHostScheduledTasksFork } from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/automations-host-import
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { memo, use, useState, type ReactNode } from "react";
 import {
@@ -395,7 +395,7 @@ export function useScheduledTaskTitle(
   scheduledTaskId: ScheduledTaskId | undefined,
 ): string | undefined {
   const tasksQuery = useEnvironmentQuery(
-    scheduledTaskId ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} }) : null,
+    useHostScheduledTasksFork(environmentId, scheduledTaskId !== undefined), // fork-hook: colleague-collab/automations-host-only
   );
   return tasksQuery.data?.tasks.find((task) => task.id === scheduledTaskId)?.title;
 }
