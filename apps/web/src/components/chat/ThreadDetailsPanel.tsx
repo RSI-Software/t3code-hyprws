@@ -31,6 +31,10 @@ import { ThreadRepositorySections } from "./ThreadRepositorySections";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import { ThreadCollaboratorsPanelFork } from "../collaborator/ThreadCollaboratorsPanel.fork"; // fork-hook: colleague-collab/details-panel-import
 import {
+  hostOnlyDetailsFork,
+  useCollaboratorSessionFork,
+} from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/details-host-only-import
+import {
   ThreadDetailsContext,
   ThreadDetailsUsage,
   type ThreadDetailsUsageInput,
@@ -110,6 +114,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const activeThreadRef = { environmentId: props.environmentId, threadId: props.threadId };
   const project = useProject(scopeProjectRef(props.environmentId, props.projectId));
   const serverConfig = useServerConfigs().get(props.environmentId);
+  const collaboratorSessionFork = useCollaboratorSessionFork(props.environmentId); // fork-hook: colleague-collab/details-host-only-session
   const tracksFolders = (project?.trackedFolders?.length ?? 0) > 0;
   // A worktree thread reaches tracked repositories only through its own task folder.
   const taskFolderQuery = useEnvironmentQuery(
@@ -201,6 +206,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             (visible.gitActions || (visible.changes && folderIsRepo)),
           // Also for a project that tracks nothing: a thread can change a submodule.
           repositories: offersGit && density !== "essential" && visible.gitActions,
+          ...hostOnlyDetailsFork(collaboratorSessionFork), // fork-hook: colleague-collab/details-host-only
         };
         return (
           <>

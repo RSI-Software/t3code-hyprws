@@ -17,7 +17,10 @@ import { Link } from "@tanstack/react-router";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironment } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
-import { useHostScheduledTasksFork } from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/automations-host-import
+import {
+  useCollaboratorSessionFork,
+  useHostScheduledTasksFork,
+} from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/automations-host-import
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { memo, use, useState, type ReactNode } from "react";
 import {
@@ -58,6 +61,7 @@ import {
 } from "./SnapShotAttachmentDetails";
 import { GuestMessageName, guestBubbleClassName } from "./guestMessageStyle";
 import { CollaboratorSentByHostFork } from "../collaborator/CollaboratorMessageOutcome.fork"; // fork-hook: colleague-collab/sent-by-host-import
+import { HostMessageNameFork } from "../collaborator/CollaboratorAuthor.fork"; // fork-hook: colleague-collab/host-author-import
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { PierreEntryIcon } from "./PierreEntryIcon";
@@ -912,6 +916,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           <T>Sent by T3 Code</T>
         </p>
       ) : null}
+      {/* fork-hook: colleague-collab/host-author */}
+      <HostMessageNameFork
+        environmentId={ctx.activeThreadEnvironmentId}
+        attribution={userMessage.attribution}
+      />
+      {/* fork-hook-end */}
       {/* The row's heading already names the guest for screen readers. */}
       {userMessage.guestName !== undefined ? (
         <div aria-hidden>
@@ -1187,6 +1197,8 @@ function RevertUserMessageButton({
   const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
   const gt = useGT();
+  const hostOnlyFork = useCollaboratorSessionFork(ctx.activeThreadEnvironmentId); // fork-hook: colleague-collab/rewind-host-only
+  if (hostOnlyFork) return null; // fork-hook: colleague-collab/rewind-host-only-return
 
   return (
     <SharedTooltipTrigger
