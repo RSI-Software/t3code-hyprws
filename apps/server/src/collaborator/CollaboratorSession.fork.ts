@@ -472,19 +472,20 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
       : Stream.succeed(NO_TEAM);
   });
 
-  // Each touch rechecks the thread's project, so a thread leaving a team project pauses at once.
+  // Each touch rechecks access; `team` is read access through a team project, which every
+  // frame rechecks too, so none leaves once the thread or project leaves the team.
   const accessChanges = (subject: string, threadId: string) =>
     Stream.unwrap(
       teamMarks(subject).pipe(
         Effect.map((marks) =>
           Stream.zipLatest(changes, marks).pipe(
-            Stream.mapEffect(([shares, team]) => {
+            Stream.mapEffect(([shares]) => {
               const share = shares.get(subject);
               if (share?.threadIds.has(threadId)) return Effect.succeed("live" as const);
               const stopped = share?.frozen.has(threadId) ? ("frozen" as const) : ("none" as const);
               return teamThreads
-                .inTeam(threadId, team)
-                .pipe(Effect.map((read) => (read ? ("live" as const) : stopped)));
+                .readable(subject, threadId)
+                .pipe(Effect.map((read) => (read ? ("team" as const) : stopped)));
             }),
             Stream.changes,
           ),
@@ -705,11 +706,16 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         let afterSequence = input.afterSequence;
         return accessChanges(subject, input.threadId).pipe(
           Stream.switchMap((access) =>
-            access === "live"
+            access === "live" || access === "team"
               ? subscribeThread(
                   afterSequence === undefined ? input : { ...input, afterSequence },
                   options,
                 ).pipe(
+                  Stream.filterEffect(() =>
+                    access === "team"
+                      ? teamThreads.readable(subject, input.threadId)
+                      : Effect.succeed(true),
+                  ),
                   Stream.tap((item) =>
                     Effect.sync(() => {
                       afterSequence = Math.max(afterSequence ?? 0, itemSequence(item));

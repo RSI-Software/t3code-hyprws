@@ -747,13 +747,17 @@ database("CollaboratorSharesFork", (it) => {
           `;
           const service = yield* CollaboratorShares.CollaboratorSharesFork;
           const viewClosed = yield* Deferred.make<void>();
+          // Each script plays in order, so a step runs only after the frame before it is gated.
+          const scripts = yield* Queue.unbounded<Stream.Stream<OrchestrationV2ThreadStreamItem>>();
+          const item = (sequence: number) =>
+            ({ kind: "event", sequence }) as never as OrchestrationV2ThreadStreamItem;
+          const frame = (sequence: number) => Stream.make(item(sequence));
+          const step = (run: () => void) => Stream.fromEffect(Effect.sync(run)).pipe(Stream.drain);
           const alex = {
             ...handlers,
-            "orchestration.subscribeThread": (
-              input: { readonly afterSequence?: number | undefined },
-              options: never,
-            ) =>
-              handlers["orchestration.subscribeThread"](input, options).pipe(
+            "orchestration.subscribeThread": (_input: object, _options: never) =>
+              Stream.fromQueue(scripts).pipe(
+                Stream.flatMap((script) => script),
                 Stream.ensuring(Deferred.succeed(viewClosed, undefined)),
               ),
           };
@@ -824,7 +828,8 @@ database("CollaboratorSharesFork", (it) => {
             yield* check(WS_METHODS.collaboratorSetTypingFork, { threadId: other, typing: true }),
           );
 
-          // A thread moving out of a team project closes its open view at once.
+          // A thread moving out of a team project closes its open view, and no frame leaves
+          // between the move and the recheck.
           const view = yield* Queue.unbounded<OrchestrationV2ThreadStreamItem>();
           yield* alex["orchestration.subscribeThread"](
             { threadId: other } as never,
@@ -833,7 +838,17 @@ database("CollaboratorSharesFork", (it) => {
             Stream.runForEach((item) => Queue.offer(view, item)),
             Effect.forkChild,
           );
-          yield* Queue.take(view);
+          yield* Queue.offer(scripts, frame(4));
+          assert.deepStrictEqual(yield* Queue.take(view), item(4));
+          yield* Queue.offer(
+            scripts,
+            step(() => (projectOf[other] = sharedProject)).pipe(
+              Stream.concat(frame(5)),
+              Stream.concat(step(() => (projectOf[other] = otherProject))),
+              Stream.concat(frame(6)),
+            ),
+          );
+          assert.deepStrictEqual(yield* Queue.take(view), item(6));
           projectOf[other] = sharedProject;
           yield* touch({ event: { type: "thread.metadata-updated" } });
           yield* Deferred.await(viewClosed);
@@ -852,12 +867,11 @@ database("CollaboratorSharesFork", (it) => {
           assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
           assert.isFalse(yield* service.canRead("colleague:alex", other));
 
-          // A broken mark watcher fails closed: no team access until it reads fresh marks.
+          // A broken mark watcher fails closed: the list shows no team thread until it reads fresh marks.
           yield* marked(true);
           assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), [other]);
           yield* Queue.fail(projectEvents.queue!, new Error("store gone"));
           assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
-          assert.isFalse(yield* service.canRead("colleague:alex", other));
           yield* Fiber.interrupt(fiber);
           yield* sql`DELETE FROM fork_team_projects WHERE project_id = ${otherProject}`;
           yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;

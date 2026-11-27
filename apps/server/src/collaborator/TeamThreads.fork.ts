@@ -1,5 +1,5 @@
 // Fork-only (colleague-collab): a saved colleague reads every thread of a team project, with no
-// share rows. Access is derived from `fork_colleagues` and `fork_team_projects`; `CollaboratorShares`
+// share rows. Access is derived from `fork_colleagues` and `fork_team_projects`; `CollaboratorSession`
 // joins it with hand shares into one read check, and refuses every write.
 import { type ApplicationStoredEvent, type ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -68,7 +68,8 @@ export const makeTeamThreads = Effect.gen(function* () {
     Effect.orElseSucceed(() => false),
   );
 
-  const projectOf = Effect.fn("TeamThreadsFork.projectOf")(
+  // Untraced: `readable` runs it per detail frame.
+  const projectOf = Effect.fnUntraced(
     function* (threadId: string) {
       const thread = yield* threads.getThreadShell(ThreadId.make(threadId));
       return thread === null || thread.deletedAt !== null ? undefined : thread.projectId;
@@ -76,25 +77,28 @@ export const makeTeamThreads = Effect.gen(function* () {
     Effect.orElseSucceed((): ProjectId | undefined => undefined),
   );
 
-  /** Whether the thread sits in a team project now; failing closed. */
-  const inTeam = Effect.fn("TeamThreadsFork.inTeam")(function* (
-    threadId: string,
-    marks: ReadonlySet<string>,
-  ) {
-    if (marks.size === 0) return false;
-    const projectId = yield* projectOf(threadId);
-    return projectId !== undefined && marks.has(projectId);
-  });
+  /**
+   * May this subject read the thread through a team project now: a saved colleague, a marked
+   * project. Reads the committed rows, failing closed. Untraced: it gates every detail frame.
+   */
+  const readable = Effect.fnUntraced(
+    function* (subject: string, threadId: string) {
+      const projectId = yield* projectOf(threadId);
+      if (projectId === undefined) return false;
+      const rows = yield* sql`
+        SELECT 1 FROM fork_team_projects
+        JOIN fork_colleagues ON fork_colleagues.subject = ${subject}
+        WHERE fork_team_projects.project_id = ${projectId}
+      `;
+      return rows.length > 0;
+    },
+    Effect.orElseSucceed(() => false),
+  );
 
   return {
     /** Team project ids, now and on every event that may change access; not deduplicated. */
     changes: SubscriptionRef.changes(team),
     isColleague,
-    inTeam,
-    /** May this subject read the thread through a team project: a saved colleague, a marked project. */
-    readable: Effect.fn("TeamThreadsFork.readable")(function* (subject: string, threadId: string) {
-      if (!(yield* isColleague(subject))) return false;
-      return yield* inTeam(threadId, yield* SubscriptionRef.get(team));
-    }),
+    readable,
   };
 });
