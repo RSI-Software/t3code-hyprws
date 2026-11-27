@@ -83,7 +83,9 @@ function fakeLinear() {
     IssueTrackerHost.IssueTrackerHost.of({
       credentials: {
         get: () =>
-          Effect.map(Effect.service(Account), (account) => Option.some(account ?? state.token)),
+          Effect.map(Effect.service(Account), (account) =>
+            Option.some({ token: account ?? state.token, fields: {} }),
+          ),
       },
     }),
   );
