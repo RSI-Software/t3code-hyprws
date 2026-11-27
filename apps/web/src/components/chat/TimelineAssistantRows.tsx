@@ -37,7 +37,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
   const text = liveText ?? row.message.text;
   const messageText =
     text || (row.message.streaming || row.suppressEmptyResponse ? "" : gt("(empty response)"));
-  if (isQuietTurnFork(row)) return <QuietTurnRowFork />; // fork-hook: colleague-collab/quiet-turn-row
+  if (isQuietTurnFork(row)) return <QuietTurnRowFork row={row} />; // fork-hook: colleague-collab/quiet-turn-row
 
   return (
     <>
