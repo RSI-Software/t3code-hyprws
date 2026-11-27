@@ -857,7 +857,9 @@ An environment saved under one subject **refuses a save** under another, so no c
 A colleague **lapses**, removed here as above, once the grant this server issued or the collaborator session that saved them is revoked; `SessionStore` removals trigger the check, and pair-client runs it again.
 A **saved colleague reads every thread** of a team project, with no share rows: `canRead` is a live hand share, or a `fork_colleagues` subject and a marked project.
 A hand share **wins over team access**; a team thread is `read`, so every write, draft, and waiting message is refused, and the client shows **no composer**.
-Project events and thread moves **recheck team access at once**, and every detail frame **rechecks the committed rows** before it leaves; a failed watcher lists none until it reads fresh marks.
+Project events, thread moves, and saving or forgetting a colleague **recheck team access at once**.
+Every team shell item, detail frame, and command output frame **rechecks the committed rows** before it leaves; command output ends at the first frame without access, hand shares included.
+A failed watcher lists none until it reads fresh marks.
 A shell item with `collaboratorFork` gets a **shared card** in the sidebar, naming the saved colleague on its `environmentId`; the list reads colleagues once, never per card.
 The collaborator's app **copies each shared thread** into its own thread cache, one bounded HTTP read per change and only between runs, so it **opens offline** like any cached thread; forking from a colleague's thread reads that copy.
 **Offline is upstream's** `connection.phase !== "connected"`; the banner adds when **that copy** was last **in sync** with the host.

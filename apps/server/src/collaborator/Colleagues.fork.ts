@@ -208,6 +208,7 @@ const make = Effect.gen(function* () {
   const reload = readRows.pipe(
     Effect.flatMap((rows) => SubscriptionRef.set(ref, rows)),
     Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })),
+    Effect.andThen(shares.colleaguesChanged),
   );
   const rowOf = (subject: string) =>
     SubscriptionRef.get(ref).pipe(

@@ -20,6 +20,8 @@ import {
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2SubscribeShellInput,
   type OrchestrationV2ThreadLaunchInput,
+  type OrchestrationV2CommandOutputFrame,
+  type OrchestrationV2SubscribeCommandOutputInput,
   type OrchestrationV2SubscribeThreadInput,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
@@ -171,6 +173,7 @@ const {
   launchThread: LAUNCH,
   subscribeShell: SHELL,
   subscribeThread: THREAD,
+  subscribeCommandOutput: OUTPUT,
 } = ORCHESTRATION_V2_WS_METHODS;
 const {
   collaboratorSubscribeMessagesFork: MESSAGES,
@@ -207,7 +210,7 @@ export interface CollaboratorTypingHandlersFork {
 }
 
 // `options: never` accepts each upstream handler whatever its RPC options type.
-export interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR> {
+export interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR> {
   readonly [DISPATCH]: (command: OrchestrationV2Command, options: never) => Effect.Effect<A, E, R>;
   readonly [LAUNCH]: (
     input: OrchestrationV2ThreadLaunchInput,
@@ -221,6 +224,10 @@ export interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR> {
     input: OrchestrationV2SubscribeThreadInput,
     options: never,
   ) => Stream.Stream<OrchestrationV2ThreadStreamItem, TE, TR>;
+  readonly [OUTPUT]: (
+    input: OrchestrationV2SubscribeCommandOutputInput,
+    options: never,
+  ) => Stream.Stream<OrchestrationV2CommandOutputFrame, OE, OR>;
 }
 
 const itemSequence = (item: OrchestrationV2ThreadStreamItem) =>
@@ -428,7 +435,13 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         const visible: ShellVisible = { projects: new Set(), threads: new Set() };
         let moved = false;
         return open(fresh).pipe(
-          Stream.map((item) => filterShellItem(view, visible, item)),
+          // Team access rereads the committed marks, so no item leaves after an unmark.
+          Stream.mapEffect((item) =>
+            (view.team.size === 0
+              ? Effect.succeed(view)
+              : Effect.map(teamThreads.marksOf(subject), (team) => ({ ...view, team }))
+            ).pipe(Effect.map((current) => filterShellItem(current, visible, item))),
+          ),
           Stream.filter(Predicate.isNotUndefined),
           Stream.takeUntil(
             (item) =>
@@ -440,57 +453,46 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         );
       });
     // A colleague's view also re-snapshots when a project is marked or unmarked team.
-    return Stream.unwrap(
-      teamMarks(subject).pipe(
-        Effect.map((marks) =>
-          Stream.zipLatest(
-            changes.pipe(
-              Stream.map((shares) => shares.get(subject)),
-              Stream.changesWith(sameShare),
-            ),
-            marks.pipe(Stream.changesWith<ReadonlySet<string>>(sameIds)),
-          ).pipe(
-            Stream.map(([share, team]): ShellView => ({ share, team })),
-            Stream.switchMap(narrowed),
-          ),
-        ),
+    return Stream.zipLatest(
+      changes.pipe(
+        Stream.map((shares) => shares.get(subject)),
+        Stream.changesWith(sameShare),
       ),
+      teamMarks(subject).pipe(Stream.changesWith<ReadonlySet<string>>(sameIds)),
+    ).pipe(
+      Stream.map(([share, team]): ShellView => ({ share, team })),
+      Stream.switchMap(narrowed),
     );
   };
 
-  const canRead: Service["canRead"] = Effect.fn("CollaboratorSharesFork.canRead")(
-    function* (subject, threadId) {
-      return isShared(subject, threadId) || (yield* teamThreads.readable(subject, threadId));
-    },
-  );
+  // Untraced: it gates every command output frame.
+  const canRead: Service["canRead"] = Effect.fnUntraced(function* (subject, threadId) {
+    return isShared(subject, threadId) || (yield* teamThreads.readable(subject, threadId));
+  });
 
   const NO_TEAM: ReadonlySet<string> = new Set();
   /** The team projects a subject reads, now and on every touch; none for a one-time guest. */
-  const teamMarks = Effect.fn("CollaboratorSharesFork.teamMarks")(function* (subject: string) {
-    return (yield* teamThreads.isColleague(subject))
-      ? teamThreads.changes
-      : Stream.succeed(NO_TEAM);
-  });
+  const teamMarks = (subject: string) =>
+    teamThreads.changes.pipe(
+      // A failed watcher publishes none, and lists none until it reads fresh marks.
+      Stream.mapEffect((marks) =>
+        marks.size === 0 ? Effect.succeed(NO_TEAM) : teamThreads.marksOf(subject),
+      ),
+    );
 
   // Each touch rechecks access; `team` is read access through a team project, which every
   // frame rechecks too, so none leaves once the thread or project leaves the team.
   const accessChanges = (subject: string, threadId: string) =>
-    Stream.unwrap(
-      teamMarks(subject).pipe(
-        Effect.map((marks) =>
-          Stream.zipLatest(changes, marks).pipe(
-            Stream.mapEffect(([shares]) => {
-              const share = shares.get(subject);
-              if (share?.threadIds.has(threadId)) return Effect.succeed("live" as const);
-              const stopped = share?.frozen.has(threadId) ? ("frozen" as const) : ("none" as const);
-              return teamThreads
-                .readable(subject, threadId)
-                .pipe(Effect.map((read) => (read ? ("team" as const) : stopped)));
-            }),
-            Stream.changes,
-          ),
-        ),
-      ),
+    Stream.zipLatest(changes, teamMarks(subject)).pipe(
+      Stream.mapEffect(([shares]) => {
+        const share = shares.get(subject);
+        if (share?.threadIds.has(threadId)) return Effect.succeed("live" as const);
+        const stopped = share?.frozen.has(threadId) ? ("frozen" as const) : ("none" as const);
+        return teamThreads
+          .readable(subject, threadId)
+          .pipe(Effect.map((read) => (read ? ("team" as const) : stopped)));
+      }),
+      Stream.changes,
     );
 
   const rpcRefusal = Effect.fn("CollaboratorSharesFork.rpcRefusal")(function* (
@@ -630,7 +632,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
   const wrapHandlers: Service["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
     const { [DISPATCH]: dispatch, [SHELL]: subscribeShell, [THREAD]: subscribeThread } = handlers;
-    const { [LAUNCH]: launch } = handlers;
+    const { [LAUNCH]: launch, [OUTPUT]: subscribeOutput } = handlers;
     if (!isCollaboratorSubject(subject)) {
       return {
         ...handlers,
@@ -702,6 +704,11 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
       // Unshared pauses silently, since the client retries a failed stream every 250ms.
       // A frozen thread reports its cached copy current; a re-share resumes after the last
       // sequence sent.
+      // Output is live only; it ends at the first frame after read access ends.
+      [OUTPUT]: (input, options) =>
+        subscribeOutput(input, options).pipe(
+          Stream.takeWhileEffect(() => canRead(subject, input.threadId)),
+        ),
       [THREAD]: (input, options) => {
         let afterSequence = input.afterSequence;
         return accessChanges(subject, input.threadId).pipe(
@@ -751,7 +758,14 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
   });
 
   return {
-    handlers: { messageHandlers, typingHandlers, guardRpc, wrapHandlers, canRead },
+    handlers: {
+      messageHandlers,
+      typingHandlers,
+      guardRpc,
+      wrapHandlers,
+      canRead,
+      colleaguesChanged: teamThreads.touch,
+    },
     endShare,
   };
 });

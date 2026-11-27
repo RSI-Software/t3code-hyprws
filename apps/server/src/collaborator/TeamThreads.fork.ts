@@ -59,16 +59,23 @@ export const makeTeamThreads = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  /** Only a saved colleague reads team threads; a one-time guest sees its hand shares alone. */
-  const isColleague = Effect.fn("TeamThreadsFork.isColleague")(
+  /**
+   * The team projects this subject reads now, from the committed rows; none for a guest.
+   * Untraced: it gates every shell item and frame of a colleague.
+   */
+  const marksOf = Effect.fnUntraced(
     function* (subject: string) {
-      const rows = yield* sql`SELECT 1 FROM fork_colleagues WHERE subject = ${subject}`;
-      return rows.length > 0;
+      const rows = yield* sql<{ readonly projectId: string }>`
+        SELECT project_id AS "projectId" FROM fork_team_projects
+        WHERE EXISTS (SELECT 1 FROM fork_colleagues WHERE subject = ${subject})
+      `;
+      const marks: ReadonlySet<string> = new Set(rows.map((row) => row.projectId));
+      return marks;
     },
-    Effect.orElseSucceed(() => false),
+    Effect.orElseSucceed(() => NONE),
   );
 
-  // Untraced: `readable` runs it per detail frame.
+  // Untraced: `readable` runs it per frame.
   const projectOf = Effect.fnUntraced(
     function* (threadId: string) {
       const thread = yield* threads.getThreadShell(ThreadId.make(threadId));
@@ -77,28 +84,21 @@ export const makeTeamThreads = Effect.gen(function* () {
     Effect.orElseSucceed((): ProjectId | undefined => undefined),
   );
 
-  /**
-   * May this subject read the thread through a team project now: a saved colleague, a marked
-   * project. Reads the committed rows, failing closed. Untraced: it gates every detail frame.
-   */
-  const readable = Effect.fnUntraced(
-    function* (subject: string, threadId: string) {
-      const projectId = yield* projectOf(threadId);
-      if (projectId === undefined) return false;
-      const rows = yield* sql`
-        SELECT 1 FROM fork_team_projects
-        JOIN fork_colleagues ON fork_colleagues.subject = ${subject}
-        WHERE fork_team_projects.project_id = ${projectId}
-      `;
-      return rows.length > 0;
-    },
-    Effect.orElseSucceed(() => false),
-  );
+  /** May this subject read the thread through a team project now; failing closed. */
+  const readable = Effect.fnUntraced(function* (subject: string, threadId: string) {
+    const projectId = yield* projectOf(threadId);
+    return projectId !== undefined && (yield* marksOf(subject)).has(projectId);
+  });
 
   return {
     /** Team project ids, now and on every event that may change access; not deduplicated. */
     changes: SubscriptionRef.changes(team),
-    isColleague,
+    /** Republishes the marks: saving or forgetting a colleague changes who reads them. */
+    touch: readTeam.pipe(
+      Effect.flatMap((next) => SubscriptionRef.set(team, next)),
+      Effect.catchCause(() => SubscriptionRef.set(team, NONE)),
+    ),
+    marksOf,
     readable,
   };
 });

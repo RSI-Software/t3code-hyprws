@@ -11,6 +11,7 @@ import {
   CollaboratorSubmitMessageInputFork,
   EnvironmentAuthenticatedPrincipal,
   type OrchestrationV2Command,
+  type OrchestrationV2CommandOutputFrame,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2ThreadShell,
@@ -23,6 +24,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import type * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -156,6 +158,34 @@ const git = Layer.mock(GitVcsDriver.GitVcsDriver)({
   execute: () => Effect.succeed({ stdout: `${HOST}\n` } as never),
 });
 
+// `outputAfterRevoke` supplies command output.
+const commandOutput: { queue?: Queue.Queue<OrchestrationV2CommandOutputFrame, Cause.Done> } = {};
+
+/** Opens command output, revokes access, and counts the frames that still reach the collaborator. */
+const outputAfterRevoke = Effect.fnUntraced(function* <OE, E, R>(
+  open: (input: never, options: never) => Stream.Stream<OrchestrationV2CommandOutputFrame, OE>,
+  threadId: string,
+  revoke: Effect.Effect<unknown, E, R>,
+) {
+  const source = yield* Queue.unbounded<OrchestrationV2CommandOutputFrame, Cause.Done>();
+  commandOutput.queue = source;
+  const received = yield* Queue.unbounded<OrchestrationV2CommandOutputFrame>();
+  const fiber = yield* open({ threadId } as never, undefined as never).pipe(
+    Stream.runForEach((frame) => Queue.offer(received, frame)),
+    Effect.forkChild,
+  );
+  const frame = (text: string) =>
+    ({ kind: "append", text, truncated: false, running: true }) as const;
+  yield* Queue.offer(source, frame("before"));
+  assert.strictEqual((yield* Queue.take(received)).text, "before");
+  yield* revoke;
+  yield* Queue.offer(source, frame("after"));
+  yield* Queue.end(source);
+  yield* Fiber.join(fiber);
+  delete commandOutput.queue;
+  return yield* Queue.size(received);
+});
+
 // Project events wake the team marks; the team test supplies the queue.
 const projectEvents: { queue?: Queue.Queue<object, Error> } = {};
 const events = Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({
@@ -223,6 +253,8 @@ const handlers = {
       shellEvents.queue ? Stream.fromQueue(shellEvents.queue) : Stream.empty,
     );
   },
+  "orchestration.subscribeCommandOutput": (_input: object, _options: never) =>
+    commandOutput.queue ? Stream.fromQueue(commandOutput.queue) : Stream.never,
   "orchestration.subscribeThread": (
     input: { readonly afterSequence?: number | undefined },
     _options: never,
@@ -484,8 +516,15 @@ database("CollaboratorSharesFork", (it) => {
         );
         yield* Queue.take(live);
         // Stopping freezes the thread: its stream reports the cached copy current, sends are
-        // refused, and a re-share resumes after sequence 4.
-        yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
+        // refused, its command output ends, and a re-share resumes after sequence 4.
+        assert.strictEqual(
+          yield* outputAfterRevoke(
+            wrapped["orchestration.subscribeCommandOutput"],
+            shared,
+            service.unshare({ threadId: shared, subject: "colleague:sam" }),
+          ),
+          0,
+        );
         assert.deepStrictEqual(yield* Queue.take(live), { kind: "synchronized" });
         assert.isTrue(
           Exit.isFailure(yield* Effect.exit(dispatch(message(shared), undefined as never))),
@@ -854,13 +893,38 @@ database("CollaboratorSharesFork", (it) => {
           yield* Deferred.await(viewClosed);
           projectOf[other] = otherProject;
 
-          // Removing the colleague removes access, marked or not.
-          yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;
+          // An unmark hides the thread from the next shell item and ends its command output,
+          // before the marks refresh.
+          assert.strictEqual(
+            yield* outputAfterRevoke(
+              alex["orchestration.subscribeCommandOutput"],
+              other,
+              sql`DELETE FROM fork_team_projects WHERE project_id = ${otherProject}`,
+            ),
+            0,
+          );
+          yield* Queue.offer(shellEvents.queue, {
+            kind: "thread.updated",
+            thread: threadShell(other),
+          } as never);
+          assert.strictEqual((yield* Queue.take(items)).kind, "thread.removed");
+          yield* sql`INSERT INTO fork_team_projects (project_id, marked_at) VALUES (${otherProject}, '')`;
+
+          // Forgetting the colleague removes access, and saving them again restores it live.
+          const saved = (on: boolean) =>
+            (on
+              ? sql`
+                  INSERT INTO fork_colleagues
+                    (subject, name, environment_id, url, secret_name, saved_at)
+                  VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
+                `
+              : sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`
+            ).pipe(Effect.andThen(service.colleaguesChanged));
+          yield* saved(false);
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
           assert.isFalse(yield* service.canRead("colleague:alex", other));
-          yield* sql`
-            INSERT INTO fork_colleagues (subject, name, environment_id, url, secret_name, saved_at)
-            VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
-          `;
+          yield* saved(true);
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), [other]);
 
           // Unmarking removes them at once.
           yield* marked(false);

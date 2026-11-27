@@ -148,6 +148,8 @@ export class CollaboratorSharesFork extends Context.Service<
      * a team project's thread, which is read-only.
      */
     readonly canRead: (subject: string, threadId: string) => Effect.Effect<boolean>;
+    /** Rechecks team access after a colleague is saved or forgotten. */
+    readonly colleaguesChanged: Effect.Effect<void>;
     /** Each subject's live shared threads, now and on every change. */
     readonly liveThreadIds: Stream.Stream<ReadonlyMap<string, ReadonlyArray<ThreadId>>>;
     /** The waiting-message handlers for `subject`, or the host's for `null`. */
@@ -165,9 +167,9 @@ export class CollaboratorSharesFork extends Context.Service<
      * Narrows a collaborator session's thread handlers and answers its waiting messages; other
      * sessions only lose the right to attribute a message to a collaborator.
      */
-    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR>(
+    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR>(
       subject: string,
-      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR>,
+      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR>,
     ) => CollaboratorHandlersFork<
       A,
       E | EnvironmentAuthorizationError,
@@ -178,7 +180,9 @@ export class CollaboratorSharesFork extends Context.Service<
       TR,
       LA,
       LE,
-      LR
+      LR,
+      OE,
+      OR
     > &
       Partial<CollaboratorMessageHandlersFork & CollaboratorTypingHandlersFork>;
   }
