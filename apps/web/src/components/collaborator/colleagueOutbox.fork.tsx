@@ -8,6 +8,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  AuthOrchestrationOperateScope,
   collaboratorMessageCommandId,
   CommandId,
   type ColleagueQueuedMessageFork,
@@ -26,6 +27,7 @@ import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useQuietThreadShells, useServerConfigs } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
+import { useEnvironmentsWithScope } from "~/state/session";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
@@ -222,9 +224,15 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   const live = useRef(queued);
   // Bumped after each flush, so messages that became ready during it get their turn.
   const [, setRound] = useState(0);
+  // After a reload the session's scopes arrive after the socket connects, and a send before them
+  // is refused, so a colleague counts as back once both have.
+  const operable = useEnvironmentsWithScope(environments, AuthOrchestrationOperateScope);
   const connected = new Set(
     environments
-      .filter((environment) => environment.connection.phase === "connected")
+      .filter(
+        (environment) =>
+          environment.connection.phase === "connected" && operable.has(environment.environmentId),
+      )
       .map((environment) => environment.environmentId),
   );
   const shellOf = (message: ColleagueQueuedMessageFork) =>
