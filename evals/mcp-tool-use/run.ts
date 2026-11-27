@@ -81,6 +81,7 @@ import {
 import { ThemeToolkit } from "../../apps/server/src/mcp/toolkits/theme/tools.ts";
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
+import { ColleagueToolkitFork } from "../../apps/server/src/mcp/toolkits/colleague/tools.fork.ts"; // fork-hook: colleague-collab/eval-colleague-toolkit-import
 import {
   CLAUDE_PROVIDER,
   makeClaudeQueryOptions,
@@ -511,6 +512,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   DeviceToolkit,
   HtmlToolkit,
   MessageToolkit,
+  ColleagueToolkitFork, // fork-hook: colleague-collab/eval-colleague-toolkit
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
