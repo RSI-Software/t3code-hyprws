@@ -429,6 +429,7 @@ export interface ChatComposerProps {
   canSteer: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
   sendMenuFork?: SendMenuFork | undefined; // fork-hook: colleague-collab/send-menu-prop
+  queueSendFork?: ((event?: { preventDefault: () => void }) => boolean) | undefined; // fork-hook: colleague-collab/queue-send-prop
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -2425,6 +2426,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       return false;
     }
+    if (props.queueSendFork) return props.queueSendFork(event); // fork-hook: colleague-collab/queue-send
     if (submissionBlocked || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
       event?.preventDefault();
       return false;
