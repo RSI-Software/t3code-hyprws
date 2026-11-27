@@ -13105,5 +13105,11 @@
   "201490988858b511": "retirada por {by}",
   "99451a5d2d40440f": "Retirada por {by}.",
   "3ee30a50b70fffab": "Retirada por {by}: {reason}",
-  "92e129bf413a1220": "retirada"
+  "92e129bf413a1220": "retirada",
+  "ebd1f4ca59d9596f": "Só texto espera por {name}",
+  "81f11dcfc7928654": "Remova os anexos para colocar esta mensagem na fila.",
+  "c30dcaac3c11235b": "Não foi possível colocar a mensagem na fila",
+  "27b886dd348ddfce": "Envia quando {name} voltar",
+  "8b4eabdfc58b5fa0": "Editar",
+  "40a55ffa2bc11c31": "Não foi possível enviar sua mensagem na fila para {name}"
 }

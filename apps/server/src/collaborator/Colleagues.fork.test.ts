@@ -25,6 +25,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import type * as Scope from "effect/Scope";
 import * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/http";
@@ -100,6 +101,8 @@ interface Server {
   readonly revoke: (sessionId: string) => Effect.Effect<void>;
   readonly colleagues: Colleagues.ColleaguesFork["Service"];
   readonly shares: CollaboratorShares.CollaboratorSharesFork["Service"];
+  /** The colleague service as a restarted server builds it, over the same database. */
+  readonly restarted: Effect.Effect<Colleagues.ColleaguesFork["Service"], never, Scope.Scope>;
 }
 
 /** The servers that answer, by origin; deleting one takes it off the network. */
@@ -207,7 +210,7 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
   });
   const database = yield* Layer.build(NodeSqliteClient.layer({ filename: ":memory:" }));
   yield* ensureForkSchema().pipe(Effect.provide(database));
-  const context = yield* Layer.build(
+  const build = Layer.build(
     Colleagues.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
@@ -227,6 +230,7 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
       ),
     ),
   );
+  const context = yield* build;
   const server: Server = {
     origin: `http://127.0.0.1:${port}`,
     environmentId,
@@ -237,6 +241,7 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
     revoke: (sessionId) => dropSession(sessionId),
     colleagues: Context.get(context, Colleagues.ColleaguesFork),
     shares: Context.get(context, CollaboratorShares.CollaboratorSharesFork),
+    restarted: build.pipe(Effect.map((next) => Context.get(next, Colleagues.ColleaguesFork))),
   };
   network.set(server.origin, server);
   return server;
@@ -584,6 +589,44 @@ it.effect("a colleague forgotten mid-request keeps no pairing code", () =>
 
       assert.deepStrictEqual(yield* sam.colleagues.list, []);
       assert.isFalse(sam.links.some((link) => link.subject === "colleague:jo"));
+    }),
+  ),
+);
+
+it.effect("messages queued for an offline colleague keep their order past a restart", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      const threadId = ThreadId.make("host-thread");
+      const outbox = (colleagues: Server["colleagues"]) =>
+        colleagues.outbox.pipe(Stream.runHead, Effect.map(Option.getOrThrow));
+      const texts = (colleagues: Server["colleagues"]) =>
+        outbox(colleagues).pipe(Effect.map((queued) => queued.map(({ text }) => text)));
+
+      for (const text of ["first", "second", "third"]) {
+        yield* sam.colleagues.queueMessage({ environmentId: host.environmentId, threadId, text });
+      }
+      const [, second] = yield* outbox(sam.colleagues);
+      yield* sam.colleagues.unqueueMessage(second!.id);
+      const stranger = yield* Effect.exit(
+        sam.colleagues.queueMessage({
+          environmentId: EnvironmentId.make("env-stranger"),
+          threadId,
+          text: "hi",
+        }),
+      );
+      assert.isTrue(Exit.isFailure(stranger));
+
+      const restarted = yield* sam.restarted;
+      assert.deepStrictEqual(yield* texts(restarted), ["first", "third"]);
+      assert.deepStrictEqual(
+        (yield* outbox(restarted)).map(({ environmentId }) => environmentId),
+        [host.environmentId, host.environmentId],
+      );
+
+      // Removing the colleague drops what waited for them.
+      yield* sam.colleagues.remove("colleague:jo");
+      assert.deepStrictEqual(yield* texts(sam.colleagues), []);
     }),
   ),
 );

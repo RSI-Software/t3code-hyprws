@@ -13100,5 +13100,11 @@
   "201490988858b511": "retirada por {by}",
   "99451a5d2d40440f": "Retirada por {by}.",
   "3ee30a50b70fffab": "Retirada por {by}: {reason}",
-  "92e129bf413a1220": "retirada"
+  "92e129bf413a1220": "retirada",
+  "ebd1f4ca59d9596f": "Solo el texto espera a {name}",
+  "81f11dcfc7928654": "Quita los adjuntos para poner este mensaje en cola.",
+  "c30dcaac3c11235b": "No se pudo poner el mensaje en cola",
+  "27b886dd348ddfce": "Se envía cuando {name} vuelva",
+  "8b4eabdfc58b5fa0": "Editar",
+  "40a55ffa2bc11c31": "No se pudo enviar tu mensaje en cola a {name}"
 }

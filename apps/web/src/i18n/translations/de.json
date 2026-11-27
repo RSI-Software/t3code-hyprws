@@ -13105,5 +13105,11 @@
   "201490988858b511": "zurückgezogen von {by}",
   "99451a5d2d40440f": "Zurückgezogen von {by}.",
   "3ee30a50b70fffab": "Zurückgezogen von {by}: {reason}",
-  "92e129bf413a1220": "zurückgezogen"
+  "92e129bf413a1220": "zurückgezogen",
+  "ebd1f4ca59d9596f": "Nur Text wartet auf {name}",
+  "81f11dcfc7928654": "Entferne die Anhänge, um diese Nachricht einzureihen.",
+  "c30dcaac3c11235b": "Nachricht konnte nicht eingereiht werden",
+  "27b886dd348ddfce": "Wird gesendet, wenn {name} zurück ist",
+  "8b4eabdfc58b5fa0": "Bearbeiten",
+  "40a55ffa2bc11c31": "Deine eingereihte Nachricht an {name} konnte nicht gesendet werden"
 }

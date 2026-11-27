@@ -149,10 +149,13 @@ import {
   ColleagueFork,
   ColleagueGrantFork,
   ColleagueInviteInputFork,
+  ColleagueQueuedMessageFork,
+  ColleagueQueueMessageInputFork,
   ColleagueRemoveResultFork,
   ColleagueSaveInputFork,
   ColleagueShareThreadInputFork,
   ColleagueSubjectInputFork,
+  ColleagueUnqueueMessageInputFork,
 } from "./collaborator.fork.ts";
 
 export const collaboratorRpcFork = {
@@ -173,6 +176,9 @@ export const collaboratorRpcFork = {
     colleagueRemoveFork: "colleague.removeFork",
     colleaguePairClientFork: "colleague.pairClientFork",
     colleagueShareThreadFork: "colleague.shareThreadFork",
+    colleagueSubscribeOutboxFork: "colleague.subscribeOutboxFork",
+    colleagueQueueMessageFork: "colleague.queueMessageFork",
+    colleagueUnqueueMessageFork: "colleague.unqueueMessageFork",
   } as const,
   rpcs: [
     Rpc.make("collaborator.shareThreadFork", {
@@ -264,6 +270,21 @@ export const collaboratorRpcFork = {
         CollaboratorThreadMissingErrorFork,
         EnvironmentAuthorizationError,
       ]),
+    }),
+    // Messages for colleagues' threads, waiting on this server while their machine is offline.
+    Rpc.make("colleague.subscribeOutboxFork", {
+      payload: Schema.Struct({}),
+      success: Schema.Array(ColleagueQueuedMessageFork),
+      error: EnvironmentAuthorizationError,
+      stream: true,
+    }),
+    Rpc.make("colleague.queueMessageFork", {
+      payload: ColleagueQueueMessageInputFork,
+      error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    Rpc.make("colleague.unqueueMessageFork", {
+      payload: ColleagueUnqueueMessageInputFork,
+      error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
     }),
   ] as const,
 };

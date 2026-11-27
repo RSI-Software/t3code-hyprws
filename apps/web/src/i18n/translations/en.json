@@ -13114,5 +13114,11 @@
   "201490988858b511": "withdrawn by {by}",
   "99451a5d2d40440f": "Withdrawn by {by}.",
   "3ee30a50b70fffab": "Withdrawn by {by}: {reason}",
-  "92e129bf413a1220": "withdrawn"
+  "92e129bf413a1220": "withdrawn",
+  "ebd1f4ca59d9596f": "Only text waits for {name}",
+  "81f11dcfc7928654": "Remove the attachments to queue this message.",
+  "c30dcaac3c11235b": "Could not queue the message",
+  "27b886dd348ddfce": "Sends when {name} is back",
+  "8b4eabdfc58b5fa0": "Edit",
+  "40a55ffa2bc11c31": "Could not send your queued message to {name}"
 }

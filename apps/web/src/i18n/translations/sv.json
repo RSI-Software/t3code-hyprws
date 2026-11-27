@@ -13112,5 +13112,11 @@
   "201490988858b511": "återkallad av {by}",
   "99451a5d2d40440f": "Återkallad av {by}.",
   "3ee30a50b70fffab": "Återkallad av {by}: {reason}",
-  "92e129bf413a1220": "återkallad"
+  "92e129bf413a1220": "återkallad",
+  "ebd1f4ca59d9596f": "Bara text kan vänta på {name}",
+  "81f11dcfc7928654": "Ta bort bilagorna för att köa meddelandet.",
+  "c30dcaac3c11235b": "Kunde inte köa meddelandet",
+  "27b886dd348ddfce": "Skickas när {name} är tillbaka",
+  "8b4eabdfc58b5fa0": "Redigera",
+  "40a55ffa2bc11c31": "Kunde inte skicka ditt köade meddelande till {name}"
 }

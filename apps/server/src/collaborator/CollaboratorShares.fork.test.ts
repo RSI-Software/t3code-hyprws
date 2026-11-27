@@ -573,6 +573,15 @@ database("CollaboratorSharesFork", (it) => {
           restarted.map(({ text, outcome }) => ({ text, outcome })),
           [{ text: "maybe", outcome: "dismissed" }],
         );
+        // A flush from Sam's queue that repeats after a lost reply waits once.
+        const flushed = { threadId: shared, text: "queued offline", id: "outbox-1" };
+        yield* sam["collaborator.submitMessageFork"](flushed);
+        yield* sam["collaborator.submitMessageFork"](flushed);
+        assert.deepStrictEqual(
+          (yield* waiting(host)).map(({ id, text }) => ({ id, text })),
+          [{ id: "outbox-1", text: "queued offline" }],
+        );
+        yield* resolve(sam, "outbox-1", "dismiss");
         for (const text of ["a", "b", "c"]) {
           yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text });
         }

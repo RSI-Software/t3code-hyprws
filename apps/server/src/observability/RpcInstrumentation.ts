@@ -199,6 +199,9 @@ const RPC_AGGREGATES = {
   [WS_METHODS.colleagueRemoveFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.colleaguePairClientFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.colleagueShareThreadFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueSubscribeOutboxFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueQueueMessageFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueUnqueueMessageFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.sourceControlLookupRepository]: "source-control",
   [WS_METHODS.sourceControlCloneRepository]: "source-control",
   [WS_METHODS.sourceControlPublishRepository]: "source-control",

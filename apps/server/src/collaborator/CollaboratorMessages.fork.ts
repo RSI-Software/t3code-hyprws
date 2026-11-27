@@ -133,10 +133,14 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     readonly name: string;
     readonly threadId: ThreadId;
     readonly text: string;
+    readonly id?: string | undefined;
   }) {
     const undelivered = (cause: unknown) =>
       new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
-    const waiting = (yield* SubscriptionRef.get(ref)).filter(
+    const messages = yield* SubscriptionRef.get(ref);
+    // A flush from their queue may repeat after a lost reply; it already waits here.
+    if (messages.some(({ id, subject }) => id === input.id && subject === input.subject)) return;
+    const waiting = messages.filter(
       (message) =>
         message.subject === input.subject &&
         message.threadId === input.threadId &&
@@ -145,7 +149,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     if (waiting.length >= GUEST_PENDING_MESSAGE_LIMIT) {
       return yield* new CollaboratorMessageBusyErrorFork({ threadId: input.threadId });
     }
-    const id = yield* random.uuidV4().pipe(Effect.mapError(undelivered));
+    const id = input.id ?? (yield* random.uuidV4().pipe(Effect.mapError(undelivered)));
     const submittedAt = DateTime.formatIso(yield* DateTime.now);
     yield* sql`
     INSERT INTO fork_collaborator_messages

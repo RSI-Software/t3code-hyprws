@@ -20,6 +20,8 @@ import {
   type ColleagueFork,
   type ColleagueGrantFork,
   type ColleagueInviteInputFork,
+  type ColleagueQueuedMessageFork,
+  type ColleagueQueueMessageInputFork,
   ColleagueMissingErrorFork,
   ColleagueNotCollaboratorErrorFork,
   ColleagueRemoteErrorFork,
@@ -66,6 +68,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
+import { makeColleagueOutbox } from "./ColleagueOutbox.fork.ts";
 import {
   collaboratorSessionLifetimeFork,
   collaboratorSubject,
@@ -167,6 +170,14 @@ export class ColleaguesFork extends Context.Service<
     }) => Effect.Effect<ColleagueClientPairingResponseFork, ColleagueErrorFork>;
     /** For a colleague's server that removed this side: forgets them here too. */
     readonly forget: (subject: string) => Effect.Effect<void, ColleagueErrorFork>;
+    /** Messages waiting here for colleagues' threads, in send order. */
+    readonly outbox: Stream.Stream<ReadonlyArray<ColleagueQueuedMessageFork>>;
+    /** Keeps a message for a saved colleague's thread until a client delivers it. */
+    readonly queueMessage: (
+      input: ColleagueQueueMessageInputFork,
+    ) => Effect.Effect<void, ColleagueErrorFork>;
+    /** Removes a queued message: delivered, withdrawn, or taken back to edit. */
+    readonly unqueueMessage: (id: string) => Effect.Effect<void, ColleagueErrorFork>;
   }
 >()("t3/collaborator/Colleagues.fork/ColleaguesFork") {}
 
@@ -178,6 +189,7 @@ const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const shares = yield* CollaboratorShares.CollaboratorSharesFork;
   const sessionChanges = (yield* SessionStore.SessionStore).streamChanges;
+  const outbox = yield* makeColleagueOutbox;
   // Only the origin checked may receive a grant: a redirect could forward it anywhere.
   const httpClient = HttpClient.transform(yield* HttpClient.HttpClient, (response) =>
     Effect.provideService(response, FetchHttpClient.RequestInit, { redirect: "manual" }),
@@ -459,6 +471,7 @@ const make = Effect.gen(function* () {
       Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })),
     );
     yield* secrets.remove(row.secret_name).pipe(Effect.ignore);
+    yield* outbox.drop(row.environment_id);
     yield* reload;
   });
 
@@ -538,7 +551,20 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const queueMessage: ColleaguesFork["Service"]["queueMessage"] = Effect.fn(
+    "ColleaguesFork.queueMessage",
+  )(function* (input) {
+    const rows = yield* SubscriptionRef.get(ref);
+    if (!rows.some((row) => row.environment_id === input.environmentId)) {
+      return yield* new ColleagueMissingErrorFork({ subject: input.environmentId });
+    }
+    yield* outbox.queue(input);
+  }, exclusive);
+
   return ColleaguesFork.of({
+    outbox: outbox.changes,
+    queueMessage,
+    unqueueMessage: outbox.unqueue,
     invite,
     save,
     connect,

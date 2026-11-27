@@ -5,6 +5,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  type AtomCommandResult,
   createEnvironmentRpcCommand,
   isAtomCommandInterrupted,
   selectEnvironmentQueryData,
@@ -48,11 +49,11 @@ import { collaboratorMessages } from "./useCollaboratorRequests.fork";
 import { useColleagueOfflineBannerFork } from "./colleagueCopy.fork";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
-
-const submitMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
-  label: "send message for approval",
-  tag: WS_METHODS.collaboratorSubmitMessageFork,
-});
+import {
+  QueuedForColleagueFork,
+  submitMessageCommand,
+  useColleagueOutboxFork,
+} from "./colleagueOutbox.fork";
 
 const resolveMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "resolve collaborator message",
@@ -143,6 +144,7 @@ export function useCollaboratorChatFork(
     }
   }, [threadKey, waitingIds, followingTimeline, scrollToEnd]);
   const submit = useAtomCommand(submitMessageCommand);
+  const outbox = useColleagueOutboxFork(thread);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const access = thread?.collaboratorFork;
   const configs = useServerConfigs();
@@ -161,36 +163,64 @@ export function useCollaboratorChatFork(
     access === undefined ? null : (thread?.id ?? null),
   );
 
-  const submitForApproval = (event?: { preventDefault: () => void }) => {
-    event?.preventDefault();
-    const text = prompt();
-    if (thread == null || text.length === 0) return;
-    if (hasAttachments()) {
-      toastManager.add({
-        type: "warning",
-        title: gt("Only text waits for the host"),
-        description: gt("Remove the attachments to send this message for approval."),
-      });
-      return;
-    }
-    void submit({
-      environmentId: thread.environmentId,
-      input: { threadId: thread.id, text },
-    }).then((result) => {
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+  /** Hands the composer's text to `deliver`, clearing it once that lands. Text only. */
+  const sendText =
+    (
+      deliver: (text: string) => Promise<AtomCommandResult<void, unknown>> | null,
+      copy: {
+        readonly attachmentsTitle: string;
+        readonly attachmentsDescription: string;
+        readonly failure: string;
+      },
+    ) =>
+    (event?: { preventDefault: () => void }) => {
+      event?.preventDefault();
+      const text = prompt();
+      if (thread == null || text.length === 0) return;
+      if (hasAttachments()) {
         toastManager.add({
-          type: "error",
-          title: gt("Could not send for approval"),
-          description:
-            collaboratorErrorTextFork(squashAtomCommandFailure(result)) ??
-            gt("Could not deliver the message."),
+          type: "warning",
+          title: copy.attachmentsTitle,
+          description: copy.attachmentsDescription,
         });
+        return;
       }
-      // Keep anything typed while the message was on its way.
-      if (result._tag !== "Success" || prompt() !== text) return;
-      clearComposerContent(draftTarget);
-      composerRef.current?.resetCursorState();
-    });
+      void deliver(text)?.then((result) => {
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          toastManager.add({
+            type: "error",
+            title: copy.failure,
+            description:
+              collaboratorErrorTextFork(squashAtomCommandFailure(result)) ??
+              gt("Could not deliver the message."),
+          });
+        }
+        // Keep anything typed while the message was on its way.
+        if (result._tag !== "Success" || prompt() !== text) return;
+        clearComposerContent(draftTarget);
+        composerRef.current?.resetCursorState();
+      });
+    };
+  const submitForApproval = sendText(
+    (text) =>
+      thread == null
+        ? null
+        : submit({ environmentId: thread.environmentId, input: { threadId: thread.id, text } }),
+    {
+      attachmentsTitle: gt("Only text waits for the host"),
+      attachmentsDescription: gt("Remove the attachments to send this message for approval."),
+      failure: gt("Could not send for approval"),
+    },
+  );
+  const queueOffline = sendText(outbox.queue, {
+    attachmentsTitle: gt("Only text waits for {name}", { name: outbox.name }),
+    attachmentsDescription: gt("Remove the attachments to queue this message."),
+    failure: gt("Could not queue the message"),
+  });
+  const editQueued = async (message: { readonly id: string; readonly text: string }) => {
+    if (!(await outbox.unqueue(message.id))) return;
+    composerRef.current?.insertTextAtEnd(message.text, { ensureLeadingBoundary: true });
+    composerRef.current?.focusAtEnd();
   };
 
   return {
@@ -205,10 +235,13 @@ export function useCollaboratorChatFork(
           bannerItems: [localizedBanner(FROZEN_BANNER, messages), ...bannerItems],
         };
       }
+      // While a saved colleague's machine is away, a send waits here for it.
+      const onSend = outbox.queues ? queueOffline : submitForApproval;
+      if (outbox.queues && access === "send") return { onSend };
       if (access === "approve") {
         // The server refuses an approve collaborator's interrupt, so no Stop button.
         return {
-          onSend: submitForApproval,
+          onSend,
           canInterrupt: false,
           bannerItems: [localizedBanner(APPROVAL_BANNER, messages), ...bannerItems],
         };
@@ -218,17 +251,29 @@ export function useCollaboratorChatFork(
       return access === undefined ? sendMenu : { ...sendMenu, bannerItems };
     },
     footer: (footer: ReactNode) =>
-      thread == null || waiting.length === 0
+      thread == null || (waiting.length === 0 && outbox.queued.length === 0)
         ? {}
         : {
             footer: (
               <>
                 {footer}
-                <WaitingMessages
-                  environmentId={thread.environmentId}
-                  messages={waiting}
-                  asAuthor={access !== undefined}
-                />
+                {waiting.length === 0 ? null : (
+                  <WaitingMessages
+                    environmentId={thread.environmentId}
+                    messages={waiting}
+                    asAuthor={access !== undefined}
+                  />
+                )}
+                {outbox.queued.length === 0 ? null : (
+                  <QueuedForColleagueFork
+                    environmentId={thread.environmentId}
+                    messages={outbox.queued}
+                    name={outbox.name}
+                    online={outbox.online}
+                    onEdit={(message) => void editQueued(message)}
+                    onWithdraw={(message) => void outbox.unqueue(message.id)}
+                  />
+                )}
               </>
             ),
           },
