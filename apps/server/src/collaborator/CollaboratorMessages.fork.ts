@@ -22,9 +22,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
-
-/** The agent's whole reply to a shared-thread message that is between people. */
-export const QUIET_MARKER = "(listening)";
+import { QUIET_MARKER } from "./quietTurn.fork.ts";
 
 // Model-facing: evals/shared-thread-quiet grades this text; rerun it after any change.
 const sharedThreadRule = (people: string) =>

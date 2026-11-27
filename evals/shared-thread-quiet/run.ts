@@ -12,8 +12,8 @@ import * as NodeUtil from "node:util";
 import {
   collaboratorAttribution,
   hostAttribution,
-  QUIET_MARKER,
 } from "../../apps/server/src/collaborator/CollaboratorMessages.fork.ts";
+import { QUIET_MARKER } from "../../apps/server/src/collaborator/quietTurn.fork.ts";
 import { sharedThreadCases, type SharedThreadMessage } from "./cases.ts";
 
 const { values } = NodeUtil.parseArgs({
