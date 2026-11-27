@@ -112,6 +112,7 @@ import {
 import { useMultipleModelSend } from "./useMultipleModelSend";
 import { worktrunkBootstrapFork, worktrunkDispatchFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/send-bootstrap-import
 import { forceReplyMessageFork, takeForceReplyFork } from "../collaborator/sendMenu.fork"; // fork-hook: colleague-collab/send-force-import
+import { readSendPermittedFork } from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/send-inbox-import
 import type { SideChatMessage } from "./useSideChat";
 import { type ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import {
@@ -389,9 +390,11 @@ export function useComposerSend(input: ComposerSendInput) {
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
   const clientSettingsHydrated = useClientSettingsHydrated();
-  const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
-    reportFailure: false,
-  });
+  const startThreadTurn = useOrchestrationCommand(
+    threadEnvironment.startTurn,
+    { reportFailure: false },
+    (id) => readSendPermittedFork(id, activeThread),
+  ); // fork-hook: colleague-collab/send-inbox
   const uploadThreadFeedback = useOrchestrationCommand(threadEnvironment.uploadFeedback, {
     reportFailure: false,
   });
@@ -496,7 +499,7 @@ export function useComposerSend(input: ComposerSendInput) {
       );
     };
     if (
-      !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ||
+      !readSendPermittedFork(environmentId, activeThread) || // fork-hook: colleague-collab/send-inbox
       !activeThread ||
       isRevertingCheckpoint ||
       !clientSettingsHydrated ||
@@ -1199,7 +1202,7 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     if (
-      !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ||
+      !readSendPermittedFork(environmentId, activeThread) || // fork-hook: colleague-collab/send-inbox
       attachmentCapabilitiesBeforeDispatch.fileBlockReason !== null
     ) {
       sendInFlightRef.current = false;
