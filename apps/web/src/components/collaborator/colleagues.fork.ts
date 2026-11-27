@@ -120,7 +120,12 @@ export function useSaveColleagueFork() {
       invited._tag === "Success" && saved._tag === "Success"
         ? await connect({
             environmentId: own,
-            input: { subject: invited.value.subject, name, grant: saved.value },
+            // The sharer's own name for themselves; an older server or no git name leaves the machine's.
+            input: {
+              subject: invited.value.subject,
+              name: saved.value.name ?? name,
+              grant: saved.value,
+            },
           })
         : saved;
     if (connected._tag === "Success" || isAtomCommandInterrupted(connected)) return;

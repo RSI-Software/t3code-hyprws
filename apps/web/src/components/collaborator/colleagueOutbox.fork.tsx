@@ -39,6 +39,7 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
+import { useSharerNamesFork } from "./SharedThreadCard.fork";
 import {
   colleagueOutboxReadyFork,
   flushColleagueOutboxFork,
@@ -248,6 +249,7 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   const gt = useGT();
   const queued = useOutbox(server);
   const { environments } = useEnvironments();
+  const colleagueNames = useSharerNamesFork();
   const shells = useQuietThreadShells();
   const submit = useAtomCommand(submitMessageCommand, quiet);
   // Only `send` and `approve` threads route here, which browsing their inbox never blocks
@@ -316,7 +318,10 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
       toastManager.add({
         type: "error",
         title: gt("Could not send your queued message to {name}", {
-          name: environment?.label ?? message.environmentId,
+          name:
+            colleagueNames.get(message.environmentId) ??
+            environment?.label ??
+            message.environmentId,
         }),
         description:
           collaboratorErrorTextFork(squashAtomCommandFailure(result)) ??

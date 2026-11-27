@@ -129,6 +129,8 @@ export class CollaboratorSharesFork extends Context.Service<
     readonly unshareAll: (subject: string) => Effect.Effect<void, CollaboratorUnshareErrorFork>;
     /** The collaborator's name, from their first share; undefined when nothing was shared. */
     readonly nameOf: (subject: string) => string | undefined;
+    /** This server's owner, as they named themselves to git; undefined when unset. */
+    readonly hostName: Effect.Effect<string | undefined>;
     /** Whether any thread is shared live with the subject. */
     readonly sharesLive: (subject: string) => boolean;
     /** The origin other machines reach this server on, as for a share link. */

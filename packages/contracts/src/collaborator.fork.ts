@@ -318,6 +318,8 @@ export const ColleagueGrantFork = Schema.Struct({
   /** The subject the token carries on the issuing server. */
   subject: Schema.String,
   token: Schema.RedactedFromValue(TrimmedNonEmptyString),
+  /** The issuing server's owner, as they named themselves to git; absent when unset. */
+  name: Schema.optional(CollaboratorNameFork),
 });
 export type ColleagueGrantFork = typeof ColleagueGrantFork.Type;
 
