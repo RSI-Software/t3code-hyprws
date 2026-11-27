@@ -862,6 +862,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
       wrapHandlers,
       canRead,
       colleaguesChanged: teamThreads.touch,
+      hostName,
     },
     endShare,
   };
