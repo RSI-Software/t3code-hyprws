@@ -232,8 +232,9 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
             latestApplicationSequence: Effect.succeed(0),
             streamApplicationEvents: () => Stream.never,
           }),
+          // Every owner but Sam gave git the name Jo.
           Layer.mock(GitVcsDriver.GitVcsDriver)({
-            execute: () => Effect.succeed({ stdout: "" } as never),
+            execute: () => Effect.succeed({ stdout: name === "sam" ? "" : "Jo\n" } as never),
           }),
           Layer.succeed(HttpClient.HttpClient, networkClient),
         ),
@@ -266,12 +267,14 @@ const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subj
 
 /**
  * The host shares a thread with Sam through a link; Sam accepts it in their own app, which runs the
- * three accept steps against their own server and the host's.
+ * three accept steps against their own server and the host's, and names the host as its grant does.
  */
 const accept = Effect.fn("accept")(function* (host: Server, sam: Server) {
   const samGrant = yield* sam.colleagues.invite({ environmentId: host.environmentId, name: "Jo" });
+  assert.isUndefined(samGrant.name);
   const hostGrant = yield* host.colleagues.save(samApp, { grant: samGrant });
-  return yield* sam.colleagues.connect({ subject: samGrant.subject, name: "Jo", grant: hostGrant });
+  const name = hostGrant.name ?? "the host's machine";
+  return yield* sam.colleagues.connect({ subject: samGrant.subject, name, grant: hostGrant });
 });
 
 const servers = Effect.gen(function* () {

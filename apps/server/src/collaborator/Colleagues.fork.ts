@@ -14,6 +14,7 @@ import {
   type ColleaguesThreadsResultFork,
   ColleagueThreadsResultFork,
   type AuthEnvironmentScope,
+  CollaboratorNameFork,
   type CollaboratorShareErrorFork,
   type CollaboratorThreadMissingErrorFork,
   ColleagueNoLiveShareErrorFork,
@@ -168,6 +169,7 @@ export class ColleagueUnknownNameErrorFork extends Schema.TaggedError<ColleagueU
   }
 }
 
+const isCollaboratorName = Schema.is(CollaboratorNameFork);
 const fold = (name: string) => name.normalize("NFKC").toLocaleLowerCase();
 
 export class ColleaguesFork extends Context.Service<
@@ -312,11 +314,13 @@ const make = Effect.gen(function* () {
         ...collaboratorSessionLifetimeFork(subject),
       })
       .pipe(Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })));
+    const owner = yield* shares.hostName;
     const grant: ColleagueGrantFork = {
       environmentId: yield* selfId,
       url: base,
       subject,
       token: Redacted.make(issued.token),
+      ...(owner !== undefined && isCollaboratorName(owner) ? { name: owner } : {}),
     };
     return { grant, sessionId: issued.sessionId };
   });

@@ -21,6 +21,7 @@ To share another thread with someone you shared with before, pick their name und
 
 Open the link in **your own T3 Code app**: from the desktop app, or pasted into **Settings → Environments → Add environment**.
 You each save the other as a **colleague**, and both apps say so: **Saved Jordan as a colleague**.
+The sharer's app names you by **the name they typed**; yours names them by **their git `user.name`**, else by their machine.
 
 - Threads they share with you later **appear live**, with no new link
 - A colleague sees **nothing of yours** until you share a thread
