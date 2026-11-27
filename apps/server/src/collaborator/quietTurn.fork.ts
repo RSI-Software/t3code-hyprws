@@ -12,6 +12,7 @@ export const QUIET_MARKER = "(listening)";
 /**
  * The `turn-item.updated` payload override for a finished agent reply that is the quiet marker or
  * empty, in a turn a shared-thread message started; otherwise nothing.
+ * Untraced: it runs on every turn-item event, streaming deltas included, inside `normalize`.
  */
 export const quietTurnPayloadFork = Effect.fnUntraced(function* (
   projections: Pick<ProjectionStoreV2Shape, "getRun" | "getTurnItem">,

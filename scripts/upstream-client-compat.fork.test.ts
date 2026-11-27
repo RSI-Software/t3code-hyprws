@@ -374,15 +374,47 @@ describe("an upstream client reading a fork server", () => {
   });
 
   it("decodes thread snapshots and known thread events", () => {
+    const quiet = {
+      id: "turn-item-quiet",
+      threadId: appThread.id,
+      runId: null,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed",
+      title: null,
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+      type: "assistant_message",
+      messageId: "message-quiet",
+      text: "(listening)",
+      streaming: false,
+      quietFork: true,
+    };
+    const quietAsUpstream = { type: "assistant_message", text: "(listening)" };
     const snapshot = acrossTheWire(
       fork.OrchestrationV2ThreadStreamItem,
       upstream.OrchestrationV2ThreadStreamItem,
-      { kind: "snapshot", snapshotSequence: 1, projection },
+      { kind: "snapshot", snapshotSequence: 1, projection: { ...projection, turnItems: [quiet] } },
     );
     expect(snapshot).toMatchObject({
       kind: "snapshot",
-      projection: { thread: { id: appThread.id } },
+      projection: { thread: { id: appThread.id }, turnItems: [quietAsUpstream] },
     });
+    const quietUpdate = acrossTheWire(
+      fork.OrchestrationV2ThreadStreamItem,
+      upstream.OrchestrationV2ThreadStreamItem,
+      {
+        kind: "event",
+        sequence: 2,
+        event: { ...eventBase, type: "turn-item.updated", payload: quiet },
+      },
+    );
+    expect(quietUpdate).toMatchObject({ event: { payload: quietAsUpstream } });
     const pinned = acrossTheWire(
       fork.OrchestrationV2ThreadStreamItem,
       upstream.OrchestrationV2ThreadStreamItem,
@@ -406,53 +438,6 @@ describe("an upstream client reading a fork server", () => {
       });
       expect(decoded, name).toMatchObject({ projection: { thread: { id: appThread.id } } });
     }
-  });
-
-  it("decodes a quiet agent reply as an ordinary one", () => {
-    const quiet = {
-      id: "turn-item-quiet",
-      threadId: appThread.id,
-      runId: null,
-      nodeId: null,
-      providerThreadId: null,
-      providerTurnId: null,
-      nativeItemRef: null,
-      parentItemId: null,
-      ordinal: 1,
-      status: "completed",
-      title: null,
-      startedAt: now,
-      completedAt: now,
-      updatedAt: now,
-      type: "assistant_message",
-      messageId: "message-quiet",
-      text: "(listening)",
-      streaming: false,
-      quietFork: true,
-    };
-    const expected = { type: "assistant_message", text: "(listening)" };
-    expect(
-      acrossTheWire(
-        fork.OrchestrationV2ThreadStreamItem,
-        upstream.OrchestrationV2ThreadStreamItem,
-        {
-          kind: "event",
-          sequence: 2,
-          event: { ...eventBase, type: "turn-item.updated", payload: quiet },
-        },
-      ),
-    ).toMatchObject({ event: { payload: expected } });
-    expect(
-      acrossTheWire(
-        fork.OrchestrationV2ThreadStreamItem,
-        upstream.OrchestrationV2ThreadStreamItem,
-        {
-          kind: "snapshot",
-          snapshotSequence: 1,
-          projection: { ...projection, turnItems: [quiet] },
-        },
-      ),
-    ).toMatchObject({ projection: { turnItems: [expected] } });
   });
 
   it("decodes an environment descriptor that advertises fork capabilities", () => {
