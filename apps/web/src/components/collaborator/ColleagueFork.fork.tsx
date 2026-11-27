@@ -1,8 +1,12 @@
 // Fork-only (colleague-collab): "Fork to my machine" on a colleague's thread. It copies the thread
 // into a project on this app's own server, from the host while it answers and else from this
-// device's copy, and the new thread's first notice links back to the original.
+// device's copy, and the new thread's first notice links back to the original. Images and files
+// copy too while the host answers.
 import { useAtomValue } from "@effect/atom-react";
-import { readColleagueThreadFork } from "@t3tools/client-runtime/state/colleague-thread-read";
+import {
+  colleagueForkMessagesFork,
+  readColleagueThreadFork,
+} from "@t3tools/client-runtime/state/colleague-thread-read";
 import type { ColleagueThreadReadFork } from "@t3tools/client-runtime/state/colleague-thread-read";
 import {
   createEnvironmentRpcCommand,
@@ -20,6 +24,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
+import * as Effect from "effect/Effect";
 import { GitForkIcon } from "lucide-react";
 import { msg, useGT } from "gt-react";
 import { useEffect, useState } from "react";
@@ -47,6 +52,7 @@ import {
 } from "../ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
+import { copyColleagueAttachmentFork } from "./colleagueForkAttachments.fork";
 import {
   canForkColleagueThreadFork,
   colleagueForkDialogThreadAtom,
@@ -82,6 +88,23 @@ const readCommand = createRuntimeCommand(connectionAtomRuntime, {
       input.environmentId,
       registry.get(environmentSession.preparedConnectionValueAtom(input.environmentId)),
       input.threadId,
+    ),
+});
+
+interface CopyInput {
+  readonly read: ColleagueThreadReadFork;
+  readonly from: EnvironmentId;
+  readonly to: EnvironmentId;
+}
+
+const copyCommand = createRuntimeCommand(connectionAtomRuntime, {
+  label: "colleague-fork:copy-attachments",
+  execute: ({ read, from, to }: CopyInput, registry) =>
+    colleagueForkMessagesFork(
+      read.messages,
+      read.source === "host"
+        ? copyColleagueAttachmentFork(registry, from, to)
+        : () => Effect.succeed(null),
     ),
 });
 
@@ -132,6 +155,7 @@ function ColleagueForkDialog({
   const projectId = picked ?? matchingProjectFork(source, local) ?? local[0]?.id ?? null;
   const project = local.find((candidate) => candidate.id === projectId);
   const read = useAtomCommand(readCommand, { reportFailure: false });
+  const copy = useAtomCommand(copyCommand, { reportFailure: false });
   const fork = useAtomCommand(forkCommand, { reportFailure: false });
   const [state, setState] = useState<ForkState>({ status: "reading" });
   // One id per dialog, so a retry after a lost reply resumes that thread instead of adding one.
@@ -147,7 +171,7 @@ function ColleagueForkDialog({
         read:
           result._tag === "Success"
             ? result.value
-            : { messages: [], partial: false, source: "none", omittedAttachments: 0 },
+            : { messages: [], partial: false, source: "none" },
       });
     });
     return () => {
@@ -159,6 +183,8 @@ function ColleagueForkDialog({
     if (state.status !== "ready" && state.status !== "failed") return;
     if (thread === null || primary === null || project === undefined) return;
     setState({ status: "forking", read: state.read });
+    const copied = await copy({ read: state.read, from: threadRef.environmentId, to: primary });
+    if (copied._tag === "Failure") return setState({ status: "ready", read: state.read });
     const result = await fork({
       environmentId: primary,
       input: {
@@ -171,8 +197,9 @@ function ColleagueForkDialog({
         origin: { environmentId: threadRef.environmentId, threadId: threadRef.threadId },
         hostName: host,
         originTitle: thread.title,
-        messages: state.read.messages,
+        messages: copied.value.messages,
         partial: state.read.partial,
+        missingAttachments: copied.value.missingAttachments,
       },
     });
     if (result._tag === "Failure") {
@@ -263,7 +290,9 @@ function ColleagueForkDialog({
               {state.status !== "reading" && state.read.partial
                 ? ` ${gt("Its oldest messages are not included.")}`
                 : ""}
-              {state.status !== "reading" && state.read.omittedAttachments > 0
+              {state.status !== "reading" &&
+              state.read.source !== "host" &&
+              state.read.messages.some(({ attachments }) => attachments.length > 0)
                 ? ` ${gt("Images and files are not copied.")}`
                 : ""}
             </p>
