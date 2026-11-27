@@ -96,6 +96,8 @@ export const CollaboratorMessageFork = Schema.Struct({
   text: Schema.String,
   submittedAt: IsoDateTime,
   outcome: Schema.optional(Schema.Literal("dismissed")),
+  /** "Ask the agent": once the host sends it, the agent answers it. */
+  forceReplyFork: Schema.optional(Schema.Literal(true)),
 });
 export type CollaboratorMessageFork = typeof CollaboratorMessageFork.Type;
 
@@ -111,6 +113,7 @@ export const CollaboratorSubmitMessageInputFork = Schema.Struct({
   text: CollaboratorMessageText,
   /** Set by a flush from the sender's queue, so a repeat delivery waits once. */
   id: Schema.optional(TrimmedNonEmptyString),
+  forceReplyFork: Schema.optional(Schema.Literal(true)),
 });
 export type CollaboratorSubmitMessageInputFork = typeof CollaboratorSubmitMessageInputFork.Type;
 
