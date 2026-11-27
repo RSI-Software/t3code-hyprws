@@ -448,7 +448,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
               Stream.map((shares) => shares.get(subject)),
               Stream.changesWith(sameShare),
             ),
-            marks,
+            marks.pipe(Stream.changesWith<ReadonlySet<string>>(sameIds)),
           ).pipe(
             Stream.map(([share, team]): ShellView => ({ share, team })),
             Stream.switchMap(narrowed),
@@ -465,13 +465,14 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
   );
 
   const NO_TEAM: ReadonlySet<string> = new Set();
-  /** The team projects a subject reads, now and on every change; none for a one-time guest. */
+  /** The team projects a subject reads, now and on every touch; none for a one-time guest. */
   const teamMarks = Effect.fn("CollaboratorSharesFork.teamMarks")(function* (subject: string) {
     return (yield* teamThreads.isColleague(subject))
-      ? teamThreads.changes.pipe(Stream.changesWith<ReadonlySet<string>>(sameIds))
+      ? teamThreads.changes
       : Stream.succeed(NO_TEAM);
   });
 
+  // Each touch rechecks the thread's project, so a thread leaving a team project pauses at once.
   const accessChanges = (subject: string, threadId: string) =>
     Stream.unwrap(
       teamMarks(subject).pipe(

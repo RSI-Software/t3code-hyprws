@@ -1,9 +1,10 @@
 // Fork-only (colleague-collab): a saved colleague reads every thread of a team project, with no
 // share rows. Access is derived from `fork_colleagues` and `fork_team_projects`; `CollaboratorShares`
 // joins it with hand shares into one read check, and refuses every write.
-import { type ProjectId, ThreadId } from "@t3tools/contracts";
+import { type ApplicationStoredEvent, type ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -19,26 +20,42 @@ export const makeTeamThreads = Effect.gen(function* () {
   const readTeam = sql<{ readonly projectId: string }>`
     SELECT project_id AS "projectId" FROM fork_team_projects
   `.pipe(Effect.map((rows): ReadonlySet<string> => new Set(rows.map((row) => row.projectId))));
-  // The cursor first, so a mark landing before the first read is replayed, not missed.
-  const afterSequence = yield* events.latestApplicationSequence.pipe(Effect.orDie);
+  const NONE: ReadonlySet<string> = new Set();
   const team = yield* SubscriptionRef.make(yield* readTeam.pipe(Effect.orDie));
-  // Marking, unmarking, or deleting a project reaches open views at once.
-  yield* events.streamApplicationEvents({ afterSequence }).pipe(
-    Stream.filter((stored) => "aggregateKind" in stored && stored.aggregateKind === "project"),
-    Stream.mapEffect(() =>
-      readTeam.pipe(Effect.flatMap((next) => SubscriptionRef.set(team, next))),
+  // A mark, an unmark, or a thread moving project changes who reads what.
+  const touchesTeam = (stored: ApplicationStoredEvent) =>
+    "aggregateKind" in stored
+      ? stored.aggregateKind === "project"
+      : stored.event.type === "thread.metadata-updated";
+  // The cursor before the read, so a mark landing between them is replayed, not missed.
+  const watch = Effect.gen(function* () {
+    const afterSequence = yield* events.latestApplicationSequence;
+    yield* Stream.concat(
+      Stream.succeed(undefined),
+      events.streamApplicationEvents({ afterSequence }).pipe(Stream.filter(touchesTeam)),
+    ).pipe(
+      // Every touch publishes, so open thread views recheck their thread's project.
+      Stream.mapEffect(() =>
+        readTeam.pipe(Effect.flatMap((next) => SubscriptionRef.set(team, next))),
+      ),
+      Stream.runDrain,
+    );
+  });
+  yield* watch.pipe(
+    // Fail closed: a broken watcher grants no team access until it reads fresh marks.
+    Effect.tapCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.void
+        : SubscriptionRef.set(team, NONE).pipe(
+            Effect.andThen(
+              Effect.logWarning("team project marks stopped updating; retrying", {
+                failure: Cause.hasFails(cause) ? "store" : "defect",
+              }),
+            ),
+          ),
     ),
-    Stream.runDrain,
-    // Team access keeps its last marks; the log names the failure kind, never its text.
-    Effect.catchCause((cause) =>
-      Effect.logWarning("team project marks stopped updating", {
-        failure: Cause.hasInterruptsOnly(cause)
-          ? "interrupted"
-          : Cause.hasFails(cause)
-            ? "sql"
-            : "defect",
-      }),
-    ),
+    Effect.retry(Schedule.spaced("5 seconds")),
+    Effect.ignore,
     Effect.forkScoped,
   );
 
@@ -70,7 +87,7 @@ export const makeTeamThreads = Effect.gen(function* () {
   });
 
   return {
-    /** Team project ids, now and on every change. */
+    /** Team project ids, now and on every event that may change access; not deduplicated. */
     changes: SubscriptionRef.changes(team),
     isColleague,
     inTeam,

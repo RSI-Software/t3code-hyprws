@@ -24,6 +24,7 @@ import {
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
@@ -156,7 +157,7 @@ const git = Layer.mock(GitVcsDriver.GitVcsDriver)({
 });
 
 // Project events wake the team marks; the team test supplies the queue.
-const projectEvents: { queue?: Queue.Queue<object> } = {};
+const projectEvents: { queue?: Queue.Queue<object, Error> } = {};
 const events = Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({
   latestApplicationSequence: Effect.succeed(0),
   streamApplicationEvents: () =>
@@ -731,12 +732,13 @@ database("CollaboratorSharesFork", (it) => {
   it.effect("a saved colleague reads every team project thread, and writes none", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      projectEvents.queue = yield* Queue.unbounded<object>();
+      projectEvents.queue = yield* Queue.unbounded<object, Error>();
+      const touch = (event: object) => Queue.offer(projectEvents.queue!, event);
       const marked = (on: boolean) =>
         (on
           ? sql`INSERT INTO fork_team_projects (project_id, marked_at) VALUES (${otherProject}, '')`
           : sql`DELETE FROM fork_team_projects WHERE project_id = ${otherProject}`
-        ).pipe(Effect.andThen(Queue.offer(projectEvents.queue!, { aggregateKind: "project" })));
+        ).pipe(Effect.andThen(touch({ aggregateKind: "project" })));
       yield* withService(
         Effect.gen(function* () {
           yield* sql`
@@ -744,7 +746,17 @@ database("CollaboratorSharesFork", (it) => {
             VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
           `;
           const service = yield* CollaboratorShares.CollaboratorSharesFork;
-          const alex = { ...handlers };
+          const viewClosed = yield* Deferred.make<void>();
+          const alex = {
+            ...handlers,
+            "orchestration.subscribeThread": (
+              input: { readonly afterSequence?: number | undefined },
+              options: never,
+            ) =>
+              handlers["orchestration.subscribeThread"](input, options).pipe(
+                Stream.ensuring(Deferred.succeed(viewClosed, undefined)),
+              ),
+          };
           Object.assign(alex, service.wrapHandlers("colleague:alex", alex));
           const items = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
           shellEvents.queue = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
@@ -812,17 +824,43 @@ database("CollaboratorSharesFork", (it) => {
             yield* check(WS_METHODS.collaboratorSetTypingFork, { threadId: other, typing: true }),
           );
 
+          // A thread moving out of a team project closes its open view at once.
+          const view = yield* Queue.unbounded<OrchestrationV2ThreadStreamItem>();
+          yield* alex["orchestration.subscribeThread"](
+            { threadId: other } as never,
+            undefined as never,
+          ).pipe(
+            Stream.runForEach((item) => Queue.offer(view, item)),
+            Effect.forkChild,
+          );
+          yield* Queue.take(view);
+          projectOf[other] = sharedProject;
+          yield* touch({ event: { type: "thread.metadata-updated" } });
+          yield* Deferred.await(viewClosed);
+          projectOf[other] = otherProject;
+
+          // Removing the colleague removes access, marked or not.
+          yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;
+          assert.isFalse(yield* service.canRead("colleague:alex", other));
+          yield* sql`
+            INSERT INTO fork_colleagues (subject, name, environment_id, url, secret_name, saved_at)
+            VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
+          `;
+
           // Unmarking removes them at once.
           yield* marked(false);
           assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
           assert.isFalse(yield* service.canRead("colleague:alex", other));
-          yield* Fiber.interrupt(fiber);
 
-          // Removing the colleague removes access too, marked or not.
+          // A broken mark watcher fails closed: no team access until it reads fresh marks.
           yield* marked(true);
-          yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), [other]);
+          yield* Queue.fail(projectEvents.queue!, new Error("store gone"));
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
           assert.isFalse(yield* service.canRead("colleague:alex", other));
-          yield* marked(false);
+          yield* Fiber.interrupt(fiber);
+          yield* sql`DELETE FROM fork_team_projects WHERE project_id = ${otherProject}`;
+          yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;
         }),
       );
       delete projectEvents.queue;
