@@ -59,6 +59,7 @@ import {
   openColleagueForkDialogFork,
 } from "./colleagueForkDialogState.fork";
 import { matchingProjectFork } from "./colleagueFork.logic.fork";
+import { useSharerNamesFork } from "./SharedThreadCard.fork";
 
 /** The command palette's "Fork to my machine…" for the active thread, as its menus offer it. */
 export function colleagueForkPaletteItemFork(
@@ -141,7 +142,9 @@ function ColleagueForkDialog({
   const gt = useGT();
   const navigate = useNavigate();
   const thread = useThreadShell(threadRef);
-  const host = useEnvironment(threadRef.environmentId)?.label ?? gt("the host");
+  const sharer = useSharerNamesFork().get(threadRef.environmentId);
+  const machine = useEnvironment(threadRef.environmentId)?.label;
+  const host = sharer ?? machine ?? gt("the host");
   const primary = usePrimaryEnvironmentId();
   const projects = useProjects();
   const local = projects.filter(
