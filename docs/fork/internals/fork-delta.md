@@ -866,6 +866,7 @@ The collaborator's app **copies each shared thread** into its own thread cache, 
 **Fork to my machine** reads the host's **whole history** while it answers, else that copy, and sends the messages to `colleague.forkThreadFork` on **its own server**.
 That server writes them as run-less **`v1_import` history**, so upstream's legacy-import handoff gives the first run's **fresh session** that context; `historyOrigin` stays upstream's.
 The origin rides **`colleagueOriginFork`** on the opening notice; with **no messages**, the thread only links back and says so.
+Images and files **pass through the client**: it fetches each from the host's **signed asset URL** and uploads it here as a **pending upload**, which the fork claims; the notice names what it **could not copy**.
 **Offline is upstream's** `connection.phase !== "connected"`; the banner adds when **that copy** was last **in sync** with the host.
 A send to a saved colleague's thread while **their environment is not connected** waits in `fork_colleague_outbox` on **the sender's own server**.
 The sender's app delivers it **on reconnect**, oldest first per thread, through **the share's normal path**; the host **dedupes resends** by the queued id, and delivery **needs the sender's app open**.
