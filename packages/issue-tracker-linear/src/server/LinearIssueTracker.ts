@@ -28,6 +28,7 @@ import {
 
 import { LINEAR_HOST, parseLinearIssueUrl } from "../shared/issueUrl.ts";
 import * as LinearApi from "./LinearApi.ts";
+import { linearIssueSummaryFork } from "./LinearIssueSummary.fork.ts"; // fork-hook: github-issues/linear-issue-summary-import
 
 const DESCRIPTOR: StandaloneIssueTrackerDescriptor = {
   tracker: LinearApi.KIND,
@@ -523,6 +524,11 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
         };
       }),
 
+      getIssueSummaryFork: linearIssueSummaryFork(linear, {
+        requireIdentifier,
+        notFound,
+        toSummary,
+      }), // fork-hook: github-issues/linear-issue-summary
       getComments: Effect.fn("LinearIssueTracker.getComments")(function* (input) {
         const identifier = yield* requireIdentifier("getComments", input.key);
         const page = yield* linear.getComments({

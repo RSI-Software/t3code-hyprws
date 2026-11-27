@@ -48,8 +48,10 @@ export function LinearReferenceLink({
       : null;
   const [open, setOpen] = useState(false);
   const read = useReferenceReadFork(environmentId, href, preferredProjectId);
-  // Only an open card reads: every chip reading on mount spends the account's Linear quota.
-  const { summary, revalidate } = useReferenceSummaryFork(read, open);
+  // A chip names its issue by title, so it reads up front; the server folds every chip's read in
+  // a view into one Linear call. A plain link reads on hover.
+  const chip = writtenText !== null && referenceStyle === "chip";
+  const { summary, revalidate } = useReferenceSummaryFork(read, chip || open);
   const state = useReferenceStateFork(summary);
   const title = summary?.title ?? written ?? linearIssueSlugTitle(href);
   const Icon = state?.Icon ?? CircleDashedIcon;

@@ -1,17 +1,19 @@
 import { findProjectOnChangeRequestHost } from "@t3tools/client-runtime/change-request-links";
 import { resolveIssueLinkTarget } from "@t3tools/client-runtime/issue-links";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { createEnvironmentRpcQueryAtomFamily } from "@t3tools/client-runtime/state/runtime";
 import {
+  WS_METHODS,
   type EnvironmentId,
-  type IssueDetail,
   type IssueRef,
   type IssueState,
+  type IssueSummary,
   type PullRequestPreview,
   type PullRequestRef,
   type PullRequestSummary,
 } from "@t3tools/contracts";
 
-import { issueEnvironment } from "~/state/issues";
+import { connectionAtomRuntime } from "~/connection/runtime";
 import { issueTrackerEnvironment } from "~/state/issueTrackers";
 import { pullRequestEnvironment, useSharedPullRequestSummary } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
@@ -144,6 +146,14 @@ const actor = (
     ? null
     : { login: author.login, name: author.name ?? null, avatarUrl: author.avatarUrl ?? null };
 
+// The server batches every chip's read into one tracker call and keeps it 3 minutes; a chip that
+// remounts as the timeline scrolls reuses this answer instead of asking again.
+const issueSummary = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:issues:summary-fork",
+  tag: WS_METHODS.issuesSummaryFork,
+  staleTimeMs: 180_000,
+});
+
 // A mounted chip keeps its query, so its stale time never refetches; reopening its card does.
 const REVALIDATE_AFTER_MS = 30_000;
 
@@ -160,7 +170,7 @@ export function useReferenceSummaryFork(
 ): { readonly summary: ReferenceSummaryFork | null; readonly revalidate: () => void } {
   const issueRead = read?.kind === "issue" ? read : null;
   const issue = useEnvironmentQuery(
-    enabled && issueRead !== null ? issueEnvironment.detail(issueRead.target) : null,
+    enabled && issueRead !== null ? issueSummary(issueRead.target) : null,
   );
   const pullRequestTarget =
     read?.kind === "pull-request"
@@ -193,26 +203,26 @@ export function useReferenceSummaryFork(
 
 function summarize(
   issueRead: Extract<ReferenceReadFork, { kind: "issue" }> | null,
-  detail: IssueDetail | null,
+  issue: IssueSummary | null,
   preview: PullRequestPreview | null,
   shared: PullRequestSummary | null,
 ): ReferenceSummaryFork | null {
-  if (detail !== null && issueRead !== null) {
+  if (issue !== null && issueRead !== null) {
     if (
       issueRead.workspace !== null &&
-      linearIssueLinkTarget(detail.url)?.repository.split("/")[0] !== issueRead.workspace
+      linearIssueLinkTarget(issue.url)?.repository.split("/")[0] !== issueRead.workspace
     ) {
       return null;
     }
     return {
       kind: "issue",
-      scope: detail.scope,
-      displayKey: detail.displayKey,
-      title: detail.title,
-      url: detail.url,
-      state: { kind: "issue", state: detail.state },
-      author: actor(detail.author),
-      createdAt: detail.createdAt,
+      scope: issue.scope,
+      displayKey: issue.displayKey,
+      title: issue.title,
+      url: issue.url,
+      state: { kind: "issue", state: issue.state },
+      author: actor(issue.author),
+      createdAt: issue.createdAt,
     };
   }
   if (preview === null) return null;

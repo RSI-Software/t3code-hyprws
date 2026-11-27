@@ -48,6 +48,7 @@ export function asIssueTrackerAccount(
     listTemplates,
     listCandidates,
   } = api;
+  const { getIssueSummaryFork } = api; // fork-hook: github-issues/issue-summary-account
   // Every key is required here, so a method added to IssueTrackerApi fails to compile until it
   // is wrapped instead of silently running as the first account.
   const wrapped: { readonly [K in keyof IssueTrackerApi]-?: IssueTrackerApi[K] | undefined } = {
@@ -58,6 +59,7 @@ export function asIssueTrackerAccount(
     getIssue: (input) => as(api.getIssue(input)),
     getComments: (input) => as(api.getComments(input)),
     getIssueLink: getIssueLink && ((input) => as(getIssueLink(input))),
+    getIssueSummaryFork: getIssueSummaryFork && ((input) => as(getIssueSummaryFork(input))), // fork-hook: github-issues/issue-summary-account
     create: create && ((input) => as(create(input))),
     comment: comment && ((input) => as(comment(input))),
     update: update && ((input) => as(update(input))),
