@@ -57,5 +57,8 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
     "colleague.removeFork": (input) => colleagues.remove(input.subject),
     "colleague.pairClientFork": (input) => colleagues.pairClient(input.subject),
     "colleague.shareThreadFork": (input) => colleagues.shareThread(input),
+    "colleague.subscribeOutboxFork": () => colleagues.outbox,
+    "colleague.queueMessageFork": (input) => colleagues.queueMessage(input),
+    "colleague.unqueueMessageFork": (input) => colleagues.unqueueMessage(input.id),
   });
 });
