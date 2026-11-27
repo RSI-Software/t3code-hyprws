@@ -18,12 +18,16 @@ import * as HttpPlatform from "effect/http/HttpPlatform";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+import { OtlpSerialization } from "effect/observability";
 import * as Socket from "effect/socket/Socket";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import * as DeviceHubProxy from "../device/DeviceHubProxy.ts";
 import * as DeviceService from "../device/DeviceService.ts";
+import { layerOtlpTracesProxyRoute } from "../http.ts";
+import * as BrowserTraceCollector from "../observability/BrowserTraceCollector.ts";
+import * as RemoteSpeechModelHttp from "../speech/RemoteSpeechModelHttp.fork.ts";
 import * as SpeechService from "../speech/SpeechService.ts";
 import { speechStreamRouteLayer } from "../speech/stream.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -130,13 +134,22 @@ it.effect("refuses a collaborator every HTTP and media route but its socket", ()
       stub(HttpClient.HttpClient, {}),
       stub(Socket.WebSocketConstructor, {}),
       stub(ServerSecretStore.ServerSecretStore, {}),
+      stub(ServerConfig.ServerConfig, { otlpTracesExport: { headers: {} } }),
+      stub(BrowserTraceCollector.BrowserTraceCollector, { record: () => Effect.void }),
+      stub(OtlpSerialization.OtlpSerialization, {}),
     );
     const api = HttpApiBuilder.layer(CollaboratorHttpTestApi).pipe(
       Layer.provide(AuthHttp.layer),
       Layer.provide(ProjectHttp.layer),
       Layer.provide(AuthHttp.layerAuthenticatedAuth),
     );
-    const routes = Layer.mergeAll(api, DeviceHubProxy.layer, speechStreamRouteLayer).pipe(
+    const routes = Layer.mergeAll(
+      api,
+      DeviceHubProxy.layer,
+      speechStreamRouteLayer,
+      layerOtlpTracesProxyRoute,
+      RemoteSpeechModelHttp.routeLayerFork.pipe(Layer.provide(layerServerConfig)),
+    ).pipe(
       // The same auth, sessions, and database the bearers were issued from.
       Layer.provide(
         Layer.succeedContext(
@@ -158,20 +171,25 @@ it.effect("refuses a collaborator every HTTP and media route but its socket", ()
       >(),
       hostServices,
     );
-    const status = (authorization: string, method: string, path: string) =>
+    const status = (authorization: string, method: string, path: string, body?: string) =>
       Effect.acquireUseRelease(
         Effect.sync(() => HttpRouter.toWebHandler(routes, { disableLogger: true })),
         ({ handler }) =>
           Effect.promise(() =>
             handler(
-              new Request(`http://127.0.0.1${path}`, { method, headers: { authorization } }),
+              new Request(`http://127.0.0.1${path}`, {
+                method,
+                headers: { authorization, "content-type": "application/json" },
+                ...(body === undefined ? {} : { body }),
+              }),
               requestContext,
             ).then((response) => response.status),
           ),
         ({ dispose }) => Effect.promise(dispose),
       );
 
-    // One allowed endpoint, one refused endpoint, the shared media helper, and the voice socket.
+    // One allowed endpoint, one refused endpoint, the shared media helper, the voice socket, and
+    // the bare routes outside the HTTP API.
     assert.deepStrictEqual(
       {
         hostProjects: yield* status(host, "GET", "/api/projects"),
@@ -179,6 +197,10 @@ it.effect("refuses a collaborator every HTTP and media route but its socket", ()
         samProjects: yield* status(sam, "GET", "/api/projects"),
         samDeviceHub: yield* status(sam, "GET", "/api/device-hub/api/devices"),
         samVoiceSocket: yield* status(sam, "GET", "/ws/voice"),
+        hostTraces: yield* status(host, "POST", "/api/observability/v1/traces", "{}"),
+        samTraces: yield* status(sam, "POST", "/api/observability/v1/traces", "{}"),
+        hostSpeechModel: yield* status(host, "GET", "/api/fork/speech-remote-model"),
+        samSpeechModel: yield* status(sam, "GET", "/api/fork/speech-remote-model"),
       },
       {
         hostProjects: 200,
@@ -186,6 +208,10 @@ it.effect("refuses a collaborator every HTTP and media route but its socket", ()
         samProjects: 403,
         samDeviceHub: 403,
         samVoiceSocket: 403,
+        hostTraces: 204,
+        samTraces: 403,
+        hostSpeechModel: 200,
+        samSpeechModel: 403,
       },
     );
 

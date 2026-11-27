@@ -14,6 +14,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { isCollaboratorHttpRefusedFork } from "../collaborator/collaboratorSubject.fork.ts";
 import { failEnvironmentAuthInvalid } from "../auth/http.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as RemoteSpeechModelStore from "./RemoteSpeechModelStore.fork.ts";
@@ -28,7 +29,7 @@ const authorize = Effect.fn("RemoteSpeechModelHttp.authorize")(function* (
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
   return yield* auth.authenticateHttpRequest(request).pipe(
     Effect.map((session) =>
-      session.scopes.includes(scope)
+      session.scopes.includes(scope) && !isCollaboratorHttpRefusedFork(session.subject, request.url)
         ? null
         : json({ error: "Permission required.", requiredScope: scope }, 403),
     ),

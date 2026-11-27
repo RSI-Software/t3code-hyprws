@@ -70,6 +70,7 @@ import {
   MCP_HTTP_PATH,
 } from "./httpCors.ts";
 import { requestUrl } from "./requestUrl.ts";
+import { isCollaboratorHttpRefusedFork } from "./collaborator/collaboratorSubject.fork.ts"; // fork-hook: colleague-collab/raw-route-refuse-import
 
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -386,6 +387,8 @@ const authenticateRawRouteWithScope =
     if (!session.scopes.includes(scope)) {
       return yield* failEnvironmentScopeRequired(scope);
     }
+    if (isCollaboratorHttpRefusedFork(session.subject, request.url))
+      return yield* failEnvironmentScopeRequired(scope); // fork-hook: colleague-collab/raw-route-refuse
   });
 
 export const layerServerEnvironmentHttpApi = HttpApiBuilder.group(
