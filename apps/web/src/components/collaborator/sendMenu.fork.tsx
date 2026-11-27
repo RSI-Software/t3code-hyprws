@@ -70,7 +70,7 @@ export function ComposerSendMenuFork({
         <ChevronUpIcon />
       </MenuTrigger>
       <MenuPopup side="top" align="end">
-        <MenuItem onClick={() => sendForcedFork(targetKey, submit)}>
+        <MenuItem disabled={disabled} onClick={() => sendForcedFork(targetKey, submit)}>
           <MessageCircleQuestionIcon />
           {gt("Ask the agent")}
         </MenuItem>
