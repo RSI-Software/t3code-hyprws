@@ -219,6 +219,18 @@ database("CollaboratorSessionFork", (it) => {
         const edited = yield* ownerDispatch(message(shared, "queued-run.edit", stale));
         assert.strictEqual(sentText(edited), sentText(ownerSent));
         assert.deepStrictEqual(sentAuthor(edited), { name: HOST, text: "hi", host: true });
+        // Editing a queued reply keeps the waiting message it answers.
+        const replyEdit = yield* ownerDispatch({
+          ...(message(shared, "queued-run.edit", "Sure, 4 works.") as object),
+          runId: "run-reply",
+        } as never);
+        assert.include(sentText(replyEdit), `in reply to this message Sam wrote to the owner`);
+        assert.deepStrictEqual(sentAuthor(replyEdit), {
+          name: HOST,
+          text: "Sure, 4 works.",
+          host: true,
+          replyTo: { name: "Sam", text: "pair at 3?" },
+        });
         // A forced line never nests, and editing it without the flag judges it again.
         const forced = yield* ownerDispatch(
           message(shared, "message.dispatch", "hi", {
@@ -497,6 +509,31 @@ database("CollaboratorSessionFork", (it) => {
         for (const { id } of yield* waiting(sam)) yield* resolve(sam, id, "dismiss");
         assert.deepStrictEqual(yield* waiting(sam), []);
         assert.strictEqual(hostDispatches.length, 3);
+        // A reply goes into the thread as the host's line to Sam, which the agent may stay quiet on.
+        yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "pair at 3?" });
+        const [request] = yield* waiting(sam);
+        const reply = (handlers: typeof host) =>
+          handlers["collaborator.resolveMessageFork"]({
+            threadId: shared,
+            messageId: request!.id,
+            decision: "reply",
+            text: "Sure, 3 works.",
+          });
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(reply(sam))));
+        yield* reply(host);
+        assert.deepStrictEqual(yield* waiting(sam), []);
+        const replied = hostDispatches.at(-1)!;
+        assert.include(sentText(replied), `${HOST}, the owner of this thread, wrote the message`);
+        assert.include(
+          sentText(replied),
+          `in reply to this message Sam wrote to the owner, which you were not sent: "pair at 3?"`,
+        );
+        assert.deepStrictEqual(sentAuthor(replied), {
+          name: HOST,
+          text: "Sure, 3 works.",
+          host: true,
+          replyTo: { name: "Sam", text: "pair at 3?" },
+        });
 
         // Send access lets Sam's messages through directly, and refuses the approval path.
         yield* service.setAccess({ subject: "colleague:sam", threadId: shared, access: "send" });

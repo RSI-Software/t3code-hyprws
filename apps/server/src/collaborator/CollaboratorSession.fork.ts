@@ -405,7 +405,11 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
   readonly isShared: (subject: string, threadId: string) => boolean;
 }) {
   const { current, changes, isShared } = state;
-  const messages = yield* makeCollaboratorMessages;
+  /** Who can see a thread now, which the host's messages there name for the agent. */
+  const sharedNames = (threadId: string) =>
+    [...current().values()]
+      .filter((share) => share.threadIds.has(threadId))
+      .map((share) => share.name);
   const typing = yield* makeCollaboratorTyping;
   const teamThreads = yield* makeTeamThreads;
   const config = yield* ServerConfig.ServerConfig;
@@ -424,6 +428,9 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         Effect.map((result) => result.stdout.trim() || undefined),
         Effect.orElseSucceed(() => undefined),
       ),
+  );
+  const messages = yield* makeCollaboratorMessages((threadId) =>
+    hostName.pipe(Effect.map((host) => ({ host, others: sharedNames(threadId) }))),
   );
 
   const shell = <SE, SR>(
@@ -633,17 +640,39 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     };
   };
 
-  /** Who wrote a queued run's message, as the server attributed it; undefined refuses. */
-  const queuedAuthor = Effect.fn("CollaboratorSharesFork.queuedAuthor")(
+  /** A queued run's message attribution, as the server wrote it; undefined refuses. */
+  const queuedAttribution = Effect.fn("CollaboratorSharesFork.queuedAttribution")(
     function* (threadId: ThreadId, runId: RunId) {
       const { runs } = yield* threads.getThreadRecords(threadId, ["runs"], { runIds: [runId] });
       const run = runs.find((candidate) => candidate.id === runId);
       if (run === undefined) return undefined;
       const messages = yield* threads.getMessagesById(threadId, [run.userMessageId]);
-      return messages.get(run.userMessageId)?.context?.collaboratorFork?.name;
+      return messages.get(run.userMessageId)?.context?.collaboratorFork;
     },
     Effect.orElseSucceed(() => undefined),
   );
+
+  /** The host's line as the agent reads it; an edit keeps the waiting message a reply answers. */
+  const hostLine = Effect.fn("CollaboratorSharesFork.hostLine")(function* (
+    command: Extract<
+      OrchestrationV2Command,
+      { readonly type: "message.dispatch" | "queued-run.edit" }
+    >,
+    others: ReadonlyArray<string>,
+  ) {
+    const host = yield* hostName;
+    const replyTo =
+      command.type === "queued-run.edit"
+        ? (yield* queuedAttribution(command.threadId, command.runId))?.replyTo
+        : undefined;
+    const attribution = hostAttribution(host, others, command.text, forcedReply(command), replyTo);
+    const attributed: OrchestrationV2Command = {
+      ...command,
+      text: attribution.text,
+      context: { version: 1, records: [], ...command.context, ...attribution.context },
+    };
+    return attributed;
+  });
 
   const wrapHandlers: Service["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
@@ -657,25 +686,13 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
           if (clean.type !== "message.dispatch" && clean.type !== "queued-run.edit") {
             return dispatch(clean, options);
           }
-          const others = [...current().values()]
-            .filter((share) => share.threadIds.has(clean.threadId))
-            .map((share) => share.name);
+          const others = sharedNames(clean.threadId);
           // A prefix would hide a native command such as /compact from the provider.
           if (others.length === 0 || clean.text.trimStart().startsWith("/")) {
             return dispatch(clean, options);
           }
-          return hostName.pipe(
-            Effect.flatMap((host) => {
-              const attribution = hostAttribution(host, others, clean.text, forcedReply(clean));
-              return dispatch(
-                {
-                  ...clean,
-                  text: attribution.text,
-                  context: { version: 1, records: [], ...clean.context, ...attribution.context },
-                },
-                options,
-              );
-            }),
+          return hostLine(clean, others).pipe(
+            Effect.flatMap((attributed) => dispatch(attributed, options)),
           );
         },
         [LAUNCH]: (input, options) => launch(launchWithoutAttribution(input), options),
@@ -698,9 +715,9 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         }
         if (access === "approve") return Effect.fail(needsApproval);
         if (command.type === "queued-run.edit" || command.type === "queued-run.cancel") {
-          return queuedAuthor(command.threadId, command.runId).pipe(
+          return queuedAttribution(command.threadId, command.runId).pipe(
             Effect.flatMap((author) =>
-              author !== undefined && collaboratorSubject(author) === subject
+              author !== undefined && collaboratorSubject(author.name) === subject
                 ? Effect.void
                 : Effect.fail(hostOnly),
             ),

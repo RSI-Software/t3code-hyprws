@@ -6605,6 +6605,22 @@
   "d43b4cb93152ec22": "Compartilhar com",
   "a3de37a9e34b6692": "Outra pessoa…",
   "0da38806c68e1f16": "Não foi possível compartilhar com {name}",
+  "1769c79bc7874e0d": "Uma resposta só aceita texto",
+  "0e4bda2d2988268b": "A mensagem de {name} não está mais aguardando",
+  "6287dd07811b8a57": "Remova os anexos para enviar esta resposta.",
+  "464a49aad5d86598": "Não foi possível enviar a resposta",
+  "1b8a86f46f4a4d2f": "Respondendo a {name}",
+  "e58c5d7f64cf9542": "Responder a {name}",
+  "58796398a662498a": "Responder",
+  "97e33748c177bbb4": "Responder a {name} na conversa",
+  "1128ba70b2c59c51": [
+    "Respondeu a ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "d85dfc66abf19ee9": "Colegas, sem link:",
   "13c57da4b01e00a2": "{name} já vê na barra lateral. Não precisa de link.",
   "1afac27d8e35bb95": "Parou de compartilhar com {name}",
