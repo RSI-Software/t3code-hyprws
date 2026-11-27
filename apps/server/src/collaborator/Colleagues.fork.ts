@@ -60,6 +60,7 @@ import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -658,11 +659,17 @@ const make = Effect.gen(function* () {
           Effect.flatMap(decodeFrom(row, ColleagueThreadResultFork)),
         );
       // Thread ids are unique, so of two colleagues with one name only the holder answers.
-      return yield* (yield* named(colleague)).reduce<ReturnType<typeof read>>(
-        (previous, row) =>
-          previous.pipe(Effect.catchTags({ ColleagueThreadRefusedErrorFork: () => read(row) })),
-        Effect.fail(new ColleagueThreadRefusedErrorFork({ colleague, threadId })),
-      );
+      let failure: Effect.Error<ReturnType<typeof read>> = new ColleagueThreadRefusedErrorFork({
+        colleague,
+        threadId,
+      });
+      for (const row of yield* named(colleague)) {
+        const answer = yield* Effect.result(read(row));
+        if (Result.isSuccess(answer)) return answer.success;
+        // An offline or revoked namesake may hold the thread, so its reason beats a refusal.
+        if (failure._tag === "ColleagueThreadRefusedErrorFork") failure = answer.failure;
+      }
+      return yield* failure;
     },
   );
 
