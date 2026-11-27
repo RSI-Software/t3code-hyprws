@@ -8,5 +8,6 @@ It applies **per device** and never changes the files or ignore rules.
 
 ## Follow external workspace symlinks
 
-File previews **stay inside the project**: a path through a symlink pointing outside it is blocked.
-Turn on **Follow external workspace symlinks** in **Settings → General** to allow them for **every project on the server**.
+Turn on **Follow external workspace symlinks** in **Settings → General** to browse linked folders outside the project in file trees for **every project on the server**.
+
+Opening a linked file directly works regardless of this setting. External files are **read-only**, and HTML previews cannot load neighboring files outside the project.
