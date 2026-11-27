@@ -5388,6 +5388,8 @@
   "e46b9e740d562505": "Lägga till backenden på {origin}?",
   "17959b326075ddb9": "Backend tillagd",
   "11f3591c3c22a67d": "Kunde inte spara {name} som kollega",
+  "62246ebd6bfcca72": "{name} svarade inte i tid.",
+  "c7d165ba2b4c60e9": "{name} kör en version av T3 Code som inte kan spara kollegor.",
   "91c279a5598a3fcb": "Sparade {name} som kollega",
   "c0c38d78ff18b406": "Trådar ni delar med varandra visas nu utan en ny länk.",
   "14e2fd524294fdc4": "Miljön är sparad och återansluter när appen startar.",
