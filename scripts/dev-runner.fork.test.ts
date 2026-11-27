@@ -44,6 +44,7 @@ const spawnedEnv = (input: {
   readonly t3Home?: string;
   readonly port?: number;
   readonly ambient?: Record<string, string>;
+  readonly home?: string;
 }) =>
   Effect.gen(function* () {
     let captured: Record<string, string | undefined> | undefined;
@@ -83,7 +84,7 @@ const spawnedEnv = (input: {
       ),
       Effect.provideService(HostProcess.Platform, "linux"),
       Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
-      Effect.provideService(HostProcess.HomeDirectory, NodeOS.homedir()),
+      Effect.provideService(HostProcess.HomeDirectory, input.home ?? NodeOS.homedir()),
       Effect.provideService(HostProcess.Environment, input.ambient ?? {}),
       Effect.scoped,
     );
@@ -108,6 +109,41 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
       const preset = { T3CODE_DEV_ELECTRON_USER_DATA: "/tmp/mine" };
       const kept = yield* spawnedEnv({ cwd, ambient: preset });
       assert.equal(kept?.T3CODE_DEV_ELECTRON_USER_DATA, "/tmp/mine");
+    }).pipe(Effect.scoped),
+  );
+  it.effect("runs worktree Claude from its own home with only the developer's sign-in", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeWorktree;
+      const claude = NodePath.join(cwd, "home", ".claude");
+      NodeFS.mkdirSync(claude, { recursive: true });
+      const oauth = { accessToken: "a", expiresAt: 1, refreshToken: "r", refreshTokenExpiresAt: 2 };
+      NodeFS.writeFileSync(
+        NodePath.join(claude, ".credentials.json"),
+        JSON.stringify({ claudeAiOauth: oauth, mcpOAuth: { linear: {} } }),
+      );
+      NodeFS.writeFileSync(
+        NodePath.join(claude, "settings.json"),
+        JSON.stringify({
+          apiKeyHelper: "helper",
+          env: { ANTHROPIC_BASE_URL: "https://proxy", OTHER: "1" },
+          hooks: { Stop: [] },
+        }),
+      );
+      const env = yield* spawnedEnv({ cwd, home: NodePath.join(cwd, "home") });
+      const own = NodePath.join(cwd, ".t3", "claude");
+      assert.equal(env?.CLAUDE_CONFIG_DIR, own);
+      assert.equal(env?.ENABLE_CLAUDEAI_MCP_SERVERS, "false");
+      const read = (name: string) =>
+        JSON.parse(NodeFS.readFileSync(NodePath.join(own, name), "utf8")) as unknown;
+      assert.deepEqual(read(".credentials.json"), {
+        claudeAiOauth: { accessToken: "a", expiresAt: 1 },
+      });
+      assert.deepEqual(read("settings.json"), {
+        apiKeyHelper: "helper",
+        env: { ANTHROPIC_BASE_URL: "https://proxy" },
+      });
+      const explicit = yield* spawnedEnv({ cwd, t3Home: NodePath.join(cwd, "explicit-home") });
+      assert.isUndefined(explicit?.CLAUDE_CONFIG_DIR);
     }).pipe(Effect.scoped),
   );
   it.effect("disables zmux for worktree state unless opted back in", () =>
