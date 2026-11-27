@@ -3945,12 +3945,12 @@ export const layerWithOptions = (
               { discard: true },
             ).pipe(logReleaseFailure(input.providerSessionId)); // fork-hook: upstream-fixes/detached-tool-cleanup
             const requestCleanup = {
-              entry: { ...detached.value, attachedThreadIds: new Set([input.threadId]) },
+              entry: { ...detached, attachedThreadIds: new Set([input.threadId]) },
               reason: "manual_shutdown" as const,
               releasedAt: detachedAt,
             };
             yield* writeReleasedRuntimeRequestEvents(requestCleanup).pipe(
-              detached.value.requestEventPermit.withPermits(1),
+              detached.requestEventPermit.withPermits(1),
               Effect.catchCause((cause) =>
                 Effect.logWarning("orchestration-v2.driver-session.detach-request-cleanup-failed", {
                   providerSessionId: input.providerSessionId,
@@ -3978,20 +3978,17 @@ export const layerWithOptions = (
               });
               return;
             }
-            const unloadThread = detached.value.exposedRuntime.unloadThread;
-            if (detached.value.supportsMultipleProviderThreads && deferNativeTeardown) {
+            const unloadThread = detached.exposedRuntime.unloadThread;
+            if (detached.supportsMultipleProviderThreads && deferNativeTeardown) {
               // fork-hook: upstream-fixes/detach-teardown-retry
               // The inline lookup failed: ownership is already removed, and
               // the retry re-reads and tears down under the attachment lock.
               yield* retryDetachedThreadTeardown({
                 providerSessionId: input.providerSessionId,
                 threadId: input.threadId,
-                detached: detached.value,
+                detached,
               });
-            } else if (
-              detached.value.supportsMultipleProviderThreads &&
-              unloadThread !== undefined
-            ) {
+            } else if (detached.supportsMultipleProviderThreads && unloadThread !== undefined) {
               // The projection includes native children owned by other app threads;
               // lock each owner so an attached child stays loaded and later attaches wait.
               for (const providerThread of detachedProviderThreads) {
