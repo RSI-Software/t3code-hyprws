@@ -1,5 +1,6 @@
 // Fork-only (colleague-collab): share one thread with a collaborator through a pairing link.
-// Each session's RPCs adapt to these shares in `CollaboratorSession.fork.ts`.
+// Each session's RPCs adapt to these shares in `CollaboratorSession.fork.ts`; a saved colleague
+// also reads every team project thread there.
 // Unsharing freezes their copy; `approve` access holds messages in `CollaboratorMessages.fork.ts`.
 import {
   AuthOrchestrationReadScope,
@@ -142,6 +143,13 @@ export class CollaboratorSharesFork extends Context.Service<
     ) => Effect.Effect<void, CollaboratorAccessErrorFork>;
     /** Whether the thread is shared live with the subject. */
     readonly isShared: (subject: string, threadId: string) => boolean;
+    /**
+     * The one read check for a collaborator subject: shared live, or a saved colleague's view of
+     * a team project's thread, which is read-only.
+     */
+    readonly canRead: (subject: string, threadId: string) => Effect.Effect<boolean>;
+    /** Rechecks team access after a colleague is saved or forgotten. */
+    readonly colleaguesChanged: Effect.Effect<void>;
     /** Each subject's live shared threads, now and on every change. */
     readonly liveThreadIds: Stream.Stream<ReadonlyMap<string, ReadonlyArray<ThreadId>>>;
     /** The waiting-message handlers for `subject`, or the host's for `null`. */
@@ -159,9 +167,9 @@ export class CollaboratorSharesFork extends Context.Service<
      * Narrows a collaborator session's thread handlers and answers its waiting messages; other
      * sessions only lose the right to attribute a message to a collaborator.
      */
-    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR>(
+    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR>(
       subject: string,
-      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR>,
+      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR>,
     ) => CollaboratorHandlersFork<
       A,
       E | EnvironmentAuthorizationError,
@@ -172,7 +180,9 @@ export class CollaboratorSharesFork extends Context.Service<
       TR,
       LA,
       LE,
-      LR
+      LR,
+      OE,
+      OR
     > &
       Partial<CollaboratorMessageHandlersFork & CollaboratorTypingHandlersFork>;
   }
@@ -397,13 +407,13 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(CollaboratorSharesFork, make);
 
-/** Refuses a collaborator's HTTP read of a thread not shared with it live, failing closed. */
+/** Refuses a collaborator's HTTP read of a thread it cannot read, failing closed. */
 export const requireCollaboratorHttpThreadFork = Effect.fn("requireCollaboratorHttpThreadFork")(
   function* (threadId: string) {
     const { subject } = yield* EnvironmentAuthenticatedPrincipal;
     if (!isCollaboratorSubject(subject)) return;
     const shares = yield* Effect.serviceOption(CollaboratorSharesFork);
-    if (Option.isSome(shares) && shares.value.isShared(subject, threadId)) return;
+    if (Option.isSome(shares) && (yield* shares.value.canRead(subject, threadId))) return;
     return yield* failEnvironmentScopeRequired(AuthOrchestrationReadScope);
   },
 );
