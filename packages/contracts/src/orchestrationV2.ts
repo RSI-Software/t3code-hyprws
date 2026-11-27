@@ -99,6 +99,7 @@ import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
 import * as ThreadArtifactsFork from "./threadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestration-v2-import
 import { ExternalSendModesFork } from "./externalMcpSend.fork.ts"; // fork-hook: device-auth/message-dispatch-expected-modes-import
 import { ThreadCheckoutMove } from "./checkoutMove.ts"; // fork-hook: zmux-estate/orchestration-v2-checkout-move-import
+import { ColleagueThreadOriginFork } from "./collaborator.fork.ts"; // fork-hook: colleague-collab/notice-origin-import
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -2060,6 +2061,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     message: Schema.String,
     level: Schema.optional(OrchestrationV2SystemNoticeLevel),
     mcpSignIn: Schema.optional(OrchestrationV2McpSignIn),
+    colleagueOriginFork: Schema.optional(ColleagueThreadOriginFork), // fork-hook: colleague-collab/notice-origin
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2962,6 +2964,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     message: Schema.String,
     level: Schema.optional(OrchestrationV2SystemNoticeLevel),
     mcpSignIn: Schema.optional(OrchestrationV2McpSignIn),
+    colleagueOriginFork: Schema.optional(ColleagueThreadOriginFork), // fork-hook: colleague-collab/notice-origin
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,

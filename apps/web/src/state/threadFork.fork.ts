@@ -26,7 +26,7 @@ export const threadForkCommand = createEnvironmentRpcCommand(connectionAtomRunti
 });
 
 /** Forking an already-forked title must not stack the suffix. */
-const forkTitleFork = (title: string): string => `${title.replace(/ \(fork\)$/, "")} (fork)`;
+export const forkTitleFork = (title: string): string => `${title.replace(/ \(fork\)$/, "")} (fork)`;
 
 /** The V2 `thread.fork` a menu click dispatches; the client owns the child id. */
 export const buildLatestStableForkCommandFork = (input: {
