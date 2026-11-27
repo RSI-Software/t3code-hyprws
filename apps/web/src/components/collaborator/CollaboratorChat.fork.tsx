@@ -1,7 +1,7 @@
 // Fork-only (colleague-collab): the collaborator parts of a thread view. Waiting messages sit at
-// the timeline's end with Send, Reply and Dismiss for the host and Withdraw for their author; a
-// reply goes from the host's composer. An `approve` collaborator's composer queues for the host, a
-// thread its host stopped sharing stays readable and locked, and a team thread shows no composer.
+// the timeline's end with Send, Reply and Dismiss for the host and Withdraw for their author.
+// An `approve` collaborator's composer, and a team thread's, queues for the host; a thread its
+// host stopped sharing, or an older host's `read` team thread, stays readable and locked.
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -12,7 +12,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  AuthOrchestrationOperateScope,
   type CollaboratorMessageFork,
   type CollaboratorTypingStateFork,
   type CollaboratorTypistFork,
@@ -53,7 +52,7 @@ import { environmentSession } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
-import { ComposerBannerStack, type ComposerBannerStackItem } from "../chat/ComposerBannerStack";
+import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
 import { GuestMessageName } from "../chat/guestMessageStyle";
 import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
@@ -63,7 +62,6 @@ import { DismissedMessageFork, useWaitingListLabelFork } from "./CollaboratorMes
 import { collaboratorMessages } from "./useCollaboratorRequests.fork";
 import { useColleagueOfflineBannerFork } from "./colleagueCopy.fork";
 import { useColleagueInboxFork } from "./ColleagueInbox.fork";
-import { useColleagueInboxVetoFork } from "./colleagueInbox.fork";
 import {
   CollaboratorTypingFork,
   HOST_KEY,
@@ -150,7 +148,6 @@ export function useCollaboratorChatFork(
   composerRef: RefObject<ChatComposerHandle | null>,
   followingTimeline: boolean,
   scrollToEnd: (animated: boolean) => void,
-  systemBanners: ReadonlyArray<ComposerBannerStackItem>,
 ) {
   const gt = useGT();
   const messages = useMessages();
@@ -205,6 +202,21 @@ export function useCollaboratorChatFork(
   const replyGone =
     replying !== null &&
     !waiting.some((message) => message.id === replying.id && message.outcome === undefined);
+  // Browsing their inbox withholds operate here; a thread they shared still sends.
+  const sends = browsingName === null ? {} : { canOperateThread: true, sendDisabledReason: null };
+  // A saved colleague's requests name them; a guest link's host stays "the host".
+  const approvalBanner =
+    outbox.colleague === null
+      ? localizedBanner(APPROVAL_BANNER, messages)
+      : {
+          ...APPROVAL_BANNER,
+          title: gt("{name} sends your requests", { name: outbox.colleague }),
+          description: outbox.online
+            ? gt("Each request waits for {name} to send it to the agent.", {
+                name: outbox.colleague,
+              })
+            : gt("Your request will send when {name} is back.", { name: outbox.colleague }),
+        };
 
   /** Hands the composer's text to `deliver`, clearing it once that lands. Text only. */
   const sendText =
@@ -300,40 +312,9 @@ export function useCollaboratorChatFork(
 
   return {
     typing:
-      thread == null ? null : access === "read" ? (
-        // A team thread shows no composer: this slot sits just above it, so it hides its next sibling.
-        <div className="[&+div]:hidden">
-          <ComposerBannerStack
-            items={[
-              ...hostOffline(systemBanners).filter((item) => item.group === "environment"),
-              localizedBanner(TEAM_BANNER, messages),
-            ]}
-            detached
-          />
-        </div>
-      ) : (
-        <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />
-      ),
+      thread == null ? null : <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />,
     composer: (items: ReadonlyArray<ComposerBannerStackItem>) => {
       const bannerItems = hostOffline(items);
-      if (browsingName !== null) {
-        const readOnly = gt("Read-only here. Switch to My inbox to reply.");
-        return {
-          canOperateThread: false,
-          sendDisabledReason: readOnly,
-          bannerItems: [
-            {
-              id: "colleague-inbox",
-              variant: "info",
-              group: "environment",
-              icon: <EyeIcon />,
-              title: gt("{name}'s inbox", { name: browsingName }),
-              description: readOnly,
-            } satisfies ComposerBannerStackItem,
-            ...bannerItems,
-          ],
-        };
-      }
       if (access === "frozen") {
         return {
           canOperateThread: false,
@@ -341,10 +322,12 @@ export function useCollaboratorChatFork(
           bannerItems: [localizedBanner(FROZEN_BANNER, messages), ...bannerItems],
         };
       }
+      // A host on an older build sends team threads as `read` and refuses requests there.
       if (access === "read") {
         return {
           canOperateThread: false,
           sendDisabledReason: gt("Team project threads are read only."),
+          bannerItems: [localizedBanner(TEAM_BANNER, messages), ...bannerItems],
         };
       }
       if (replying !== null) {
@@ -383,19 +366,40 @@ export function useCollaboratorChatFork(
             sendDisabledReason: null,
           }
         : { onSend: submitForApproval };
-      if (outbox.queues && access === "send") return { ...offline, bannerItems };
+      if (outbox.queues && access === "send") return { ...sends, ...offline, bannerItems };
       if (access === "approve") {
         // The server refuses an approve collaborator's interrupt, so no Stop button.
         return {
+          ...sends,
           ...offline,
           canInterrupt: false,
           // The offline queue keeps text only, so "Ask the agent" waits for the host to return.
           ...(outbox.queues ? {} : { sendMenuFork: { askAgent: true } }),
-          bannerItems: [localizedBanner(APPROVAL_BANNER, messages), ...bannerItems],
+          bannerItems: [approvalBanner, ...bannerItems],
         };
       }
+      // Offered to the host and to collaborators who send directly; approval sends text only.
       const sendMenu = shared ? { sendMenuFork: { askAgent: true } } : {};
-      return access === undefined ? sendMenu : { ...sendMenu, bannerItems };
+      if (access === "send") return { ...sends, ...sendMenu, bannerItems };
+      if (browsingName !== null) {
+        const readOnly = gt("Read-only here. Switch to My inbox to reply.");
+        return {
+          canOperateThread: false,
+          sendDisabledReason: readOnly,
+          bannerItems: [
+            {
+              id: "colleague-inbox",
+              variant: "info",
+              group: "environment",
+              icon: <EyeIcon />,
+              title: gt("{name}'s inbox", { name: browsingName }),
+              description: readOnly,
+            } satisfies ComposerBannerStackItem,
+            ...bannerItems,
+          ],
+        };
+      }
+      return sendMenu;
     },
     footer: (footer: ReactNode) =>
       thread == null || (waiting.length === 0 && outbox.queued.length === 0)
@@ -449,7 +453,6 @@ function WaitingMessages({
   const timestampFormat = useEnvironmentSettings(environmentId).timestampFormat;
   const resolve = useAtomCommand(resolveMessageCommand);
   const label = useWaitingListLabelFork(messages);
-  const readOnly = useColleagueInboxVetoFork(environmentId, AuthOrchestrationOperateScope);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const run = async (message: CollaboratorMessageFork, decision: "send" | "dismiss") => {
     setBusyIds((ids) => new Set(ids).add(message.id));
@@ -471,7 +474,7 @@ function WaitingMessages({
     >
       <ol className="flex flex-col items-end gap-3" aria-live="polite">
         {messages.map((message) => {
-          const busy = readOnly || busyIds.has(message.id);
+          const busy = busyIds.has(message.id);
           if (message.outcome === "dismissed") {
             return (
               <DismissedMessageFork

@@ -230,8 +230,9 @@ export const makeCollaboratorMessages = Effect.fn("makeCollaboratorMessages")(fu
       const attribution =
         input.decision === "reply"
           ? yield* people(message.threadId).pipe(
+              // A team thread's requester reads it with no hand share naming them.
               Effect.map(({ host, others }) =>
-                hostAttribution(host, others, input.text, false, {
+                hostAttribution(host, [...new Set([...others, message.name])], input.text, false, {
                   name: message.name,
                   text: message.text,
                 }),
@@ -282,10 +283,13 @@ export const makeCollaboratorMessages = Effect.fn("makeCollaboratorMessages")(fu
     submit,
     resolve,
     drop,
-    /** The messages a session may see, re-emitted whenever any changes. */
+    /** The messages a session may see, re-emitted whenever any changes or `access` emits. */
     visible: (
-      visibleTo: (message: CollaboratorMessageFork) => boolean,
+      visibleTo: (message: CollaboratorMessageFork) => Effect.Effect<boolean>,
+      access: Stream.Stream<unknown>,
     ): Stream.Stream<ReadonlyArray<CollaboratorMessageFork>> =>
-      SubscriptionRef.changes(ref).pipe(Stream.map((messages) => messages.filter(visibleTo))),
+      Stream.zipLatest(SubscriptionRef.changes(ref), access).pipe(
+        Stream.mapEffect(([messages]) => Effect.filter(messages, visibleTo)),
+      ),
   };
 });

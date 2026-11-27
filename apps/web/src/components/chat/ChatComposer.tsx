@@ -228,6 +228,7 @@ import {
 import { CollapsedComposerStopAction, ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { ComposerSendMenuFork, type SendMenuFork } from "../collaborator/sendMenu.fork"; // fork-hook: colleague-collab/send-menu-import
+import { readSendPermittedFork } from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/composer-request-import
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -2391,7 +2392,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return false;
     }
     if (props.queueSendFork) return props.queueSendFork(event); // fork-hook: colleague-collab/queue-send
-    if (submissionBlocked || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
+    if (
+      submissionBlocked ||
+      !readSendPermittedFork(environmentId, activeThread) // fork-hook: colleague-collab/composer-request
+    ) {
       event?.preventDefault();
       return false;
     }

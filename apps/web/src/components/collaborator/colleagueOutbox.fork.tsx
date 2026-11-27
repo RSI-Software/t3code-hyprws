@@ -33,7 +33,6 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentsWithScope } from "~/state/session";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
@@ -130,6 +129,8 @@ export function useColleagueOutboxFork(
     online,
     held: useAtomValue(heldAtom),
     name: colleague?.name ?? environment?.label ?? "",
+    /** A saved colleague's name; null on a guest link. */
+    colleague: colleague?.name ?? null,
     /** Only a saved colleague's thread queues, and only while their machine is away. */
     queues: server !== null && thread != null && colleague !== undefined && !online,
     queue: (text: string) =>
@@ -249,7 +250,9 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   const { environments } = useEnvironments();
   const shells = useQuietThreadShells();
   const submit = useAtomCommand(submitMessageCommand, quiet);
-  const startTurn = useOrchestrationCommand(threadEnvironment.startTurn, quiet);
+  // Only `send` and `approve` threads route here, which browsing their inbox never blocks
+  // (`readSendPermittedFork`); the host's server checks each one.
+  const startTurn = useAtomCommand(threadEnvironment.startTurn, quiet);
   const unqueue = useAtomCommand(unqueueCommand, quiet);
   const flushing = useRef(false);
   // The queue as it is now, so a message withdrawn or edited mid-flush is skipped.

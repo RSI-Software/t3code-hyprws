@@ -3997,6 +3997,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           }
                           {...sharedCardPropsFork(
                             thread,
+                            projectByKey.get(`${thread.environmentId}:${thread.projectId}`),
                           )} /* fork-hook: colleague-collab/shared-card */
                           project={
                             projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null

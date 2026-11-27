@@ -1,5 +1,5 @@
-// Fork-only (colleague-collab): the sidebar's inbox switch and a saved colleague's inbox. Their inbox
-// is every thread my collaborator grant reads on their server; nothing in it acts on their threads.
+// Fork-only (colleague-collab): the sidebar's inbox switch and a saved colleague's inbox: every thread
+// my collaborator grant reads on their server. A thread opened here only asks: a request waits for them.
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { selectEnvironmentQueryData } from "@t3tools/client-runtime/state/runtime";
@@ -131,9 +131,6 @@ function ColleagueThreads({
     .toSorted((a, b) => (b.activity ?? "").localeCompare(a.activity ?? ""));
   return (
     <SidebarGroup>
-      <p className="px-2 pb-2 text-xs text-sidebar-muted-foreground">
-        {gt("Read-only here. Switch to My inbox to reply.")}
-      </p>
       {threads.length === 0 ? (
         <p role="status" className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
           {gt("Nothing from {name} yet", { name })}
