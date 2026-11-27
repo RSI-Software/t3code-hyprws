@@ -308,9 +308,12 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
     }
     if (flushing.current) return;
     if (!colleagueOutboxReadyFork(queued, route)) {
-      const next = Math.min(...[...failed.current.values()].map(({ retryAt }) => retryAt));
+      // A retry already due waits on what else holds it, such as the share, which re-renders.
+      const now = Date.now();
+      const due = [...failed.current.values()].map(({ retryAt }) => retryAt);
+      const next = Math.min(...due.filter((retryAt) => retryAt > now));
       if (!Number.isFinite(next)) return;
-      const retry = setTimeout(() => setRound((value) => value + 1), next - Date.now());
+      const retry = setTimeout(() => setRound((value) => value + 1), next - now);
       return () => clearTimeout(retry);
     }
     flushing.current = true;
