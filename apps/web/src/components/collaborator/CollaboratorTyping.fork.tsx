@@ -11,6 +11,7 @@ import {
   type CollaboratorDraftFork,
   type CollaboratorTypistFork,
   type EnvironmentId,
+  type OrchestrationV2ThreadShell,
   type ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
@@ -63,8 +64,12 @@ const KEEPALIVE_MS = 2_000;
 interface TypingThread {
   readonly environmentId: EnvironmentId;
   readonly id: ThreadId;
-  readonly collaboratorFork?: "send" | "approve" | "frozen";
+  readonly collaboratorFork?: OrchestrationV2ThreadShell["collaboratorFork"];
 }
+
+/** Presence needs a live hand share: a frozen copy and a read-only team thread have none. */
+export const typingServedFork = (access: OrchestrationV2ThreadShell["collaboratorFork"]) =>
+  access !== "frozen" && access !== "read";
 
 /** One idle subscription per open thread; heartbeats only while the server says it is shared. */
 export function CollaboratorTypingFork({
@@ -77,7 +82,7 @@ export function CollaboratorTypingFork({
   const served =
     useServerConfigs().get(thread.environmentId)?.environment.capabilities.collaboratorsFork ===
     true;
-  return served && thread.collaboratorFork !== "frozen" ? (
+  return served && typingServedFork(thread.collaboratorFork) ? (
     <ThreadTyping
       environmentId={thread.environmentId}
       threadId={thread.id}
