@@ -1,6 +1,7 @@
 // Fork-only (colleague-collab): messages for an offline colleague's thread wait on this app's own
 // server and go out through the normal path once their environment reconnects: a send where the
 // share allows it, else a request for their approval. Each keeps its id, so a repeat lands once.
+import { useAtomValue } from "@effect/atom-react";
 import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcSubscriptionAtomFamily,
@@ -18,10 +19,12 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { useGT } from "gt-react";
-import { Clock3Icon, PencilIcon, XIcon } from "lucide-react";
+import { Atom } from "effect/reactivity";
+import { CircleAlertIcon, Clock3Icon, PencilIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useQuietThreadShells, useServerConfigs } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
@@ -64,6 +67,27 @@ const FIRST_RETRY_MS = 30_000;
 const LAST_RETRY_MS = 10 * 60_000;
 const quiet = { reportFailure: false } as const;
 
+// Messages that failed to send or leave the queue: each waits twice as long as before it tries
+// again while their colleague stays connected, and a reconnect tries it at once. Their rows say
+// they could not send meanwhile.
+const heldAtom = Atom.make<
+  ReadonlyMap<string, { readonly tries: number; readonly retryAt: number }>
+>(new Map()).pipe(Atom.keepAlive, Atom.withLabel("colleagues:outbox-held"));
+
+/** Holds a message after a failure; true the first time, when the sender should hear of it. */
+function hold(id: string) {
+  const held = appAtomRegistry.get(heldAtom);
+  const tries = (held.get(id)?.tries ?? 0) + 1;
+  const wait = Math.min(FIRST_RETRY_MS * 2 ** (tries - 1), LAST_RETRY_MS);
+  appAtomRegistry.set(heldAtom, new Map(held).set(id, { tries, retryAt: Date.now() + wait }));
+  return tries === 1;
+}
+
+function release(ids: ReadonlyArray<string>) {
+  const held = new Map(appAtomRegistry.get(heldAtom));
+  if (ids.filter((id) => held.delete(id)).length > 0) appAtomRegistry.set(heldAtom, held);
+}
+
 /** This app's own server, when it keeps saved colleagues and so their queue. */
 function useOutboxServer() {
   const primary = usePrimaryEnvironmentId();
@@ -102,6 +126,7 @@ export function useColleagueOutboxFork(
   return {
     queued,
     online,
+    held: useAtomValue(heldAtom),
     name: colleague?.name ?? environment?.label ?? "",
     /** Only a saved colleague's thread queues, and only while their machine is away. */
     queues: server !== null && thread != null && colleague !== undefined && !online,
@@ -125,6 +150,7 @@ export function QueuedForColleagueFork({
   messages,
   name,
   online,
+  held,
   onEdit,
   onWithdraw,
 }: {
@@ -132,6 +158,8 @@ export function QueuedForColleagueFork({
   readonly messages: ReadonlyArray<ColleagueQueuedMessageFork>;
   readonly name: string;
   readonly online: boolean;
+  /** Messages that failed to send and wait to try again. */
+  readonly held: ReadonlyMap<string, unknown>;
   readonly onEdit: (message: ColleagueQueuedMessageFork) => void;
   readonly onWithdraw: (message: ColleagueQueuedMessageFork) => void;
 }) {
@@ -158,10 +186,17 @@ export function QueuedForColleagueFork({
                   alwaysVisible
                 />
               </span>
-              <span className="flex items-center gap-1 px-1">
-                <Clock3Icon aria-hidden className="size-3" />
-                {online ? gt("Sending…") : gt("Sends when {name} is back", { name })}
-              </span>
+              {online && held.has(message.id) ? (
+                <span className="flex items-center gap-1 px-1 text-warning">
+                  <CircleAlertIcon aria-hidden className="size-3" />
+                  {gt("Could not send, retrying")}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 px-1">
+                  <Clock3Icon aria-hidden className="size-3" />
+                  {online ? gt("Sending…") : gt("Sends when {name} is back", { name })}
+                </span>
+              )}
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -214,9 +249,6 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   const submit = useAtomCommand(submitMessageCommand, quiet);
   const startTurn = useOrchestrationCommand(threadEnvironment.startTurn, quiet);
   const unqueue = useAtomCommand(unqueueCommand, quiet);
-  // Messages that failed to send or leave the queue: each waits twice as long as before it tries
-  // again while their colleague stays connected, and a reconnect tries it at once.
-  const failed = useRef(new Map<string, { readonly tries: number; readonly retryAt: number }>());
   const flushing = useRef(false);
   // The queue as it is now, so a message withdrawn or edited mid-flush is skipped.
   const live = useRef(queued);
@@ -233,17 +265,10 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
     );
   const route = (message: ColleagueQueuedMessageFork): OutboxRouteFork => {
     if (!connected.has(message.environmentId)) return null;
-    if ((failed.current.get(message.id)?.retryAt ?? 0) > Date.now()) return null;
+    if ((appAtomRegistry.get(heldAtom).get(message.id)?.retryAt ?? 0) > Date.now()) return null;
     if (!live.current.some((candidate) => candidate.id === message.id)) return null;
     const access = shellOf(message)?.collaboratorFork;
     return access === "send" || access === "approve" ? access : null;
-  };
-  /** Holds a message after a failure; true the first time, when the sender should hear of it. */
-  const hold = (id: string) => {
-    const tries = (failed.current.get(id)?.tries ?? 0) + 1;
-    const wait = Math.min(FIRST_RETRY_MS * 2 ** (tries - 1), LAST_RETRY_MS);
-    failed.current.set(id, { tries, retryAt: Date.now() + wait });
-    return tries === 1;
   };
   const deliver = async (message: ColleagueQueuedMessageFork, how: "send" | "approve") => {
     const shell = shellOf(message);
@@ -292,7 +317,7 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   // A failed removal holds the message too; its retry lands once, as the host skips a repeat.
   const remove = async (message: ColleagueQueuedMessageFork) => {
     if ((await unqueue({ environmentId: server, input: { id: message.id } }))._tag === "Success") {
-      failed.current.delete(message.id);
+      release([message.id]);
       return true;
     }
     hold(message.id);
@@ -302,15 +327,18 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- delivers to a colleague's server, an external system, once its environment connects.
   useEffect(() => {
     live.current = queued;
-    for (const id of failed.current.keys()) {
-      const message = queued.find((candidate) => candidate.id === id);
-      if (message === undefined || !connected.has(message.environmentId)) failed.current.delete(id);
-    }
+    const held = appAtomRegistry.get(heldAtom);
+    release(
+      [...held.keys()].filter((id) => {
+        const message = queued.find((candidate) => candidate.id === id);
+        return message === undefined || !connected.has(message.environmentId);
+      }),
+    );
     if (flushing.current) return;
     if (!colleagueOutboxReadyFork(queued, route)) {
       // A retry already due waits on what else holds it, such as the share, which re-renders.
       const now = Date.now();
-      const due = [...failed.current.values()].map(({ retryAt }) => retryAt);
+      const due = [...appAtomRegistry.get(heldAtom).values()].map(({ retryAt }) => retryAt);
       const next = Math.min(...due.filter((retryAt) => retryAt > now));
       if (!Number.isFinite(next)) return;
       const retry = setTimeout(() => setRound((value) => value + 1), next - now);
