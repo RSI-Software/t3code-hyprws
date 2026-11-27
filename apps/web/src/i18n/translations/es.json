@@ -5388,6 +5388,8 @@
   "e46b9e740d562505": "¿Añadir el backend en {origin}?",
   "17959b326075ddb9": "Backend añadido",
   "11f3591c3c22a67d": "No se pudo guardar a {name} como colega",
+  "62246ebd6bfcca72": "{name} no respondió a tiempo.",
+  "c7d165ba2b4c60e9": "{name} usa una versión de T3 Code que no puede guardar colegas.",
   "91c279a5598a3fcb": "{name} guardado como colega",
   "c0c38d78ff18b406": "Los hilos que compartáis ahora aparecen sin un enlace nuevo.",
   "14e2fd524294fdc4": "El entorno está guardado y se volverá a conectar al iniciar la app.",
