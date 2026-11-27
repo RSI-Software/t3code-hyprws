@@ -235,13 +235,16 @@ export function useCollaboratorChatFork(
           bannerItems: [localizedBanner(FROZEN_BANNER, messages), ...bannerItems],
         };
       }
-      // While a saved colleague's machine is away, a send waits here for it.
-      const onSend = outbox.queues ? queueOffline : submitForApproval;
-      if (outbox.queues && access === "send") return { onSend };
+      // While a saved colleague's machine is away, a send waits here for it. The reconnect
+      // banner stays; only the composer's offline lock lifts.
+      const offline = outbox.queues
+        ? { onSend: queueOffline, environmentUnavailable: null }
+        : { onSend: submitForApproval };
+      if (outbox.queues && access === "send") return offline;
       if (access === "approve") {
         // The server refuses an approve collaborator's interrupt, so no Stop button.
         return {
-          onSend,
+          ...offline,
           canInterrupt: false,
           bannerItems: [localizedBanner(APPROVAL_BANNER, messages), ...bannerItems],
         };
