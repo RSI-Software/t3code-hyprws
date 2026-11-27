@@ -7,24 +7,24 @@ import * as Colleagues from "../../../collaborator/Colleagues.fork.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { ColleagueToolkitFork } from "./tools.fork.ts";
 
-const failure = (code: OrchestratorMcpFailure["code"]) => (error: { readonly message: string }) =>
-  Effect.fail(new OrchestratorMcpFailure({ code, message: error.message }));
+// The agent named no colleague the user saved; anything else failed on the way.
+const askedWrong = new Set(["ColleagueNoneSavedErrorFork", "ColleagueUnknownNameErrorFork"]);
 
-const unknownColleague = {
-  ColleagueNoneSavedErrorFork: failure("invalid_request"),
-  ColleagueUnknownNameErrorFork: failure("invalid_request"),
-};
+const mcpFailure = (error: { readonly _tag: string; readonly message: string }) =>
+  new OrchestratorMcpFailure({
+    code: askedWrong.has(error._tag) ? "invalid_request" : "orchestration_error",
+    message: error.message,
+  });
 
 export const ColleagueToolkitHandlersLiveFork = McpToolAccess.toLayer(ColleagueToolkitFork, {
   t3_colleague_threads: McpToolAccess.reads((input) =>
     Colleagues.ColleaguesFork.use((colleagues) => colleagues.threadsOf(input)).pipe(
-      Effect.catchTags(unknownColleague),
+      Effect.mapError(mcpFailure),
     ),
   ),
   t3_colleague_thread_read: McpToolAccess.reads((input) =>
     Colleagues.ColleaguesFork.use((colleagues) => colleagues.threadOf(input)).pipe(
-      Effect.catchTags(unknownColleague),
-      Effect.catch(failure("orchestration_error")),
+      Effect.mapError(mcpFailure),
     ),
   ),
 });
