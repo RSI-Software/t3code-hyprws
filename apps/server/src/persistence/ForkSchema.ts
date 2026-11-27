@@ -21,6 +21,8 @@ const FORK_COLUMNS: ReadonlyArray<{
   { table: "fork_colleague_shares", column: "access", definition: "TEXT" },
   // `dismissed` once the host dismisses a collaborator's message; null while it waits.
   { table: "fork_collaborator_messages", column: "outcome", definition: "TEXT" },
+  // 1 when the collaborator chose "Ask the agent"; null sends it to be judged like any line.
+  { table: "fork_collaborator_messages", column: "force_reply", definition: "INTEGER" },
 ];
 
 /**

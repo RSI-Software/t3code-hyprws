@@ -40,6 +40,7 @@ Switch them to **Can send** to let messages **reach the agent** at once.
 Change it beside their name in the share dialog, or under **Collaborators** in the thread details.
 
 While approval is on, they **send text only** and can **Withdraw** a waiting message.
+A message sent with **Ask the agent** waits marked **Asks the agent**; once you send it, the agent **answers it**.
 They see which you did: **Sent by the host** under a sent message, or **Dismissed by the host** on a dismissed one until they clear it.
 
 ## Stop sharing
