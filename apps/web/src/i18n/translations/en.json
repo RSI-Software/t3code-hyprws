@@ -5404,6 +5404,8 @@
   "e46b9e740d562505": "Add the backend at {origin}?",
   "17959b326075ddb9": "Backend added",
   "11f3591c3c22a67d": "Could not save {name} as a colleague",
+  "62246ebd6bfcca72": "{name} did not answer in time.",
+  "c7d165ba2b4c60e9": "{name} runs a T3 Code version that cannot save colleagues.",
   "91c279a5598a3fcb": "Saved {name} as a colleague",
   "c0c38d78ff18b406": "Threads you share with each other now appear without a new link.",
   "14e2fd524294fdc4": "The environment is saved and will reconnect on app startup.",
