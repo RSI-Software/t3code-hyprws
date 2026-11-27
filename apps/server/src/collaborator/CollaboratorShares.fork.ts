@@ -167,9 +167,9 @@ export class CollaboratorSharesFork extends Context.Service<
      * Narrows a collaborator session's thread handlers and answers its waiting messages; other
      * sessions only lose the right to attribute a message to a collaborator.
      */
-    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR>(
+    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR, AE, AR>(
       subject: string,
-      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR>,
+      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR, AE, AR>,
     ) => CollaboratorHandlersFork<
       A,
       E | EnvironmentAuthorizationError,
@@ -182,7 +182,9 @@ export class CollaboratorSharesFork extends Context.Service<
       LE,
       LR,
       OE,
-      OR
+      OR,
+      AE,
+      AR
     > &
       Partial<CollaboratorMessageHandlersFork & CollaboratorTypingHandlersFork>;
   }

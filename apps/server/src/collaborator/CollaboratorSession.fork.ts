@@ -16,6 +16,7 @@ import {
   EnvironmentAuthorizationError,
   ORCHESTRATION_V2_WS_METHODS,
   type OrchestrationMessageContext,
+  type OrchestrationV2ArchivedShellSnapshot,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2SubscribeShellInput,
@@ -96,24 +97,31 @@ interface ShellVisible {
   readonly threads: Set<string>;
 }
 
+/**
+ * The thread with its access in this view, or none: a hand share keeps its access, a team
+ * thread only reads. The collaborator's client reads its access from the thread itself.
+ */
+const readableIn =
+  ({ share, team }: ShellView) =>
+  <T extends OrchestrationV2ThreadShell>(thread: T) => {
+    const access =
+      share?.threadIds.get(thread.id) ??
+      (team.has(thread.projectId) ? ("read" as const) : undefined);
+    return access === undefined ? [] : [{ ...thread, collaboratorFork: access }];
+  };
+
 /** Narrows one shell item; an authoritative snapshot resets `visible` to the readable threads'. */
 const filterShellItem = (
-  { share, team }: ShellView,
+  view: ShellView,
   visible: ShellVisible,
   item: OrchestrationV2ShellStreamItem,
 ): OrchestrationV2ShellStreamItem | undefined => {
+  const { share, team } = view;
   const { projects, shareProjects } = visible;
   // A project item passes while the project is team now or holds a hand-shared thread.
   const projectReadable = (id: string) =>
     projects.has(id) && (team.has(id) || shareProjects.has(id));
-  // A hand share keeps its access; a team thread only reads.
-  const accessOf = (thread: { readonly id: string; readonly projectId: string }) =>
-    share?.threadIds.get(thread.id) ?? (team.has(thread.projectId) ? ("read" as const) : undefined);
-  // The collaborator's client reads its access from the thread itself.
-  const readable = <T extends OrchestrationV2ThreadShell>(thread: T) => {
-    const access = accessOf(thread);
-    return access === undefined ? [] : [{ ...thread, collaboratorFork: access }];
-  };
+  const readable = readableIn(view);
   switch (item.kind) {
     case "synchronized":
       return item;
@@ -181,6 +189,7 @@ const filterShellItem = (
 };
 
 const {
+  getArchivedShellSnapshot: ARCHIVE,
   dispatchCommand: DISPATCH,
   launchThread: LAUNCH,
   subscribeShell: SHELL,
@@ -222,7 +231,7 @@ export interface CollaboratorTypingHandlersFork {
 }
 
 // `options: never` accepts each upstream handler whatever its RPC options type.
-export interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR> {
+export interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR, AE, AR> {
   readonly [DISPATCH]: (command: OrchestrationV2Command, options: never) => Effect.Effect<A, E, R>;
   readonly [LAUNCH]: (
     input: OrchestrationV2ThreadLaunchInput,
@@ -240,6 +249,10 @@ export interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, O
     input: OrchestrationV2SubscribeCommandOutputInput,
     options: never,
   ) => Stream.Stream<OrchestrationV2CommandOutputFrame, OE, OR>;
+  readonly [ARCHIVE]: (
+    input: object,
+    options: never,
+  ) => Effect.Effect<OrchestrationV2ArchivedShellSnapshot, AE, AR>;
 }
 
 const itemSequence = (item: OrchestrationV2ThreadStreamItem) =>
@@ -351,8 +364,8 @@ const notCollaborator = new EnvironmentAuthorizationError({
   requiredScope: AuthOrchestrationOperateScope,
 });
 
-// The closed set a collaborator session may call. `wrapHandlers` narrows the shell, thread, and
-// dispatch handlers; every other listed RPC names one thread, which must be shared live.
+// The closed set a collaborator session may call. `wrapHandlers` narrows the shell, archive,
+// thread, and dispatch handlers; every other listed RPC names one thread, which must be shared live.
 const COLLABORATOR_OPEN_RPCS: ReadonlySet<string> = new Set([
   WS_METHODS.serverGetConfig,
   WS_METHODS.subscribeServerConfig,
@@ -361,6 +374,7 @@ const COLLABORATOR_OPEN_RPCS: ReadonlySet<string> = new Set([
   WS_METHODS.serverReportClientActivity,
   DISPATCH,
   SHELL,
+  ARCHIVE,
   THREAD,
   MESSAGES,
   // Accepting an invite saves the host as a colleague; `ColleaguesFork.save` refuses non-sharers.
@@ -677,7 +691,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
   const wrapHandlers: Service["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
     const { [DISPATCH]: dispatch, [SHELL]: subscribeShell, [THREAD]: subscribeThread } = handlers;
-    const { [LAUNCH]: launch, [OUTPUT]: subscribeOutput } = handlers;
+    const { [LAUNCH]: launch, [OUTPUT]: subscribeOutput, [ARCHIVE]: archive } = handlers;
     if (!isCollaboratorSubject(subject)) {
       return {
         ...handlers,
@@ -734,6 +748,18 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         return dispatch(attributed(share.name, command), options);
       },
       [SHELL]: (input, options) => shell(subject, input, (fresh) => subscribeShell(fresh, options)),
+      // The archive lists the archived threads the shell would show, and only their projects.
+      [ARCHIVE]: (input, options) =>
+        Effect.all([archive(input, options), teamThreads.marksOf(subject)]).pipe(
+          Effect.map(([snapshot, team]) => {
+            const threads = snapshot.threads.flatMap(
+              readableIn({ share: current().get(subject), team }),
+            );
+            const projectIds = new Set(threads.map((thread) => thread.projectId));
+            const projects = snapshot.projects.filter((project) => projectIds.has(project.id));
+            return { ...snapshot, threads, projects };
+          }),
+        ),
       // Unshared pauses silently, since the client retries a failed stream every 250ms.
       // A frozen thread reports its cached copy current; a re-share resumes after the last
       // sequence sent.
