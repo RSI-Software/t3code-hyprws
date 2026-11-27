@@ -30,6 +30,7 @@ import { readPreparedConnection } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { waitForAtomValue } from "~/state/waitForAtomValue";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { createColleagueAttacherFork } from "./colleagueAttach.fork";
 import { createColleagueReconcilerFork, type KnownColleagueFork } from "./colleagueReconcile.fork";
 
 const colleaguesFamily = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
@@ -71,6 +72,8 @@ const connectCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
 
 // The sharer's server config arrives after pairing; past this, an older server is left alone.
 const SHARER_CONFIG_TIMEOUT_MS = 15_000;
+// How often a colleague whose attach failed is tried again while their server stays down.
+const COLLEAGUE_RETRY_MS = 15_000;
 
 const linkBase = (environmentId: EnvironmentId) => {
   const linkBaseUrl = readPreparedConnection(environmentId)?.httpBaseUrl;
@@ -130,9 +133,7 @@ export function useSaveColleagueFork() {
   };
 }
 
-// The colleague list each attach was tried with; a newer list (a change, or a resubscribe after a
-// reconnect) retries one that failed, and a re-save (new savedAt) is a new attach.
-const attempted = new Map<string, ReadonlyArray<ColleagueFork>>();
+const attachColleagues = createColleagueAttacherFork();
 
 // The device's last colleague list, so an app closed during a removal still forgets them.
 const LastColleagues = Schema.Array(
@@ -182,13 +183,16 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
   const pairClient = useAtomCommand(pairClientCommand, { reportFailure: false });
   const connect = useAtomCommand(connectPairing, { reportFailure: false });
   const known = new Set(environments.map((environment) => environment.environmentId));
-  const missing = (data ?? []).filter(
-    (colleague) =>
-      !known.has(colleague.environmentId) &&
-      attempted.get(`${colleague.subject}:${colleague.savedAt}`) !== data,
-  );
-  const attach = async (colleague: ColleagueFork, list: ReadonlyArray<ColleagueFork>) => {
-    attempted.set(`${colleague.subject}:${colleague.savedAt}`, list);
+  const unattached =
+    isReady && (data ?? []).some((colleague) => !known.has(colleague.environmentId));
+  const [retry, setRetry] = useState(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a colleague's server gives no sign it is back, so an unattached one is tried again on a slow timer.
+  useEffect(() => {
+    if (!unattached) return;
+    const timer = setInterval(() => setRetry((count) => count + 1), COLLEAGUE_RETRY_MS);
+    return () => clearInterval(timer);
+  }, [unattached]);
+  const attach = async (colleague: ColleagueFork) => {
     const pairing = await pairClient({
       environmentId: props.environmentId,
       input: { subject: colleague.subject },
@@ -213,7 +217,7 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
       });
     }
     seen.current = new Set(saves);
-    for (const colleague of missing) void attach(colleague, data);
+    void attachColleagues({ colleagues: data, known, retry, attach });
     if (reconciled.current === data) return;
     reconciled.current = data;
     void reconcile({
