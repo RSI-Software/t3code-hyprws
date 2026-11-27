@@ -6181,6 +6181,7 @@
   "a6615c82020deb59": "连接",
   "05780a7d2cfae2ef": "请先连接一个环境。",
   "1fb4b6adec9303c7": "此版本不支持 T3 Connect。",
+  "8ca015df3704e556": "此版本已关闭 T3 Connect。Claude 和 Poke 等云端应用无法访问 {url}。请使用这台电脑上的应用，或 Tailscale HTTPS 等 https 路由。",
   "5f46e2ad137db6ca": "此应用可以做什么？",
   "a0105a8d01f5a369": "{app} 可以做什么？",
   "bdca1a253b468137": "无需询问即可运行命令和编辑文件",
