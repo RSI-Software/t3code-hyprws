@@ -339,6 +339,7 @@ it.effect("an accepted invite saves each side as the other's colleague, fenced p
           } as never as OrchestrationV2ShellStreamItem),
         "orchestration.subscribeThread": () => Stream.empty,
         "orchestration.subscribeCommandOutput": () => Stream.empty,
+        "orchestration.getArchivedShellSnapshot": () => Effect.die("unused"),
       });
       const items = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
       yield* narrowed["orchestration.subscribeShell"]({}, undefined as never).pipe(
