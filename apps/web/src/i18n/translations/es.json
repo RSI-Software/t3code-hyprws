@@ -6586,6 +6586,22 @@
   ],
   "f9048e2ce643daba": "Prueba a:",
   "d43b4cb93152ec22": "Compartir con",
+  "1769c79bc7874e0d": "Una respuesta solo admite texto",
+  "0e4bda2d2988268b": "El mensaje de {name} ya no está en espera",
+  "6287dd07811b8a57": "Quita los adjuntos para enviar esta respuesta.",
+  "464a49aad5d86598": "No se pudo enviar la respuesta",
+  "1b8a86f46f4a4d2f": "Respondiendo a {name}",
+  "e58c5d7f64cf9542": "Responder a {name}",
+  "58796398a662498a": "Responder",
+  "97e33748c177bbb4": "Responder a {name} en el hilo",
+  "1128ba70b2c59c51": [
+    "Respondido a ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "a3de37a9e34b6692": "Alguien nuevo…",
   "0da38806c68e1f16": "No se pudo compartir con {name}",
   "d85dfc66abf19ee9": "Colegas, sin enlace:",

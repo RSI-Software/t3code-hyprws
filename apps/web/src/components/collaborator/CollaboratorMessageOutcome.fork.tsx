@@ -1,5 +1,6 @@
 // Fork-only (colleague-collab): what the host did with a collaborator's message, shown to them.
-// A sent one marks the message, queued or in the transcript; a dismissed one stays until cleared.
+// A sent one marks the message, queued or in the transcript; a reply quotes it above the host's
+// answer; a dismissed one stays until cleared.
 import { useAtomValue } from "@effect/atom-react";
 import {
   type CollaboratorMessageFork,
@@ -8,8 +9,8 @@ import {
   type OrchestrationMessageContext,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
-import { T, useGT } from "gt-react";
-import { CheckIcon, CircleSlashIcon, XIcon } from "lucide-react";
+import { T, useGT, Var } from "gt-react";
+import { CheckIcon, CircleSlashIcon, ReplyIcon, XIcon } from "lucide-react";
 
 import { environmentSession } from "~/state/session";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
@@ -108,5 +109,28 @@ function SentByHost({ environmentId }: { readonly environmentId: EnvironmentId }
       <CheckIcon aria-hidden className="size-3" />
       <T>Sent by the host</T>
     </p>
+  );
+}
+
+/** Above the host's reply to a waiting message: whose message it answers, and its words. */
+export function CollaboratorReplyQuoteFork({
+  context,
+}: {
+  readonly context: OrchestrationMessageContext | undefined;
+}) {
+  const replyTo = context?.collaboratorFork?.replyTo;
+  if (replyTo === undefined) return null;
+  return (
+    <figure className="me-1 flex max-w-[80%] flex-col items-end gap-0.5 text-muted-foreground text-xs">
+      <figcaption className="flex items-center gap-1">
+        <ReplyIcon aria-hidden className="size-3" />
+        <T>
+          Replied to <Var>{replyTo.name}</Var>
+        </T>
+      </figcaption>
+      <blockquote className="line-clamp-2 whitespace-pre-wrap wrap-anywhere border-e-2 border-guest/50 pe-2 text-end">
+        {assistantCitationsToPlainText(replyTo.text)}
+      </blockquote>
+    </figure>
   );
 }

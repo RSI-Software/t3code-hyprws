@@ -79,26 +79,27 @@ export const threadShell = (id: ThreadId): OrchestrationV2ThreadShell => ({
 });
 
 export const hostDispatches: Array<OrchestrationV2Command> = [];
-// Queued runs by id, with who the server attributed each message to; no name is the host.
-const queuedAuthors: Record<string, string | undefined> = {
-  "run-sam": "Sam",
-  "run-pat": "Pat",
+// Queued runs by id, with the attribution the server stored on each message; none is the host.
+const queuedAttributions: Record<string, object | undefined> = {
+  "run-sam": { name: "Sam" },
+  "run-pat": { name: "Pat" },
   "run-host": undefined,
+  "run-reply": { name: "Jordan Lee", host: true, replyTo: { name: "Sam", text: "pair at 3?" } },
 };
 const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
   getThreadShell: (threadId) => Effect.succeed(threadShell(ThreadId.make(threadId))),
   getThreadRecords: (_threadId, _fields, filter) =>
     Effect.succeed({
       runs: (filter?.runIds ?? [])
-        .filter((id) => id in queuedAuthors)
+        .filter((id) => id in queuedAttributions)
         .map((id) => ({ id, userMessageId: `message-${id}` })),
     } as never),
   getMessagesById: (_threadId, messageIds) =>
     Effect.succeed(
       new Map(
         messageIds.map((id) => {
-          const name = queuedAuthors[id.replace("message-", "")];
-          return [id, { context: name === undefined ? undefined : { collaboratorFork: { name } } }];
+          const collaboratorFork = queuedAttributions[id.replace("message-", "")];
+          return [id, { context: collaboratorFork && { collaboratorFork } }];
         }),
       ) as never,
     ),
