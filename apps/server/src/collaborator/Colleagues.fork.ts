@@ -1,7 +1,7 @@
 // Fork-only (colleague-collab): saved colleagues. Accepting an invite leaves each server holding
 // the other's collaborator grant, a bearer token kept in the secret store, so either side shares
-// a thread with no link. The grant is the plain collaborator grant: `CollaboratorShares` fences it
-// to the threads shared with its subject, so a saved colleague sees nothing until a share.
+// a thread with no link. The grant is the plain collaborator grant: `CollaboratorSession` fences it
+// to the threads shared with its subject, plus read access to every team project thread.
 import {
   COLLABORATOR_SCOPES,
   COLLEAGUE_FORGET_ROUTE_FORK,
@@ -208,6 +208,7 @@ const make = Effect.gen(function* () {
   const reload = readRows.pipe(
     Effect.flatMap((rows) => SubscriptionRef.set(ref, rows)),
     Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })),
+    Effect.andThen(shares.colleaguesChanged),
   );
   const rowOf = (subject: string) =>
     SubscriptionRef.get(ref).pipe(
