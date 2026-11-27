@@ -102,9 +102,15 @@ export type CollaboratorMessageFork = typeof CollaboratorMessageFork.Type;
 // As long as the host may send, less room for the attribution the agent reads with it.
 const COLLABORATOR_MESSAGE_MAX_LENGTH = PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 1_000;
 
+const CollaboratorMessageText = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(COLLABORATOR_MESSAGE_MAX_LENGTH),
+);
+
 export const CollaboratorSubmitMessageInputFork = Schema.Struct({
   threadId: ThreadId,
-  text: TrimmedNonEmptyString.check(Schema.isMaxLength(COLLABORATOR_MESSAGE_MAX_LENGTH)),
+  text: CollaboratorMessageText,
+  /** Set by a flush from the sender's queue, so a repeat delivery waits once. */
+  id: Schema.optional(TrimmedNonEmptyString),
 });
 export type CollaboratorSubmitMessageInputFork = typeof CollaboratorSubmitMessageInputFork.Type;
 
@@ -349,6 +355,29 @@ export const ColleagueShareThreadInputFork = Schema.Struct({
   access: Schema.optional(CollaboratorAccessFork),
 });
 export type ColleagueShareThreadInputFork = typeof ColleagueShareThreadInputFork.Type;
+
+/** A message for a colleague's thread, kept on this server until their machine is back. */
+export const ColleagueQueuedMessageFork = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  /** The colleague's environment, which hosts the thread. */
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  text: Schema.String,
+  queuedAt: IsoDateTime,
+});
+export type ColleagueQueuedMessageFork = typeof ColleagueQueuedMessageFork.Type;
+
+export const ColleagueQueueMessageInputFork = Schema.Struct({
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  text: CollaboratorMessageText,
+});
+export type ColleagueQueueMessageInputFork = typeof ColleagueQueueMessageInputFork.Type;
+
+export const ColleagueUnqueueMessageInputFork = Schema.Struct({ id: TrimmedNonEmptyString });
+
+/** One id for a collaborator message on either path, so the thread's receipt sees it once. */
+export const collaboratorMessageCommandId = (id: string) => `collaborator-message:${id}`;
 
 export class ColleagueMissingErrorFork extends Schema.TaggedError<ColleagueMissingErrorFork>()(
   "ColleagueMissingErrorFork",

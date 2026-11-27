@@ -104,6 +104,14 @@ const FORK_TABLES = [
     text TEXT NOT NULL,
     submitted_at TEXT NOT NULL
   )`,
+  // Messages for an offline colleague's thread (colleague-collab), in insertion order.
+  `CREATE TABLE IF NOT EXISTS fork_colleague_outbox (
+    id TEXT PRIMARY KEY,
+    environment_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    queued_at TEXT NOT NULL
+  )`,
   // Projects marked team for the colleague-collab domain; unmarking deletes the row.
   `CREATE TABLE IF NOT EXISTS fork_team_projects (
     project_id TEXT PRIMARY KEY,

@@ -857,6 +857,8 @@ A colleague **lapses**, removed here as above, once the grant this server issued
 A shell item with `collaboratorFork` gets a **shared card** in the sidebar, naming the saved colleague on its `environmentId`; the list reads colleagues once, never per card.
 The collaborator's app **copies each shared thread** into its own thread cache, one bounded HTTP read per change and only between runs, so it **opens offline** like any cached thread; forking from a colleague's thread reads that copy.
 **Offline is upstream's** `connection.phase !== "connected"`; the banner adds when **that copy** was last **in sync** with the host.
+A send to a saved colleague's thread while **their environment is not connected** waits in `fork_colleague_outbox` on **the sender's own server**.
+The sender's app delivers it **on reconnect**, oldest first per thread, through **the share's normal path**; the host **dedupes resends** by the queued id, and delivery **needs the sender's app open**.
 
 ### Retirement condition
 
