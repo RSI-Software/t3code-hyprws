@@ -11,6 +11,7 @@ import {
   type CollaboratorSubmitMessageInputFork,
   type CollaboratorTypingStateFork,
   type CollaboratorTypistFork,
+  CollaboratorUnshareErrorFork,
   EnvironmentAuthorizationError,
   ORCHESTRATION_V2_WS_METHODS,
   type OrchestrationV2Command,
@@ -31,19 +32,20 @@ import * as Stream from "effect/Stream";
 import * as ServerConfig from "../config.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import type { CollaboratorShare } from "./CollaboratorShares.fork.ts";
+import type { CollaboratorShare, CollaboratorSharesFork } from "./CollaboratorShares.fork.ts";
 import {
   collaboratorAttribution,
   hostAttribution,
-  type makeCollaboratorMessages,
+  makeCollaboratorMessages,
 } from "./CollaboratorMessages.fork.ts";
-import type { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
+import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
 import { collaboratorSubject, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 
 // Every host session types as one typist, so a host never sees their own other device.
 const HOST_TYPIST: CollaboratorTypistFork = { subject: "host" };
 
 type Shares = ReadonlyMap<string, CollaboratorShare>;
+type Service = CollaboratorSharesFork["Service"];
 
 /** Everyone a thread was ever shared with, in the order they joined, so each keeps a colour. */
 const peopleOf = (shares: Shares, threadId: string) =>
@@ -149,7 +151,7 @@ const {
 type MessageError = CollaboratorMessageErrorFork | EnvironmentAuthorizationError;
 
 /** The waiting-message RPCs, answered per session: `null` is the host, who sees and sends all. */
-interface CollaboratorMessageHandlersFork {
+export interface CollaboratorMessageHandlersFork {
   readonly [MESSAGES]: () => Stream.Stream<
     ReadonlyArray<CollaboratorMessageFork>,
     EnvironmentAuthorizationError
@@ -163,7 +165,7 @@ interface CollaboratorMessageHandlersFork {
 }
 
 /** The typing RPCs, answered per session: `null` is the host. */
-interface CollaboratorTypingHandlersFork {
+export interface CollaboratorTypingHandlersFork {
   readonly [SET_TYPING]: (
     input: CollaboratorSetTypingInputFork,
   ) => Effect.Effect<void, EnvironmentAuthorizationError>;
@@ -173,7 +175,7 @@ interface CollaboratorTypingHandlersFork {
 }
 
 // `options: never` accepts each upstream handler whatever its RPC options type.
-interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR> {
+export interface CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR> {
   readonly [DISPATCH]: (command: OrchestrationV2Command, options: never) => Effect.Effect<A, E, R>;
   readonly [LAUNCH]: (
     input: OrchestrationV2ThreadLaunchInput,
@@ -336,50 +338,16 @@ const assetThreadId = (payload: unknown): string | null | undefined => {
     : undefined;
 };
 
-export interface CollaboratorSessionFork {
-  /** The waiting-message handlers for `subject`, or the host's for `null`. */
-  readonly messageHandlers: (subject: string | null) => CollaboratorMessageHandlersFork;
-  /** The typing handlers for `subject`, or the host's for `null`. */
-  readonly typingHandlers: (subject: string | null) => CollaboratorTypingHandlersFork;
-  /**
-   * Wraps the session's RPC authorization: a collaborator session is also refused outside its
-   * closed set; other sessions pass through.
-   */
-  readonly guardRpc: (
-    subject: string,
-  ) => <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | RpcScopeAuthorization>;
-  /**
-   * Narrows a collaborator session's thread handlers and answers its waiting messages; other
-   * sessions only lose the right to attribute a message to a collaborator.
-   */
-  readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR>(
-    subject: string,
-    handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR>,
-  ) => CollaboratorHandlersFork<
-    A,
-    E | EnvironmentAuthorizationError,
-    R,
-    SE,
-    SR,
-    TE | EnvironmentAuthorizationError,
-    TR,
-    LA,
-    LE,
-    LR
-  > &
-    Partial<CollaboratorMessageHandlersFork & CollaboratorTypingHandlersFork>;
-}
-
 export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(function* (state: {
   /** The shares as they are now. */
   readonly current: () => Shares;
   /** The shares now and on every change. */
   readonly changes: Stream.Stream<Shares>;
   readonly isShared: (subject: string, threadId: string) => boolean;
-  readonly messages: Effect.Success<typeof makeCollaboratorMessages>;
-  readonly typing: Effect.Success<typeof makeCollaboratorTyping>;
 }) {
-  const { current, changes, isShared, messages, typing } = state;
+  const { current, changes, isShared } = state;
+  const messages = yield* makeCollaboratorMessages;
+  const typing = yield* makeCollaboratorTyping;
   const config = yield* ServerConfig.ServerConfig;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const git = yield* GitVcsDriver.GitVcsDriver;
@@ -460,7 +428,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     return isShared(subject, threadId) ? undefined : notShared(AuthOrchestrationReadScope);
   };
 
-  const guardRpc: CollaboratorSessionFork["guardRpc"] = (subject) =>
+  const guardRpc: Service["guardRpc"] = (subject) =>
     Effect.updateService(RpcScopeAuthorization, (authorize) =>
       isCollaboratorSubject(subject)
         ? (effect, options) => {
@@ -470,7 +438,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         : authorize,
     );
 
-  const messageHandlers = (subject: string | null): CollaboratorMessageHandlersFork =>
+  const messageHandlers: Service["messageHandlers"] = (subject) =>
     subject === null || !isCollaboratorSubject(subject)
       ? {
           [MESSAGES]: () =>
@@ -521,7 +489,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
       Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
     );
 
-  const typingHandlers = (subject: string | null): CollaboratorTypingHandlersFork => {
+  const typingHandlers: Service["typingHandlers"] = (subject) => {
     if (subject === null || !isCollaboratorSubject(subject)) {
       return {
         [SET_TYPING]: ({ threadId, typing: on, ...writing }) => {
@@ -573,7 +541,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     Effect.orElseSucceed(() => undefined),
   );
 
-  const wrapHandlers: CollaboratorSessionFork["wrapHandlers"] = (subject, handlers) => {
+  const wrapHandlers: Service["wrapHandlers"] = (subject, handlers) => {
     // The caller assigns the result back onto `handlers`, so capture the originals now.
     const { [DISPATCH]: dispatch, [SHELL]: subscribeShell, [THREAD]: subscribeThread } = handlers;
     const { [LAUNCH]: launch } = handlers;
@@ -668,10 +636,24 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     };
   };
 
-  return {
-    messageHandlers,
-    typingHandlers,
-    guardRpc,
-    wrapHandlers,
-  } satisfies CollaboratorSessionFork;
+  // A frozen copy cannot follow up, so its waiting messages go first, and no submit lands
+  // between them and `persist`. A failure leaves the share live, and a retry repeats every step.
+  const endShare = Effect.fn("CollaboratorSharesFork.endShare")(function* (
+    subject: string,
+    threadId: ThreadId,
+    persist: Effect.Effect<void, CollaboratorUnshareErrorFork>,
+  ) {
+    yield* messages.exclusive(
+      messages.drop(subject, threadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new CollaboratorUnshareErrorFork({ operation: "freeze-share", threadId, cause }),
+        ),
+        Effect.andThen(persist),
+      ),
+    );
+    yield* typing.drop(threadId, subject);
+  });
+
+  return { handlers: { messageHandlers, typingHandlers, guardRpc, wrapHandlers }, endShare };
 });

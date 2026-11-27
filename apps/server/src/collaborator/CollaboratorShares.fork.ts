@@ -16,7 +16,9 @@ import {
   CollaboratorUnshareErrorFork,
   type CollaboratorUnshareThreadInputFork,
   EnvironmentAuthenticatedPrincipal,
+  type EnvironmentAuthorizationError,
   OrchestrationV2ThreadShell,
+  type RpcScopeAuthorization,
   ThreadId,
 } from "@t3tools/contracts";
 import { isPrivateNetworkHost } from "@t3tools/shared/hostClassification";
@@ -42,12 +44,12 @@ import {
   isLoopbackHost,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
-import { makeCollaboratorMessages } from "./CollaboratorMessages.fork.ts";
 import {
-  type CollaboratorSessionFork,
+  type CollaboratorHandlersFork,
+  type CollaboratorMessageHandlersFork,
+  type CollaboratorTypingHandlersFork,
   makeCollaboratorSession,
 } from "./CollaboratorSession.fork.ts";
-import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
 import { collaboratorSubject, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { discoverTunnelOrigin } from "./tunnelOrigin.fork.ts";
 
@@ -142,7 +144,38 @@ export class CollaboratorSharesFork extends Context.Service<
     readonly isShared: (subject: string, threadId: string) => boolean;
     /** Each subject's live shared threads, now and on every change. */
     readonly liveThreadIds: Stream.Stream<ReadonlyMap<string, ReadonlyArray<ThreadId>>>;
-  } & CollaboratorSessionFork
+    /** The waiting-message handlers for `subject`, or the host's for `null`. */
+    readonly messageHandlers: (subject: string | null) => CollaboratorMessageHandlersFork;
+    /** The typing handlers for `subject`, or the host's for `null`. */
+    readonly typingHandlers: (subject: string | null) => CollaboratorTypingHandlersFork;
+    /**
+     * Wraps the session's RPC authorization: a collaborator session is also refused outside its
+     * closed set; other sessions pass through.
+     */
+    readonly guardRpc: (
+      subject: string,
+    ) => <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | RpcScopeAuthorization>;
+    /**
+     * Narrows a collaborator session's thread handlers and answers its waiting messages; other
+     * sessions only lose the right to attribute a message to a collaborator.
+     */
+    readonly wrapHandlers: <A, E, R, SE, SR, TE, TR, LA, LE, LR>(
+      subject: string,
+      handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR>,
+    ) => CollaboratorHandlersFork<
+      A,
+      E | EnvironmentAuthorizationError,
+      R,
+      SE,
+      SR,
+      TE | EnvironmentAuthorizationError,
+      TR,
+      LA,
+      LE,
+      LR
+    > &
+      Partial<CollaboratorMessageHandlersFork & CollaboratorTypingHandlersFork>;
+  }
 >()("t3/collaborator/CollaboratorShares.fork/CollaboratorSharesFork") {}
 
 const make = Effect.gen(function* () {
@@ -152,8 +185,6 @@ const make = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const httpClient = yield* HttpClient.HttpClient;
-  const messages = yield* makeCollaboratorMessages;
-  const typing = yield* makeCollaboratorTyping;
   // The local tunnel's public hostname, then the origin the sharing client reached, then a guess.
   const pairingBaseUrl = Effect.fn("CollaboratorSharesFork.pairingBaseUrl")(function* (
     linkBaseUrl: string | undefined,
@@ -185,6 +216,15 @@ const make = Effect.gen(function* () {
       return SubscriptionRef.set(ref, next);
     }),
   );
+
+  const isShared = (subject: string, threadId: string) =>
+    current.get(subject)?.threadIds.has(threadId) === true;
+
+  const session = yield* makeCollaboratorSession({
+    current: () => current,
+    changes: SubscriptionRef.changes(ref),
+    isShared,
+  });
 
   const readThread = Effect.fn("CollaboratorSharesFork.readThread")(function* (threadId: ThreadId) {
     const thread = yield* threads
@@ -264,9 +304,6 @@ const make = Effect.gen(function* () {
     yield* record(thread.id, input.subject, input.name, input.access ?? null);
   });
 
-  const isShared = (subject: string, threadId: string) =>
-    current.get(subject)?.threadIds.has(threadId) === true;
-
   const threadShares: CollaboratorSharesFork["Service"]["threadShares"] = (threadId) =>
     Effect.sync(() => {
       const collaborators = [...current].map(([subject, { name }]) => ({ subject, name }));
@@ -294,11 +331,10 @@ const make = Effect.gen(function* () {
       thread === null || thread.deletedAt !== null
         ? null
         : yield* encodeFrozenShell(thread).pipe(Effect.mapError(fail("freeze-share")));
-    // A frozen copy cannot follow up, so its waiting messages go first, and no submit lands
-    // between. A failure leaves the share live, and a retry repeats every step.
-    yield* messages.exclusive(
+    yield* session.endShare(
+      subject,
+      threadId,
       Effect.gen(function* () {
-        yield* messages.drop(subject, threadId).pipe(Effect.mapError(fail("freeze-share")));
         yield* (
           frozen === null
             ? sql`
@@ -313,7 +349,6 @@ const make = Effect.gen(function* () {
         yield* reload.pipe(Effect.mapError(fail("read-shares")));
       }),
     );
-    yield* typing.drop(threadId, subject);
   });
 
   const unshareAll = Effect.fn("CollaboratorSharesFork.unshareAll")(function* (subject: string) {
@@ -332,14 +367,6 @@ const make = Effect.gen(function* () {
       WHERE subject = ${subject} AND thread_id = ${threadId} AND frozen_shell_json IS NULL
     `.pipe(Effect.mapError(fail));
     yield* reload.pipe(Effect.mapError(fail));
-  });
-
-  const session = yield* makeCollaboratorSession({
-    current: () => current,
-    changes: SubscriptionRef.changes(ref),
-    isShared,
-    messages,
-    typing,
   });
 
   return CollaboratorSharesFork.of({
@@ -364,7 +391,7 @@ const make = Effect.gen(function* () {
           ),
       ),
     ),
-    ...session,
+    ...session.handlers,
   });
 });
 
