@@ -5387,6 +5387,8 @@
   "e46b9e740d562505": "Adicionar o backend em {origin}?",
   "17959b326075ddb9": "Backend adicionado",
   "11f3591c3c22a67d": "Não foi possível salvar {name} como colega",
+  "62246ebd6bfcca72": "{name} não respondeu a tempo.",
+  "c7d165ba2b4c60e9": "{name} usa uma versão do T3 Code que não consegue salvar colegas.",
   "91c279a5598a3fcb": "{name} salvo como colega",
   "c0c38d78ff18b406": "Os threads que vocês compartilham agora aparecem sem um novo link.",
   "14e2fd524294fdc4": "O ambiente foi salvo e vai se reconectar quando o app iniciar.",

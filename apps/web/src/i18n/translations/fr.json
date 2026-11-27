@@ -5388,6 +5388,8 @@
   "e46b9e740d562505": "Ajouter le backend à l’adresse {origin} ?",
   "17959b326075ddb9": "Backend ajouté",
   "11f3591c3c22a67d": "Impossible d’enregistrer {name} comme collègue",
+  "62246ebd6bfcca72": "{name} n’a pas répondu à temps.",
+  "c7d165ba2b4c60e9": "{name} utilise une version de T3 Code qui ne peut pas enregistrer de collègues.",
   "91c279a5598a3fcb": "{name} enregistré comme collègue",
   "c0c38d78ff18b406": "Les fils que vous partagez entre vous apparaissent désormais sans nouveau lien.",
   "14e2fd524294fdc4": "L’environnement est enregistré et se reconnectera au démarrage de l’app.",

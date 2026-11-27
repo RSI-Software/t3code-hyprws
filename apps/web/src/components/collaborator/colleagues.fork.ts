@@ -72,7 +72,7 @@ const connectCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   tag: WS_METHODS.colleagueConnectFork,
 });
 
-// The sharer's server config arrives after pairing; past this, an older server is left alone.
+// The sharer's server config arrives after pairing; past this, the save gives up and says so.
 const SHARER_CONFIG_TIMEOUT_MS = 15_000;
 // How often a colleague whose attach failed is tried again while their server stays down.
 const COLLEAGUE_RETRY_MS = 15_000;
@@ -92,7 +92,7 @@ export function useSaveColleagueFork() {
   const invite = useAtomCommand(inviteCommand, quiet);
   const save = useAtomCommand(saveCommand, quiet);
   const connect = useAtomCommand(connectCommand, quiet);
-  return async (sharer: EnvironmentId) => {
+  const saveColleague = async (sharer: EnvironmentId): Promise<void> => {
     const own = readPrimaryEnvironmentId();
     if (own === null || own === sharer) return;
     if (!colleaguesServedFork(appAtomRegistry.get(environmentServerConfigsAtom), own)) return;
@@ -103,8 +103,33 @@ export function useSaveColleagueFork() {
       timeoutMs: SHARER_CONFIG_TIMEOUT_MS,
     });
     const configs = appAtomRegistry.get(environmentServerConfigsAtom);
-    if (!sharerKnown || !colleaguesServedFork(configs, sharer)) return;
     const name = readEnvironment(sharer)?.label ?? sharer;
+    const fail = (description: string, canRetry = true) => {
+      const toastId = toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: gt("Could not save {name} as a colleague", { name }),
+          description,
+          ...(canRetry && {
+            timeout: 0,
+            actionProps: {
+              children: gt("Retry"),
+              onClick: () => {
+                toastManager.close(toastId);
+                void saveColleague(sharer);
+              },
+            },
+          }),
+        }),
+      );
+    };
+    if (!sharerKnown) return fail(gt("{name} did not answer in time.", { name }));
+    if (!colleaguesServedFork(configs, sharer)) {
+      return fail(
+        gt("{name} runs a T3 Code version that cannot save colleagues.", { name }),
+        false,
+      );
+    }
     const invited = await invite({
       environmentId: own,
       input: { environmentId: sharer, name, ...linkBase(own) },
@@ -125,14 +150,9 @@ export function useSaveColleagueFork() {
         : saved;
     if (connected._tag === "Success" || isAtomCommandInterrupted(connected)) return;
     const error = squashAtomCommandFailure(connected);
-    toastManager.add(
-      stackedThreadToast({
-        type: "error",
-        title: gt("Could not save {name} as a colleague", { name }),
-        description: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    fail(error instanceof Error ? error.message : String(error));
   };
+  return saveColleague;
 }
 
 const attachColleagues = createColleagueAttacherFork();
