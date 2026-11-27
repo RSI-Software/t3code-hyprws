@@ -48,6 +48,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ACCESS, setAccessCommand, threadSharesQuery } from "./collaboratorAccess.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { collaboratorShareDialogThreadAtom } from "./collaboratorShareDialogState.fork";
+import { ColleagueForkDialogHostFork } from "./ColleagueFork.fork";
 import { colleagueShareThreadCommand, unshareThreadCommand } from "./colleagueShare.fork";
 import { shareSuggestions } from "./colleagueShare.logic.fork";
 import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
@@ -108,13 +109,17 @@ const linkBase = (threadRef: ScopedThreadRef) => {
 
 export function CollaboratorShareDialogHostFork() {
   const threadRef = useAtomValue(collaboratorShareDialogThreadAtom);
-  if (threadRef === null) return null;
   return (
-    <CollaboratorShareDialog
-      key={`${threadRef.environmentId}:${threadRef.threadId}`}
-      threadRef={threadRef}
-      onClose={() => appAtomRegistry.set(collaboratorShareDialogThreadAtom, null)}
-    />
+    <>
+      <ColleagueForkDialogHostFork />
+      {threadRef === null ? null : (
+        <CollaboratorShareDialog
+          key={`${threadRef.environmentId}:${threadRef.threadId}`}
+          threadRef={threadRef}
+          onClose={() => appAtomRegistry.set(collaboratorShareDialogThreadAtom, null)}
+        />
+      )}
+    </>
   );
 }
 

@@ -145,3 +145,13 @@ export function forkThreadMenuItems(
     },
   ];
 }
+
+/** Fork (colleague-collab): copy a colleague's shared thread into a project on this machine. */
+export function colleagueForkMenuItemsFork(
+  state: Pick<ThreadActionMenuState, "colleagueForkFork">,
+  resolve: MessageResolver = m,
+): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
+  return state.colleagueForkFork === true
+    ? [{ id: "fork-to-my-machine", label: resolve(msg("Fork to my machine…")), icon: "git-fork" }]
+    : [];
+}
