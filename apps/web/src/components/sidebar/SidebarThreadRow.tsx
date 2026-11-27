@@ -138,6 +138,7 @@ import { ThreadHoverCardArtifactsFork } from "../threadArtifacts/ThreadArtifactB
 import {
   SHARED_THREAD_CARD_CLASS_FORK,
   SharedByFork,
+  type SharedCardFork,
   sharedByIdFork,
 } from "../collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
 import { Menu, MenuItem, MenuItemDetail, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
@@ -616,7 +617,7 @@ type SidebarThreadRowProps = {
   grouped?: boolean | undefined; // fork-hook: thread-ordering/group-member-prop
   groupParent?: boolean | undefined; // fork-hook: thread-ordering/group-parent-prop
   groupCompact?: boolean | undefined; // fork-hook: thread-ordering/group-compact-prop
-  sharedByFork?: string | null | undefined; // fork-hook: colleague-collab/shared-card-prop
+  sharedByFork?: SharedCardFork | undefined; // fork-hook: colleague-collab/shared-card-prop
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's environment and PR line under it.
@@ -1315,7 +1316,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     runningTerminalIds.length === 0;
   const sharedByLeadFork =
     props.sharedByFork === undefined ? null : (
-      <SharedByFork id={sharedByIdFork(threadKey)} name={props.sharedByFork} />
+      <SharedByFork id={sharedByIdFork(threadKey)} share={props.sharedByFork} />
     ); // fork-hook: colleague-collab/shared-card
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
