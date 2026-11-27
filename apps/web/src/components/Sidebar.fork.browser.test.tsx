@@ -1,10 +1,12 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../test/render";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
+import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
 import { useProjects, useQuietThreadShells } from "../state/entities";
 import { makeThreadFixture } from "../test-fixtures";
 import type { Project } from "../types";
@@ -22,6 +24,14 @@ vi.mock(import("../state/environments"), async (original) => ({
   ...(await original()),
   usePrimaryEnvironmentId: () => EnvironmentId.make("mine"),
 }));
+vi.mock(import("../state/server"), async (original) => {
+  const { compileResolvedKeybindingsConfig } = await import("@t3tools/shared/keybindings");
+  const keybindings = compileResolvedKeybindingsConfig([
+    { key: "mod+shift+]", command: "thread.next" },
+    { key: "mod+shift+[", command: "thread.previous" },
+  ]);
+  return { ...(await original()), primaryServerKeybindingsAtom: Atom.make(keybindings) };
+});
 vi.mock(import("./collaborator/colleagues.fork"), async (original) => ({
   ...(await original()),
   colleaguesServedFork: () => true,
@@ -83,9 +93,11 @@ async function renderSidebar() {
     routeThreadRef,
   });
   const screen = await render(
-    <SidebarProvider>
-      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
-    </SidebarProvider>,
+    <AppAtomRegistryProvider>
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>
+    </AppAtomRegistryProvider>,
     { router: "/mine/thread-mine" },
   );
   const card = (title: string) =>
@@ -119,9 +131,16 @@ it("switches the sidebar to a colleague's inbox, showing only their threads, and
     .element(screen.getByRole("combobox", { name: "Search threads" }))
     .not.toBeInTheDocument();
 
+  using _platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+  await userEvent.keyboard("{Control>}{Shift>}]{/Shift}{/Control}");
+  await userEvent.keyboard("{Control>}{Shift>}[[{/Shift}{/Control}");
+  expect(screen.router?.state.location.pathname).toBe("/mine/thread-mine");
+
   await inboxSwitch.click();
   await screen.getByRole("option", { name: "My inbox" }).click();
   await expect.element(alexInbox).not.toBeInTheDocument();
   await expect.element(card("My thread")).toBeVisible();
   await expect.element(card("Alex's thread")).toHaveAccessibleDescription("Shared by Alex");
+  await userEvent.keyboard("{Control>}{Shift>}[[{/Shift}{/Control}");
+  expect(screen.router?.state.location.pathname).not.toBe("/mine/thread-mine");
 });

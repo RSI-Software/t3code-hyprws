@@ -34,6 +34,10 @@ export const readColleagueInboxVetoFork = (
   scope: AuthEnvironmentScope,
 ) => vetoes(appAtomRegistry.get(colleagueInboxAtom), environmentId, scope);
 
+/** True while the sidebar shows a colleague's inbox, so my inbox's thread shortcuts stand down. */
+export const readColleagueInboxBrowsingFork = () =>
+  appAtomRegistry.get(colleagueInboxAtom) !== null;
+
 /** A forgotten colleague's inbox closes, so a later save of the same server starts in mine. */
 export const closeColleagueInboxFork = (environmentId: EnvironmentId) => {
   if (appAtomRegistry.get(colleagueInboxAtom) === environmentId) {

@@ -114,6 +114,7 @@ import {
   ColleagueSidebarFork,
   useColleagueInboxFork,
 } from "./collaborator/ColleagueInbox.fork"; // fork-hook: colleague-collab/inbox-import
+import { readColleagueInboxBrowsingFork } from "./collaborator/colleagueInbox.fork"; // fork-hook: colleague-collab/inbox-shortcuts-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -3333,6 +3334,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to window keydown for thread navigation shortcuts using the current thread list
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (readColleagueInboxBrowsingFork()) return; // fork-hook: colleague-collab/inbox-shortcuts
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
         return;
       }
