@@ -625,7 +625,7 @@ database("CollaboratorSharesFork", (it) => {
         }
         for (const { id } of yield* waiting(sam)) yield* resolve(sam, id, "dismiss");
         assert.deepStrictEqual(yield* waiting(sam), []);
-        assert.strictEqual(hostDispatches.length, 2);
+        assert.strictEqual(hostDispatches.length, 3);
 
         // Send access lets Sam's messages through directly, and refuses the approval path.
         yield* service.setAccess({ subject: "colleague:sam", threadId: shared, access: "send" });
