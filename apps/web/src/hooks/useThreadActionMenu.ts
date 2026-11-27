@@ -44,6 +44,10 @@ import {
   readColleagueShareTargetsFork,
   useColleagueShareTargetsWarmFork,
 } from "../components/collaborator/colleagueShare.fork"; // fork-hook: colleague-collab/colleague-menu-import
+import {
+  canForkColleagueThreadFork,
+  openColleagueForkDialogFork,
+} from "../components/collaborator/colleagueForkDialogState.fork"; // fork-hook: colleague-collab/fork-menu-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { m } from "../i18n/messages";
@@ -179,6 +183,7 @@ export function useThreadActionMenu(input: {
       openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
       canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
       colleaguesFork, // fork-hook: colleague-collab/colleague-menu-state
+      colleagueForkFork: canForkColleagueThreadFork(thread), // fork-hook: colleague-collab/fork-menu-state
       supports,
       snoozePresets,
       canShareWithGuest,
@@ -318,6 +323,8 @@ export function useThreadActionMenu(input: {
           return;
         case "share-collaborator": // fork-hook: colleague-collab/menu-dispatch
           return openCollaboratorShareDialog(threadRef); // fork-hook: colleague-collab/menu-dispatch
+        case "fork-to-my-machine": // fork-hook: colleague-collab/fork-menu-dispatch
+          return openColleagueForkDialogFork(threadRef); // fork-hook: colleague-collab/fork-menu-dispatch
         case "turn-into-project": {
           const result = await turnThreadIntoProject(threadRef);
           if (result._tag === "Success") {

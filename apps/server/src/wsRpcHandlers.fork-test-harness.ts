@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 
 import { CollaboratorSharesFork } from "./collaborator/CollaboratorShares.fork.ts";
 import { ColleaguesFork } from "./collaborator/Colleagues.fork.ts";
+import { ColleagueThreadForkFork } from "./collaborator/ColleagueThreadFork.fork.ts";
 import { CheckoutMutationCoordinator } from "./git/CheckoutMutationCoordinator.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
@@ -16,6 +17,7 @@ export const layerUnusedWsRpcServicesFork = Layer.mergeAll(
   Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({}),
   Layer.mock(ThreadGroups.ThreadGroupsServiceFork)({}),
   Layer.mock(ColleaguesFork)({}),
+  Layer.mock(ColleagueThreadForkFork)({}),
   Layer.mock(CollaboratorSharesFork)({
     wrapHandlers: (_subject, handlers) => handlers,
     guardRpc: () => (self) => self,

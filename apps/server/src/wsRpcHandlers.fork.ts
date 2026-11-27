@@ -7,6 +7,7 @@ import { type AuthSessionId, RpcScopeAuthorization, wsRpcsFork } from "@t3tools/
 
 import * as CollaboratorShares from "./collaborator/CollaboratorShares.fork.ts";
 import * as Colleagues from "./collaborator/Colleagues.fork.ts";
+import * as ColleagueThreadFork from "./collaborator/ColleagueThreadFork.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
@@ -27,6 +28,7 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
   const collaborators = yield* CollaboratorShares.CollaboratorSharesFork;
   const colleagues = yield* Colleagues.ColleaguesFork;
+  const colleagueThreads = yield* ColleagueThreadFork.ColleagueThreadForkFork;
   return WsRpcGroupFork.of({
     ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),
     "pullRequests.createAttachmentUploadUrl": (input) =>
@@ -60,5 +62,6 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
     "colleague.subscribeOutboxFork": () => colleagues.outbox,
     "colleague.queueMessageFork": (input) => colleagues.queueMessage(input),
     "colleague.unqueueMessageFork": (input) => colleagues.unqueueMessage(input.id),
+    "colleague.forkThreadFork": (input) => colleagueThreads.fork(input),
   });
 });

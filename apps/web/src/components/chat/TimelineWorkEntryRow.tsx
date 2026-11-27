@@ -61,6 +61,7 @@ import type { MessageResolver } from "~/i18n/messages";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { SubagentNotificationLink } from "./V2LifecycleRow";
+import { ColleagueOriginLinkFork } from "../collaborator/ColleagueFork.fork"; // fork-hook: colleague-collab/origin-link-import
 import {
   TimelineRowCtx,
   TimelineRowActivityCtx,
@@ -638,6 +639,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
               </span>
             ) : null}
             {mcpSignIn}
+            {/* fork-hook: colleague-collab/origin-link */}
+            <ColleagueOriginLinkFork payload={payload} />
+            {/* fork-hook-end */}
           </p>
         </div>
       }
