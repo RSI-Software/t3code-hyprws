@@ -1949,6 +1949,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     textOmitted: DedupedBodyMarker,
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
     streaming: Schema.Boolean,
+    quietFork: Schema.optional(Schema.Literal(true)), // fork-hook: colleague-collab/quiet-turn
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2854,6 +2855,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     text: Schema.String,
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
     streaming: Schema.Boolean,
+    quietFork: Schema.optional(Schema.Literal(true)), // fork-hook: colleague-collab/quiet-turn-json
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
