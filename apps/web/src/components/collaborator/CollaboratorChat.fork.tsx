@@ -370,9 +370,18 @@ export function useCollaboratorChatFork(
         };
       }
       // While a saved colleague's machine is away, a send waits here for it. The reconnect
-      // banner stays; only the composer's offline lock lifts.
+      // banner stays; the composer's gates lift, and its submit skips the host's session scopes,
+      // which a reload leaves unread until they return.
       const offline = outbox.queues
-        ? { onSend: queueOffline, environmentUnavailable: null }
+        ? {
+            queueSendFork: (event?: { preventDefault: () => void }) => {
+              queueOffline(event);
+              return true;
+            },
+            environmentUnavailable: null,
+            canOperateThread: true,
+            sendDisabledReason: null,
+          }
         : { onSend: submitForApproval };
       if (outbox.queues && access === "send") return { ...offline, bannerItems };
       if (access === "approve") {
