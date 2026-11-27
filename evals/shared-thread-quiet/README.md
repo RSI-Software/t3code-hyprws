@@ -40,3 +40,4 @@ A full run on Haiku costs about **$1.25** per arm.
 ## Add a case
 
 Add an entry to `cases.ts`: the **messages in order**, whether the last gets **`quiet` or `reply`**, its `kind`, and its `source`.
+Wrap a message in `forced(...)` to send it as **"Ask the agent"**.

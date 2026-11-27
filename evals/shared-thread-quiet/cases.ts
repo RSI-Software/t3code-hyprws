@@ -5,6 +5,8 @@ export interface SharedThreadMessage {
   readonly text: string;
   /** History lines with a clear answer are graded too, as a secondary measure. */
   readonly expect?: "quiet" | "reply";
+  /** Sent with "Ask the agent": the agent answers whoever it is to. */
+  readonly forced?: true;
 }
 
 export type SharedThreadKind =
@@ -16,7 +18,8 @@ export type SharedThreadKind =
   | "ambiguous"
   | "approval"
   | "control-work"
-  | "control-people";
+  | "control-people"
+  | "forced";
 
 export interface SharedThreadCase {
   readonly id: string;
@@ -37,6 +40,11 @@ const alex = (text: string, expect?: "quiet" | "reply"): SharedThreadMessage => 
   from: "collaborator",
   text,
   ...(expect ? { expect } : {}),
+});
+
+const forced = (message: SharedThreadMessage): SharedThreadMessage => ({
+  ...message,
+  forced: true,
 });
 
 const smallTalk = [
@@ -363,6 +371,32 @@ export const sharedThreadCases: ReadonlyArray<SharedThreadCase> = [
     kind: "control-people",
     source: `${BRIEF}: control, people only`,
     messages: [...smallTalk, owner("Alex, tabs or spaces? Just curious.")],
+    expect: "quiet",
+  },
+  // "Ask the agent": a people line the agent must answer, and the next line judged again.
+  {
+    id: "forced-to-person",
+    kind: "forced",
+    source: "RSI-802",
+    messages: [...smallTalk, forced(alex("Jordan, are we still doing the demo on Friday?"))],
+    expect: "reply",
+  },
+  {
+    id: "forced-thanks",
+    kind: "forced",
+    source: "RSI-802",
+    messages: [...smallTalk, forced(owner("Thanks Alex, appreciate you looking."))],
+    expect: "reply",
+  },
+  {
+    id: "forced-then-normal",
+    kind: "forced",
+    source: "RSI-802",
+    messages: [
+      ...smallTalk,
+      forced(alex("Jordan, tabs or spaces? Just curious.", "reply")),
+      alex("brb, grabbing lunch"),
+    ],
     expect: "quiet",
   },
 ];

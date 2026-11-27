@@ -110,6 +110,7 @@ import {
 } from "./composerSend.logic";
 import { useMultipleModelSend } from "./useMultipleModelSend";
 import { worktrunkBootstrapFork, worktrunkDispatchFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/send-bootstrap-import
+import { forceReplyMessageFork, takeForceReplyFork } from "../collaborator/sendMenu.fork"; // fork-hook: colleague-collab/send-force-import
 import type { SideChatMessage } from "./useSideChat";
 import { type ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import {
@@ -431,6 +432,7 @@ export function useComposerSend(input: ComposerSendInput) {
     },
   ) => {
     e?.preventDefault();
+    const forceReplyFork = takeForceReplyFork(composerTargetKey(composerDraftTarget)); // fork-hook: colleague-collab/send-force-take
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
     let promptAtSend = detachedOverride ? detachedOverride.prompt : promptRef.current;
@@ -1595,6 +1597,11 @@ export function useComposerSend(input: ComposerSendInput) {
                 boundAttachmentIds(turnAttachmentsResult.value, composerAttachmentsSnapshot),
               ),
             }),
+            ...forceReplyMessageFork(forceReplyFork, () =>
+              buildOutgoingMessageContext(
+                boundAttachmentIds(turnAttachmentsResult.value, composerAttachmentsSnapshot),
+              ),
+            ), // fork-hook: colleague-collab/send-force-context
           },
           modelSelection: ctxSelectedModelSelection,
           titleSeed: title,
