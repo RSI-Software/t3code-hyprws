@@ -146,7 +146,7 @@ export class CollaboratorSharesFork extends Context.Service<
     readonly isShared: (subject: string, threadId: string) => boolean;
     /**
      * The one read check for a collaborator subject: shared live, or a saved colleague's view of
-     * a team project's thread, which is read-only.
+     * a team project's thread, whose messages wait for the host.
      */
     readonly canRead: (subject: string, threadId: string) => Effect.Effect<boolean>;
     /** Rechecks team access after a colleague is saved or forgotten. */
