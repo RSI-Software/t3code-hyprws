@@ -136,6 +136,9 @@ export interface IssueTrackerApi {
 
   /** The issue with its first page of conversation, in one read where the tracker allows. */
   readonly getIssue: (input: IssueTarget) => Effect.Effect<TrackerIssueDetail, IssueTrackerError>;
+  readonly getIssueSummaryFork?: (
+    input: IssueTarget,
+  ) => Effect.Effect<TrackerIssueSummary, IssueTrackerError>; // fork-hook: github-issues/issue-summary
 
   /** Confirms an issue exists and names it for a thread link. */
   readonly getIssueLink?: (
