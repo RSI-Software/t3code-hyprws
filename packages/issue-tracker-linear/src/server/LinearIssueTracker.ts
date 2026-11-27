@@ -524,7 +524,7 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
         };
       }),
 
-      getIssueSummaryFork: linearIssueSummaryFork(linear, {
+      getIssueSummaryFork: yield* linearIssueSummaryFork({
         requireIdentifier,
         notFound,
         toSummary,
