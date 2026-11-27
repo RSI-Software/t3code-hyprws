@@ -10,7 +10,7 @@ import {
 import { type ColleagueFork, EnvironmentId, WS_METHODS } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useGT } from "gt-react";
-import { createElement, useEffect, useRef, useState } from "react";
+import { createElement, Fragment, useEffect, useRef, useState } from "react";
 
 import { environmentCatalog } from "~/connection/catalog";
 import { connectPairing } from "~/connection/onboarding";
@@ -31,6 +31,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { waitForAtomValue } from "~/state/waitForAtomValue";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { createColleagueAttacherFork } from "./colleagueAttach.fork";
+import { ColleagueCopiesSyncFork } from "./colleagueCopy.fork";
 import { createColleagueReconcilerFork, type KnownColleagueFork } from "./colleagueReconcile.fork";
 
 const colleaguesFamily = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
@@ -237,11 +238,17 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
 
 /**
  * Adds each saved colleague's environment the catalog lacks, through a one-time client pairing,
- * and forgets one whose colleague was removed.
+ * and forgets one whose colleague was removed. Copies of shared threads follow any server.
  */
 export function ColleaguesAttachSyncFork() {
   const primary = usePrimaryEnvironmentId();
   const configs = useServerConfigs();
-  if (primary === null || !colleaguesServedFork(configs, primary)) return null;
-  return createElement(AttachColleagues, { key: primary, environmentId: primary });
+  return createElement(
+    Fragment,
+    null,
+    createElement(ColleagueCopiesSyncFork),
+    primary === null || !colleaguesServedFork(configs, primary)
+      ? null
+      : createElement(AttachColleagues, { key: primary, environmentId: primary }),
+  );
 }
