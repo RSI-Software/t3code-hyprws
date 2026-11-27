@@ -21,6 +21,7 @@ pnpm shared-thread-quiet --case relay-request --samples 1 --out runs/smoke
 ```
 
 - `--model`: default **`claude-haiku-5-5`**
+- `--judge-model`: default **`claude-sonnet-5-5`**
 - `--samples`: default **3**
 - `--concurrency`: default **6**
 - `--baseline <results.json>`: a **per-case column**
@@ -32,6 +33,7 @@ pnpm shared-thread-quiet --case relay-request --samples 1 --out runs/smoke
 - **History lines** with `expect`: a **second count**
 - A miss: an ask **got no reply**
 - An unwanted reply: a people line **got one**
+- A `rubric` case: a **judge** grades its words too
 
 ## Cost
 
@@ -41,3 +43,5 @@ A full run on Haiku costs about **$1.25** per arm.
 
 Add an entry to `cases.ts`: the **messages in order**, whether the last gets **`quiet` or `reply`**, its `kind`, and its `source`.
 Wrap a message in `forced(...)` to send it as **"Ask the agent"**.
+Set `rubric` to have a **judge grade** the last reply's words.
+Set `handoffReply` to **switch models** before the last line: earlier lines reach a fresh session as the server's **inline history**.
