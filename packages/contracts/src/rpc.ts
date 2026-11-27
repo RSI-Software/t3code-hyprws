@@ -190,6 +190,7 @@ import { collaboratorRpcFork } from "./rpc.fork.ts"; // fork-hook: colleague-col
 import { pullRequestActivityRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-activity-refresh-rpc-import
 import { checkoutMoveRpcFork } from "./rpc.fork.ts"; // fork-hook: zmux-estate/checkout-move-rpc-import
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
+import { issueSummaryRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/issue-summary-rpc-import
 import { OrchestrationSearchThreadsError } from "./threadSearch.ts";
 import {
   ProviderMcpSignInCompleteInput,
@@ -701,6 +702,7 @@ export const WS_METHODS = {
   pullRequestsUpdate: "pullRequests.update",
   ...pullRequestActivityRpcFork.methodNames, // fork-hook: upstream-fixes/pr-activity-refresh-rpc-methods
   ...pullRequestAttachmentRpcFork.methodNames, // fork-hook: upstream-fixes/pr-attachment-rpc-methods
+  ...issueSummaryRpcFork.methodNames, // fork-hook: github-issues/issue-summary-rpc-methods
   pullRequestsComment: "pullRequests.comment",
   pullRequestsUpdateComment: "pullRequests.updateComment",
   pullRequestsSubmitReview: "pullRequests.submitReview",
@@ -2646,6 +2648,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsUpdateRpc,
   ...pullRequestActivityRpcFork.rpcs, // fork-hook: upstream-fixes/pr-activity-refresh-rpc-group
   ...pullRequestAttachmentRpcFork.rpcs, // fork-hook: upstream-fixes/pr-attachment-rpc-group
+  ...issueSummaryRpcFork.rpcs, // fork-hook: github-issues/issue-summary-rpc-group
   WsPullRequestsCommentRpc,
   WsPullRequestsUpdateCommentRpc,
   WsPullRequestsSubmitReviewRpc,

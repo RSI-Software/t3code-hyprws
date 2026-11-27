@@ -60,6 +60,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
+import * as IssueSummaryFork from "./IssueSummary.fork.ts"; // fork-hook: github-issues/issue-summary-import
 
 const DEFAULT_LIST_LIMIT = 50;
 const SCOPE_CONCURRENCY = 4;
@@ -199,6 +200,7 @@ export class IssueService extends Context.Service<
     readonly list: (input: IssueListInput) => Effect.Effect<IssueListResult, IssueError>;
     readonly detail: (input: IssueDetailInput) => Effect.Effect<IssueDetail, IssueError>;
     readonly linkMetadata: (input: IssueRef) => Effect.Effect<TrackerIssueLink, IssueError>;
+    readonly summaryFork: IssueSummaryFork.IssueSummaryFork; // fork-hook: github-issues/issue-summary-service
     readonly comments: (
       input: IssueCommentsPageInput,
     ) => Effect.Effect<IssueCommentsPage, IssueError>;
@@ -676,6 +678,7 @@ const make = Effect.gen(function* () {
       }),
     );
 
+  const summaryFork = IssueSummaryFork.issueSummaryFork(requireProject, toIssueError); // fork-hook: github-issues/issue-summary-make
   const comments: IssueService["Service"]["comments"] = (input) =>
     requireProject(input).pipe(
       Effect.flatMap((project) =>
@@ -1037,6 +1040,7 @@ const make = Effect.gen(function* () {
     list,
     detail: traced("detail", detail),
     linkMetadata: traced("linkMetadata", linkMetadata),
+    summaryFork: traced("summaryFork", summaryFork), // fork-hook: github-issues/issue-summary-service
     comments: traced("comments", comments),
     templates: traced("templates", templates),
     candidates: interactive(traced("candidates", candidates)),
