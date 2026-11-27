@@ -11,6 +11,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  AuthOrchestrationOperateScope,
   type CollaboratorMessageFork,
   type CollaboratorTypingStateFork,
   type CollaboratorTypistFork,
@@ -24,7 +25,7 @@ import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitation
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { AsyncResult } from "effect/reactivity";
 import { msg, useGT, useMessages } from "gt-react";
-import { ArrowUpIcon, Clock3Icon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, Clock3Icon, EyeIcon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import { useComposerDraftStore, type ComposerThreadTarget } from "~/composerDraftStore";
@@ -46,6 +47,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { DismissedMessageFork, useWaitingListLabelFork } from "./CollaboratorMessageOutcome.fork";
 import { collaboratorMessages } from "./useCollaboratorRequests.fork";
 import { useColleagueOfflineBannerFork } from "./colleagueCopy.fork";
+import { useColleagueInboxFork } from "./ColleagueInbox.fork";
+import { useColleagueInboxVetoFork } from "./colleagueInbox.fork";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 
@@ -160,6 +163,9 @@ export function useCollaboratorChatFork(
     access === undefined ? null : (thread?.environmentId ?? null),
     access === undefined ? null : (thread?.id ?? null),
   );
+  const browsing = useColleagueInboxFork().browsing;
+  const browsingName =
+    browsing !== null && browsing.environmentId === thread?.environmentId ? browsing.name : null;
 
   const submitForApproval = (event?: { preventDefault: () => void }) => {
     event?.preventDefault();
@@ -198,6 +204,24 @@ export function useCollaboratorChatFork(
       thread == null ? null : <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />,
     composer: (items: ReadonlyArray<ComposerBannerStackItem>) => {
       const bannerItems = hostOffline(items);
+      if (browsingName !== null) {
+        const readOnly = gt("Read-only here. Switch to My inbox to reply.");
+        return {
+          canOperateThread: false,
+          sendDisabledReason: readOnly,
+          bannerItems: [
+            {
+              id: "colleague-inbox",
+              variant: "info",
+              group: "environment",
+              icon: <EyeIcon />,
+              title: gt("{name}'s inbox", { name: browsingName }),
+              description: readOnly,
+            } satisfies ComposerBannerStackItem,
+            ...bannerItems,
+          ],
+        };
+      }
       if (access === "frozen") {
         return {
           canOperateThread: false,
@@ -250,6 +274,7 @@ function WaitingMessages({
   const timestampFormat = useEnvironmentSettings(environmentId).timestampFormat;
   const resolve = useAtomCommand(resolveMessageCommand);
   const label = useWaitingListLabelFork(messages);
+  const readOnly = useColleagueInboxVetoFork(environmentId, AuthOrchestrationOperateScope);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const run = async (message: CollaboratorMessageFork, decision: "send" | "dismiss") => {
     setBusyIds((ids) => new Set(ids).add(message.id));
@@ -271,7 +296,7 @@ function WaitingMessages({
     >
       <ol className="flex flex-col items-end gap-3" aria-live="polite">
         {messages.map((message) => {
-          const busy = busyIds.has(message.id);
+          const busy = readOnly || busyIds.has(message.id);
           if (message.outcome === "dismissed") {
             return (
               <DismissedMessageFork
