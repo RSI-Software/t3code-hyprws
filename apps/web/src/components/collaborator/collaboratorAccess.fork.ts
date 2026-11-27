@@ -46,6 +46,10 @@ export const collaboratorRowControlsFork = (thread: { readonly collaboratorFork?
     ? {}
     : { settlementSupported: false, snoozeSupported: false, pinningSupported: false };
 
+/** A collaborator's archived row reads only: unarchiving and deleting stay the host's. */
+export const archivedRowControlsFork = (thread: { readonly collaboratorFork?: string }) =>
+  thread.collaboratorFork === undefined ? {} : { control: null, onContextMenu: undefined };
+
 const useHostSessionFork = (environmentId: EnvironmentId) =>
   useAtomValue(
     environmentSession.sessionStateValueAtom(environmentId),

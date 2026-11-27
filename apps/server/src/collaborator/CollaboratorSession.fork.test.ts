@@ -9,6 +9,7 @@ import {
   type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2ThreadStreamItem,
   ORCHESTRATION_V2_WS_METHODS,
+  ProjectId,
   RpcScopeAuthorization,
   ThreadId,
   WS_METHODS,
@@ -89,6 +90,22 @@ const snapshot = () =>
 // Live shell events after each snapshot; the shell test supplies the queue.
 const shellEvents: { queue?: Queue.Queue<OrchestrationV2ShellStreamItem> } = {};
 
+// The host's archive: the hand-shared thread, the team thread, and one in a third project.
+const hidden = ThreadId.make("hidden");
+const hiddenProject = ProjectId.make("p-hidden");
+const archivedShell = (id: ThreadId, projectId = projectOf[id]!) => ({
+  ...threadShell(shared),
+  id,
+  projectId,
+  archivedAt: threadShell(shared).createdAt,
+});
+const archive = () => ({
+  schemaVersion: 1,
+  snapshotSequence: 3,
+  projects: [sharedProject, otherProject, hiddenProject].map((id) => ({ id })) as never,
+  threads: [archivedShell(shared), archivedShell(other), archivedShell(hidden, hiddenProject)],
+});
+
 const shellInputs: Array<object> = [];
 const threadInputs: Array<number | undefined> = [];
 const handlers = {
@@ -103,6 +120,8 @@ const handlers = {
       shellEvents.queue ? Stream.fromQueue(shellEvents.queue) : Stream.empty,
     );
   },
+  "orchestration.getArchivedShellSnapshot": (_input: object, _options: never) =>
+    Effect.succeed(archive()),
   "orchestration.subscribeCommandOutput": (_input: object, _options: never) =>
     commandOutput.queue ? Stream.fromQueue(commandOutput.queue) : Stream.never,
   "orchestration.subscribeThread": (
@@ -822,6 +841,74 @@ database("CollaboratorSessionFork", (it) => {
         }),
       );
       delete projectEvents.queue;
+    }),
+  );
+
+  it.effect("a collaborator's archive lists only the archived threads they read", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* withService(
+        Effect.gen(function* () {
+          const service = yield* CollaboratorShares.CollaboratorSharesFork;
+          yield* service.share({ threadId: shared, collaboratorName: "Alex" });
+          yield* sql`
+            INSERT INTO fork_colleagues (subject, name, environment_id, url, secret_name, saved_at)
+            VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
+          `;
+          yield* sql`INSERT INTO fork_team_projects (project_id, marked_at) VALUES (${otherProject}, '')`;
+          const archived = Effect.fnUntraced(function* (subject: string) {
+            const read = service.wrapHandlers(subject, handlers);
+            const { threads, projects } = yield* read["orchestration.getArchivedShellSnapshot"](
+              {},
+              undefined as never,
+            );
+            return {
+              threads: threads.map(({ id, collaboratorFork }) => [id, collaboratorFork]),
+              projects: projects.map(({ id }) => id),
+            };
+          });
+          const allowed = Effect.service(RpcScopeAuthorization).pipe(
+            service.guardRpc("colleague:alex"),
+            Effect.provideService(RpcScopeAuthorization, (effect) => effect),
+            Effect.flatMap((authorize) =>
+              Effect.exit(
+                authorize(
+                  Effect.void as never,
+                  {
+                    rpc: { _tag: ORCHESTRATION_V2_WS_METHODS.getArchivedShellSnapshot },
+                    payload: {},
+                  } as never,
+                ),
+              ),
+            ),
+            Effect.map(Exit.isSuccess),
+            Effect.scoped,
+          );
+          assert.isTrue(yield* allowed);
+
+          // The hand share keeps its access, the team thread only reads, the third stays hidden.
+          assert.deepStrictEqual(yield* archived("colleague:alex"), {
+            threads: [
+              [shared, "approve"],
+              [other, "read"],
+            ],
+            projects: [sharedProject, otherProject],
+          });
+          // A one-time guest reads only what was shared with them by hand: here, nothing.
+          assert.deepStrictEqual(yield* archived("colleague:pat"), { threads: [], projects: [] });
+          // The host's archive is untouched.
+          const host = yield* service
+            .wrapHandlers("owner", handlers)
+            ["orchestration.getArchivedShellSnapshot"]({}, undefined as never);
+          assert.deepStrictEqual(
+            host.threads.map(({ id }) => id),
+            [shared, other, hidden],
+          );
+          yield* sql`DELETE FROM fork_colleague_shares WHERE subject = 'colleague:alex'`;
+          yield* sql`DELETE FROM fork_team_projects WHERE project_id = ${otherProject}`;
+          yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;
+        }),
+      );
     }),
   );
 
