@@ -822,6 +822,7 @@ Ducking stays fork scope until upstream lowers speaker volume while recording.
 - Shares and stops **reach their sidebar live**
 - The agent sees **who wrote each message**
 - Per share, **the host can approve** each message
+- A saved colleague **reads every team project thread**
 
 ### Shape
 
@@ -832,7 +833,7 @@ Its session **never expires on time**: a browser session gets a century, a deskt
 The link token is **single-use**, so a browser already paired opens the thread without spending it.
 `fork_colleague_shares` holds **one row per subject and thread**, with its `access`.
 `CollaboratorSharesFork.wrapHandlers` **narrows dispatch**, shell, and thread subscriptions in `ws.ts`.
-Shell items carry **`collaboratorFork`**: `send`, `approve`, or `frozen`.
+Shell items carry **`collaboratorFork`**: `send`, `approve`, `frozen`, or `read`.
 `approve` **refuses dispatch**; messages wait in `fork_collaborator_messages` until the host sends.
 A waiting message **rides upstream's guest-request state** on the host's card, derived client-side from the host's message stream. A requested thread the shells leave out (older settled) is read **by its thread family**, as an open thread's route reads it.
 `send` dispatches **conversation commands only**; managing the thread **and its queue** stays the host's, except that a collaborator **edits or removes their own** queued messages.
@@ -842,7 +843,7 @@ Unsharing **re-snapshots the shell**, drops waiting messages, and pauses an open
 Drafts live **in memory only**: a heartbeat lasts 5 seconds, unsharing drops it, and **each open composer** holds its own entry, so a person's devices never replace or stop each other's; a draft **untouched for 30 seconds** stops showing.
 A shared draft carries **text and context labels only**, capped in the schema; never diffs, terminal text, or attachment bytes.
 Over HTTP a collaborator reaches **only socket tickets and shared-thread reads**; every other endpoint and every media route refuses it.
-`guardRpc` **allows a closed RPC set**; thread reads and asset URLs only for live shares.
+`guardRpc` **allows a closed RPC set**; thread reads and asset URLs only where `canRead` holds.
 Behind a loopback proxy, `cf-connecting-ip` or `x-forwarded-for` is **recorded as the address**.
 The thread id **rides the pairing URL query**, which pairing ignores; the desktop opens it once paired.
 A **team project** carries `teamFork: true` on its project and shell; a client `project.update` or the agent tool `t3_project_update` sets it, `project.meta-updated` writes `fork_team_projects`, and every project read attaches it. The tool's description tells agents to set it **only when the user asks**.
@@ -854,6 +855,11 @@ A client **forgets a colleague's environment** once they leave its own server's 
 Each row records the grant this server issued, so **saving again revokes** the one it replaces; a new colleague's subject takes an **environment suffix** when a guest or colleague already uses the name's.
 An environment saved under one subject **refuses a save** under another, so no collaborator evicts another colleague.
 A colleague **lapses**, removed here as above, once the grant this server issued or the collaborator session that saved them is revoked; `SessionStore` removals trigger the check, and pair-client runs it again.
+A **saved colleague reads every thread** of a team project, with no share rows: `canRead` is a live hand share, or a `fork_colleagues` subject and a marked project.
+A hand share **wins over team access**; a team thread is `read`, so every write, draft, and waiting message is refused, and the client shows **no composer**.
+Project events, thread moves, and saving or forgetting a colleague **recheck team access at once**.
+Every team shell item, detail frame, and command output frame **rechecks the committed rows** before it leaves; command output ends at the first frame without access, hand shares included.
+A failed watcher lists none until it reads fresh marks.
 A shell item with `collaboratorFork` gets a **shared card** in the sidebar, naming the saved colleague on its `environmentId`; the list reads colleagues once, never per card.
 The collaborator's app **copies each shared thread** into its own thread cache, one bounded HTTP read per change and only between runs, so it **opens offline** like any cached thread; forking from a colleague's thread reads that copy.
 **Offline is upstream's** `connection.phase !== "connected"`; the banner adds when **that copy** was last **in sync** with the host.

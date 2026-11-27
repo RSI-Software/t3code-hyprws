@@ -241,7 +241,7 @@ export interface EnvironmentThreadShell {
   readonly checkoutMove?: import("@t3tools/contracts").ThreadCheckoutMove; // fork-hook: zmux-estate/shell-checkout-move-field
   /** Absent from rows built before issue linking; the server sends an empty list. */
   readonly issues?: ReadonlyArray<import("@t3tools/contracts").ThreadIssueLink>;
-  readonly collaboratorFork?: "send" | "approve" | "frozen"; // fork-hook: colleague-collab/client-shell-access-field
+  readonly collaboratorFork?: "send" | "approve" | "frozen" | "read"; // fork-hook: colleague-collab/client-shell-access-field
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any

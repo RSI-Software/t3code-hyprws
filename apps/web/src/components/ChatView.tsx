@@ -3289,6 +3289,7 @@ export default function ChatView(props: ChatViewProps) {
     composerRef,
     timelineLiveFollowEnabled,
     scrollToEnd,
+    composerBannerItems,
   ); // fork-hook: colleague-collab/chat-state
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
