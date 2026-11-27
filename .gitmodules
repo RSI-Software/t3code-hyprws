@@ -1,4 +1,11 @@
-[submodule ".repos/alchemy-effect/.vendor/alchemy"]
-	path = .repos/alchemy-effect/.vendor/alchemy
-	url = https://github.com/alchemy-run/alchemy.git
+# Upstream vendors these gitlinks under .repos without mapping them; never checked out.
+[submodule ".repos/alchemy-effect/submodules/distilled"]
+	path = .repos/alchemy-effect/submodules/distilled
+	url = https://github.com/alchemy-run/distilled.git
 	update = none
+	ignore = all
+[submodule ".repos/alchemy-effect/submodules/floci"]
+	path = .repos/alchemy-effect/submodules/floci
+	url = https://github.com/alchemy-run/floci.git
+	update = none
+	ignore = all
