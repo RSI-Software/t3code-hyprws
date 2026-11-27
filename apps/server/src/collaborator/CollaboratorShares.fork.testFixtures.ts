@@ -24,6 +24,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -85,6 +86,8 @@ const queuedAttributions: Record<string, object | undefined> = {
   "run-pat": { name: "Pat" },
   "run-host": undefined,
   "run-reply": { name: "Jordan Lee", host: true, replyTo: { name: "Sam", text: "pair at 3?" } },
+  // Its message read fails.
+  "run-unreadable": undefined,
 };
 // Every thread's timeline: one agent reply.
 export const AGENT_REPLY = "Raised the login timeout to 30 s.";
@@ -122,15 +125,17 @@ const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
         .map((id) => ({ id, userMessageId: `message-${id}` })),
       messages: (filter?.messageIds ?? []).map((id) => ({ id, createdBy: "agent" })),
     } as never),
-  getMessagesById: (_threadId, messageIds) =>
-    Effect.succeed(
-      new Map(
-        messageIds.map((id) => {
-          const collaboratorFork = queuedAttributions[id.replace("message-", "")];
-          return [id, { context: collaboratorFork && { collaboratorFork } }];
-        }),
-      ) as never,
-    ),
+  getMessagesById: (threadId, messageIds) =>
+    messageIds.some((id) => id === "message-run-unreadable")
+      ? Effect.fail(new Orchestrator.OrchestratorProjectionError({ threadId }))
+      : Effect.succeed(
+          new Map(
+            messageIds.map((id) => {
+              const collaboratorFork = queuedAttributions[id.replace("message-", "")];
+              return [id, { context: collaboratorFork && { collaboratorFork } }];
+            }),
+          ) as never,
+        ),
   // Yields first, as a real dispatch does, so concurrent sends interleave.
   dispatch: (command) =>
     Effect.yieldNow.pipe(
