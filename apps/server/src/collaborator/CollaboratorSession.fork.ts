@@ -90,6 +90,8 @@ interface ShellView {
 /** What the session was last sent: a snapshot resets both to what it holds. */
 interface ShellVisible {
   readonly projects: Set<string>;
+  /** Projects holding a hand-shared or frozen thread, so they stay visible outside the team. */
+  readonly shareProjects: Set<string>;
   /** Live threads only; a frozen copy never updates. */
   readonly threads: Set<string>;
 }
@@ -100,7 +102,10 @@ const filterShellItem = (
   visible: ShellVisible,
   item: OrchestrationV2ShellStreamItem,
 ): OrchestrationV2ShellStreamItem | undefined => {
-  const { projects } = visible;
+  const { projects, shareProjects } = visible;
+  // A project item passes while the project is team now or holds a hand-shared thread.
+  const projectReadable = (id: string) =>
+    projects.has(id) && (team.has(id) || shareProjects.has(id));
   // A hand share keeps its access; a team thread only reads.
   const accessOf = (thread: { readonly id: string; readonly projectId: string }) =>
     share?.threadIds.get(thread.id) ?? (team.has(thread.projectId) ? ("read" as const) : undefined);
@@ -120,7 +125,7 @@ const filterShellItem = (
           ...item,
           snapshot: {
             ...snapshot,
-            projects: snapshot.projects.filter((project) => projects.has(project.id)),
+            projects: snapshot.projects.filter((project) => projectReadable(project.id)),
           },
         };
       }
@@ -136,8 +141,12 @@ const filterShellItem = (
         ...frozen.filter((thread) => thread.archivedAt !== null),
       ];
       projects.clear();
+      shareProjects.clear();
       for (const id of team) projects.add(id);
-      for (const thread of [...threads, ...archivedThreads]) projects.add(thread.projectId);
+      for (const thread of [...threads, ...archivedThreads]) {
+        projects.add(thread.projectId);
+        if (thread.collaboratorFork !== "read") shareProjects.add(thread.projectId);
+      }
       return {
         ...item,
         snapshot: {
@@ -149,13 +158,14 @@ const filterShellItem = (
       };
     }
     case "project.updated":
-      return projects.has(item.project.id) ? item : undefined;
+      return projectReadable(item.project.id) ? item : undefined;
     case "project.removed":
-      return projects.has(item.projectId) ? item : undefined;
+      return projectReadable(item.projectId) ? item : undefined;
     case "thread.updated": {
       const [thread] = readable(item.thread);
       if (thread !== undefined) {
         visible.threads.add(thread.id);
+        if (thread.collaboratorFork !== "read") shareProjects.add(thread.projectId);
         return { ...item, thread };
       }
       // A team thread moved to another project leaves the view.
@@ -432,7 +442,11 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     // A shared thread moving to a project the collaborator cannot see re-snapshots to bring it in.
     const narrowed = (view: ShellView): Stream.Stream<OrchestrationV2ShellStreamItem, SE, SR> =>
       Stream.suspend(() => {
-        const visible: ShellVisible = { projects: new Set(), threads: new Set() };
+        const visible: ShellVisible = {
+          projects: new Set(),
+          shareProjects: new Set(),
+          threads: new Set(),
+        };
         let moved = false;
         return open(fresh).pipe(
           // Team access rereads the committed marks, so no item leaves after an unmark.
