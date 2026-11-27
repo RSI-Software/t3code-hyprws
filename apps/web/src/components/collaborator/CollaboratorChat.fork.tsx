@@ -149,6 +149,7 @@ export function useCollaboratorChatFork(
   composerRef: RefObject<ChatComposerHandle | null>,
   followingTimeline: boolean,
   scrollToEnd: (animated: boolean) => void,
+  systemBanners: ReadonlyArray<ComposerBannerStackItem>,
 ) {
   const gt = useGT();
   const messages = useMessages();
@@ -268,7 +269,13 @@ export function useCollaboratorChatFork(
       thread == null ? null : access === "read" ? (
         // A team thread shows no composer: this slot sits just above it, so it hides its next sibling.
         <div className="[&+div]:hidden">
-          <ComposerBannerStack items={[localizedBanner(TEAM_BANNER, messages)]} detached />
+          <ComposerBannerStack
+            items={[
+              ...hostOffline(systemBanners).filter((item) => item.group === "environment"),
+              localizedBanner(TEAM_BANNER, messages),
+            ]}
+            detached
+          />
         </div>
       ) : (
         <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />
