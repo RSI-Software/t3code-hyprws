@@ -9,5 +9,4 @@ image:
   lockfiles: [pnpm-lock.yaml]
   files: ["**/package.json", pnpm-workspace.yaml, .pnpmfile.cjs, "patches/**", "apps/*/deps/**"]
   install: export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack pnpm install --frozen-lockfile --ignore-scripts && corepack pnpm rebuild
-  rebuild: merge
   checks: [hyprws CI]
