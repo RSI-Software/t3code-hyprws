@@ -6,6 +6,12 @@ import {
   COLLABORATOR_SCOPES,
   COLLEAGUE_FORGET_ROUTE_FORK,
   COLLEAGUE_PAIR_CLIENT_ROUTE_FORK,
+  COLLEAGUE_THREAD_ROUTE_FORK,
+  COLLEAGUE_THREADS_ROUTE_FORK,
+  type ColleagueThreadInputFork,
+  ColleagueThreadResultFork,
+  type ColleagueThreadsInputFork,
+  ColleagueThreadsResultFork,
   type AuthEnvironmentScope,
   type CollaboratorShareErrorFork,
   type CollaboratorThreadMissingErrorFork,
@@ -131,6 +137,18 @@ const grantOrigin = (url: string) => {
   return Effect.succeed(parsed.origin);
 };
 
+/** Their server refused a read, with its reason: the thread is not one this colleague may read. */
+export class ColleagueReadRefusedErrorFork extends Schema.TaggedError<ColleagueReadRefusedErrorFork>()(
+  "ColleagueReadRefusedErrorFork",
+  { colleague: Schema.String, reason: Schema.String },
+) {
+  override get message() {
+    return `${this.colleague}'s server refused: ${this.reason}`;
+  }
+}
+
+const RefusalBody = Schema.Struct({ error: Schema.String });
+
 export class ColleaguesFork extends Context.Service<
   ColleaguesFork,
   {
@@ -179,6 +197,19 @@ export class ColleaguesFork extends Context.Service<
     ) => Effect.Effect<void, ColleagueErrorFork>;
     /** Removes a queued message: delivered, withdrawn, or taken back to edit. */
     readonly unqueueMessage: (id: string) => Effect.Effect<void, ColleagueErrorFork>;
+    /** The threads a colleague's server lets this one read, as their grant here: read-only. */
+    readonly threadsOf: (
+      subject: string,
+      input: ColleagueThreadsInputFork,
+    ) => Effect.Effect<ColleagueThreadsResultFork, ColleagueErrorFork>;
+    /** One of those threads; a thread outside them is refused with their reason. */
+    readonly threadOf: (
+      subject: string,
+      input: ColleagueThreadInputFork,
+    ) => Effect.Effect<
+      ColleagueThreadResultFork,
+      ColleagueErrorFork | ColleagueReadRefusedErrorFork
+    >;
   }
 >()("t3/collaborator/Colleagues.fork/ColleaguesFork") {}
 
@@ -408,28 +439,53 @@ const make = Effect.gen(function* () {
     return new TextDecoder().decode(stored.value);
   });
 
-  /** Posts to the colleague's server with its grant; their refusal and silence fail apart. */
-  const callRemote = Effect.fn("ColleaguesFork.callRemote")(function* (
+  const decodeFrom =
+    <A>(row: ColleagueRow, schema: Schema.Codec<A, unknown>) =>
+    (response: HttpClientResponse.HttpClientResponse) =>
+      HttpClientResponse.schemaBodyJson(schema)(response).pipe(
+        Effect.mapError(
+          (cause) => new ColleagueUnknownShapeErrorFork({ colleague: row.name, cause }),
+        ),
+      );
+
+  /** Posts to the colleague's server with its grant; silence fails here, any answer returns. */
+  const postRemote = Effect.fn("ColleaguesFork.postRemote")(function* (
     row: ColleagueRow,
     route: string,
+    body?: object,
   ) {
     const token = yield* tokenOf(row);
+    const request = HttpClientRequest.post(`${row.url}${route}`).pipe(
+      HttpClientRequest.bearerToken(token),
+    );
     return yield* httpClient
-      .execute(
-        HttpClientRequest.post(`${row.url}${route}`).pipe(HttpClientRequest.bearerToken(token)),
-      )
+      .execute(body === undefined ? request : HttpClientRequest.bodyJsonUnsafe(request, body))
       .pipe(
         Effect.timeout(REMOTE_TIMEOUT),
         Effect.mapError((cause) => new ColleagueSilentErrorFork({ colleague: row.name, cause })),
-        Effect.filterOrFail(
-          (response) => response.status < 300,
-          ({ status }) =>
-            status === 401 || status === 403
-              ? new ColleagueRevokedErrorFork({ colleague: row.name })
-              : new ColleagueRemoteErrorFork({ colleague: row.name, status }),
-        ),
       );
   });
+
+  const answered =
+    (row: ColleagueRow) =>
+    (
+      response: HttpClientResponse.HttpClientResponse,
+    ): Effect.Effect<
+      HttpClientResponse.HttpClientResponse,
+      ColleagueRevokedErrorFork | ColleagueRemoteErrorFork
+    > => {
+      const { status } = response;
+      if (status < 300) return Effect.succeed(response);
+      return Effect.fail(
+        status === 401 || status === 403
+          ? new ColleagueRevokedErrorFork({ colleague: row.name })
+          : new ColleagueRemoteErrorFork({ colleague: row.name, status }),
+      );
+    };
+
+  /** Their refusal and silence fail apart. */
+  const callRemote = (row: ColleagueRow, route: string, body?: object) =>
+    postRemote(row, route, body).pipe(Effect.flatMap(answered(row)));
 
   const pairClient: ColleaguesFork["Service"]["pairClient"] = Effect.fn(
     "ColleaguesFork.pairClient",
@@ -541,6 +597,28 @@ const make = Effect.gen(function* () {
     yield* forgetHere(yield* rowOf(subject));
   }, exclusive);
 
+  const threadsOf: ColleaguesFork["Service"]["threadsOf"] = Effect.fn("ColleaguesFork.threadsOf")(
+    function* (subject, input) {
+      const row = yield* rowOf(subject);
+      const response = yield* callRemote(row, COLLEAGUE_THREADS_ROUTE_FORK, input);
+      return yield* decodeFrom(row, ColleagueThreadsResultFork)(response);
+    },
+  );
+
+  const threadOf: ColleaguesFork["Service"]["threadOf"] = Effect.fn("ColleaguesFork.threadOf")(
+    function* (subject, input) {
+      const row = yield* rowOf(subject);
+      const response = yield* postRemote(row, COLLEAGUE_THREAD_ROUTE_FORK, input);
+      // A thread they may not read comes back with their reason.
+      if (response.status === 404) {
+        const { error: reason } = yield* decodeFrom(row, RefusalBody)(response);
+        return yield* new ColleagueReadRefusedErrorFork({ colleague: row.name, reason });
+      }
+      yield* answered(row)(response);
+      return yield* decodeFrom(row, ColleagueThreadResultFork)(response);
+    },
+  );
+
   const shareThread: ColleaguesFork["Service"]["shareThread"] = Effect.fn(
     "ColleaguesFork.shareThread",
   )(function* (input) {
@@ -577,6 +655,8 @@ const make = Effect.gen(function* () {
     remove,
     issueClientPairing,
     forget,
+    threadsOf,
+    threadOf,
   });
 });
 
