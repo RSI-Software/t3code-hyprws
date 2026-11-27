@@ -34,6 +34,7 @@ import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkC
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ThreadGroupsSyncFork } from "../components/ThreadGroupsSyncFork"; // fork-hook: thread-ordering/thread-groups-sync-import
 import { ColleaguesAttachSyncFork } from "../components/collaborator/colleagues.fork"; // fork-hook: colleague-collab/colleagues-sync-import
+import { ColleagueOutboxFlushFork } from "../components/collaborator/colleagueOutbox.fork"; // fork-hook: colleague-collab/outbox-flush-import
 import { CollaboratorShareDialogHostFork } from "../components/collaborator/CollaboratorShareDialog.fork"; // fork-hook: colleague-collab/share-dialog-import
 import { CollaboratorMessageToastsFork } from "../components/collaborator/CollaboratorChat.fork"; // fork-hook: colleague-collab/message-toasts-import
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
@@ -213,6 +214,7 @@ function RootRouteBranch() {
       {/* fork-hook-end */}
       {/* fork-hook: colleague-collab/colleagues-sync */}
       <ColleaguesAttachSyncFork />
+      <ColleagueOutboxFlushFork />
       {/* fork-hook-end */}
       <ReopenClosedViewShortcut />
       <ConfirmDialogHost />
