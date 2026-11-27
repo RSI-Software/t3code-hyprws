@@ -5078,6 +5078,8 @@
   "8ad813abcdd1a8fa": "{environment} está esperando para aprobar este dispositivo",
   "04c7052ba330de71": "{environment} se está reconectando",
   "a674223df8562cce": "{environment} no tiene conexión",
+  "01cfa43ef5af317b": "Estás leyendo tu copia de este hilo.",
+  "f3e6e0c1d100010c": "Estás leyendo tu copia, sincronizada por última vez {time}.",
   "206281759a765d0a": "Reintentar ahora",
   "e0cfab9ded209e81": "Volver a conectar",
   "7444c068d7f0d536": "Reintentar",
