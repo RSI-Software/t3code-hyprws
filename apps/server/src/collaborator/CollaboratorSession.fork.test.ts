@@ -258,6 +258,35 @@ database("CollaboratorSessionFork", (it) => {
     ),
   );
 
+  const replyEdit = (threadId: ThreadId, runId: string) =>
+    Effect.flatMap(CollaboratorShares.CollaboratorSharesFork, (service) =>
+      service
+        .wrapHandlers("owner", handlers)
+        ["orchestration.dispatchCommand"](
+          { ...(message(threadId, "queued-run.edit", "Sure, 4 works.") as object), runId } as never,
+          undefined as never,
+        ),
+    );
+
+  it.effect("keeps a queued reply's quote when the host edits it after the last share ends", () =>
+    withService(
+      Effect.gen(function* () {
+        const edited = yield* replyEdit(other, "run-reply");
+        assert.include(sentText(edited), "in reply to this message Sam wrote");
+        assert.deepStrictEqual(sentAuthor(edited)?.replyTo, { name: "Sam", text: "pair at 3?" });
+      }),
+    ),
+  );
+
+  it.effect("refuses a queued edit whose reply it cannot read, rather than drop the quote", () =>
+    withService(
+      Effect.gen(function* () {
+        const exit = yield* Effect.exit(replyEdit(shared, "run-unreadable"));
+        assert.isTrue(Exit.isFailure(exit));
+      }),
+    ),
+  );
+
   it.effect("limits a collaborator to shared threads and names them in their messages", () =>
     withService(
       Effect.gen(function* () {

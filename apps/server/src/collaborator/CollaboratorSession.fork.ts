@@ -25,7 +25,7 @@ import {
   type OrchestrationV2SubscribeThreadInput,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
-  type RunId,
+  OrchestrationV2DispatchCommandError,
   RpcScopeAuthorization,
   type ThreadId,
   WS_METHODS,
@@ -640,31 +640,53 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     };
   };
 
-  /** A queued run's message attribution, as the server wrote it; undefined refuses. */
+  /**
+   * A queued run's message attribution, as the server wrote it. A failed read refuses the
+   * command, since guessing would drop a reply's quote or an author's claim.
+   */
   const queuedAttribution = Effect.fn("CollaboratorSharesFork.queuedAttribution")(
-    function* (threadId: ThreadId, runId: RunId) {
+    function* (
+      command: Extract<
+        OrchestrationV2Command,
+        { readonly type: "queued-run.edit" | "queued-run.cancel" }
+      >,
+    ) {
+      const { threadId, runId } = command;
       const { runs } = yield* threads.getThreadRecords(threadId, ["runs"], { runIds: [runId] });
       const run = runs.find((candidate) => candidate.id === runId);
       if (run === undefined) return undefined;
       const messages = yield* threads.getMessagesById(threadId, [run.userMessageId]);
       return messages.get(run.userMessageId)?.context?.collaboratorFork;
     },
-    Effect.orElseSucceed(() => undefined),
+    (effect, command) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationV2DispatchCommandError({
+              commandId: command.commandId,
+              commandType: command.type,
+              message: "Could not read the queued message. Try again.",
+              cause,
+            }),
+        ),
+      ),
   );
 
-  /** The host's line as the agent reads it; an edit keeps the waiting message a reply answers. */
+  /**
+   * The host's line as the agent reads it; an edit keeps the waiting message a reply answers,
+   * even once nobody shares the thread. Undefined sends the line as typed.
+   */
   const hostLine = Effect.fn("CollaboratorSharesFork.hostLine")(function* (
     command: Extract<
       OrchestrationV2Command,
       { readonly type: "message.dispatch" | "queued-run.edit" }
     >,
-    others: ReadonlyArray<string>,
   ) {
-    const host = yield* hostName;
     const replyTo =
-      command.type === "queued-run.edit"
-        ? (yield* queuedAttribution(command.threadId, command.runId))?.replyTo
-        : undefined;
+      command.type === "queued-run.edit" ? (yield* queuedAttribution(command))?.replyTo : undefined;
+    const others = sharedNames(command.threadId);
+    if (others.length === 0 && replyTo === undefined) return undefined;
+    const host = yield* hostName;
     const attribution = hostAttribution(host, others, command.text, forcedReply(command), replyTo);
     const attributed: OrchestrationV2Command = {
       ...command,
@@ -686,13 +708,10 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
           if (clean.type !== "message.dispatch" && clean.type !== "queued-run.edit") {
             return dispatch(clean, options);
           }
-          const others = sharedNames(clean.threadId);
           // A prefix would hide a native command such as /compact from the provider.
-          if (others.length === 0 || clean.text.trimStart().startsWith("/")) {
-            return dispatch(clean, options);
-          }
-          return hostLine(clean, others).pipe(
-            Effect.flatMap((attributed) => dispatch(attributed, options)),
+          if (clean.text.trimStart().startsWith("/")) return dispatch(clean, options);
+          return hostLine(clean).pipe(
+            Effect.flatMap((attributed) => dispatch(attributed ?? clean, options)),
           );
         },
         [LAUNCH]: (input, options) => launch(launchWithoutAttribution(input), options),
@@ -715,7 +734,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         }
         if (access === "approve") return Effect.fail(needsApproval);
         if (command.type === "queued-run.edit" || command.type === "queued-run.cancel") {
-          return queuedAttribution(command.threadId, command.runId).pipe(
+          return queuedAttribution(command).pipe(
             Effect.flatMap((author) =>
               author !== undefined && collaboratorSubject(author.name) === subject
                 ? Effect.void
