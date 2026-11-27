@@ -227,6 +227,7 @@ import {
 } from "./ComposerAttachmentStrip";
 import { CollapsedComposerStopAction, ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
+import { ComposerSendMenuFork, type SendMenuFork } from "../collaborator/sendMenu.fork"; // fork-hook: colleague-collab/send-menu-import
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -411,6 +412,7 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   canSteer: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  sendMenuFork?: SendMenuFork | undefined; // fork-hook: colleague-collab/send-menu-prop
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -4178,6 +4180,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onCancelDownload={() => void speechInput.setup.cancelDownload()}
                       onStartRecording={() => void speechInput.setup.startRecording()}
                     />
+                    {/* fork-hook: colleague-collab/send-menu */}
+                    <ComposerSendMenuFork
+                      menu={props.sendMenuFork}
+                      hidden={!canOperateThread || isEditingQueuedMessage || !!pendingPrimaryAction}
+                      disabled={
+                        !hasMessageToSend ||
+                        isSendBusy ||
+                        composerSendHeld ||
+                        voiceInputActive ||
+                        primaryActionSendDisabledReason !== null ||
+                        primaryActionEnvironmentUnavailable
+                      }
+                      targetKey={composerDraftTargetKey}
+                      submit={() => submitComposer()}
+                    />
+                    {/* fork-hook-end */}
                   </ComposerFooterPrimaryActions>
                 </div>
               </div>
