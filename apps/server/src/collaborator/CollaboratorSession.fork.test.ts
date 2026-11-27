@@ -157,13 +157,26 @@ database("CollaboratorSessionFork", (it) => {
         const afterShare = yield* Queue.take(items);
         assert.deepStrictEqual(visibleThreads(afterShare), [shared]);
         assert.deepStrictEqual(visibleProjects(afterShare), [sharedProject]);
-        // A project metadata refresh carries no threads; it keeps the visible projects.
+        // A project metadata refresh carries no threads; it keeps the visible projects, and
+        // names no hidden project's root.
         yield* Queue.offer(shellEvents.queue, {
           ...snapshot(),
-          snapshot: { threads: [], archivedThreads: [], projects: [{ id: sharedProject }] },
-          resolvedRepositoryIdentityRoots: [],
+          snapshot: {
+            threads: [],
+            archivedThreads: [],
+            projects: [
+              { id: sharedProject, workspaceRoot: "/shared" },
+              { id: otherProject, workspaceRoot: "/other" },
+            ],
+          },
+          resolvedRepositoryIdentityRoots: ["/shared", "/other"],
         } as never);
-        assert.deepStrictEqual(visibleProjects(yield* Queue.take(items)), [sharedProject]);
+        const refresh = yield* Queue.take(items);
+        assert.deepStrictEqual(visibleProjects(refresh), [sharedProject]);
+        assert.deepStrictEqual(
+          refresh.kind === "snapshot" ? refresh.resolvedRepositoryIdentityRoots : undefined,
+          ["/shared"],
+        );
         // Moving the shared thread to a hidden project re-snapshots with that project.
         projectOf[shared] = otherProject;
         yield* Queue.offer(shellEvents.queue, {

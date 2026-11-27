@@ -121,12 +121,14 @@ const filterShellItem = (
       const { olderSettled: _olderSettled, ...snapshot } = item.snapshot;
       // An enrichment snapshot only refreshes project metadata and carries no threads.
       if (item.resolvedRepositoryIdentityRoots !== undefined) {
+        const readableProjects = snapshot.projects.filter((project) => projectReadable(project.id));
+        const roots = new Set(readableProjects.map((project) => project.workspaceRoot));
         return {
           ...item,
-          snapshot: {
-            ...snapshot,
-            projects: snapshot.projects.filter((project) => projectReadable(project.id)),
-          },
+          snapshot: { ...snapshot, projects: readableProjects },
+          resolvedRepositoryIdentityRoots: item.resolvedRepositoryIdentityRoots.filter((root) =>
+            roots.has(root),
+          ),
         };
       }
       const live = snapshot.threads.flatMap(readable);
