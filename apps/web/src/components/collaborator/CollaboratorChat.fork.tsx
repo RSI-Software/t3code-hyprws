@@ -1,7 +1,7 @@
 // Fork-only (colleague-collab): the collaborator parts of a thread view. Messages waiting for the
 // host sit at the end of the timeline like queued ones, with Send and Dismiss for the host and
-// Withdraw for their author. An `approve` collaborator's composer queues for the host instead of sending, and a thread
-// its host stopped sharing stays readable with a locked composer.
+// Withdraw for their author. An `approve` collaborator's composer queues for the host instead of sending, a thread
+// its host stopped sharing stays readable with a locked composer, and a team thread shows no composer.
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -18,6 +18,7 @@ import {
   type CollaboratorTypistFork,
   type EnvironmentId,
   isCollaboratorGrantFork,
+  type OrchestrationV2ThreadShell,
   type ScopedThreadRef,
   type ThreadId,
   WS_METHODS,
@@ -51,7 +52,7 @@ import { environmentSession } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
-import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
+import { ComposerBannerStack, type ComposerBannerStackItem } from "../chat/ComposerBannerStack";
 import { GuestMessageName } from "../chat/guestMessageStyle";
 import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
@@ -62,7 +63,12 @@ import { collaboratorMessages } from "./useCollaboratorRequests.fork";
 import { useColleagueOfflineBannerFork } from "./colleagueCopy.fork";
 import { useColleagueInboxFork } from "./ColleagueInbox.fork";
 import { useColleagueInboxVetoFork } from "./colleagueInbox.fork";
-import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
+import {
+  CollaboratorTypingFork,
+  HOST_KEY,
+  typingServedFork,
+  typingSubscription,
+} from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import {
   QueuedForColleagueFork,
@@ -102,6 +108,15 @@ const FROZEN_BANNER = {
   description: msg("The host stopped sharing this thread. You can still read and copy it."),
 } satisfies ComposerBannerStackItem;
 
+const TEAM_BANNER = {
+  id: "collaborator-team",
+  variant: "info",
+  group: "environment",
+  icon: <EyeIcon />,
+  title: msg("Read only"),
+  description: msg("This thread is in a team project. You can read and copy it."),
+} satisfies ComposerBannerStackItem;
+
 const APPROVAL_BANNER = {
   id: "collaborator-approval",
   variant: "info",
@@ -123,8 +138,8 @@ const localizedBanner = (
 interface CollaboratorChatThread {
   readonly environmentId: EnvironmentId;
   readonly id: ThreadId;
-  /** Set only on a collaborator's copy of a shared thread. */
-  readonly collaboratorFork?: "send" | "approve" | "frozen";
+  /** Set only on a collaborator's copy of a shared or team thread. */
+  readonly collaboratorFork?: OrchestrationV2ThreadShell["collaboratorFork"];
 }
 
 /** The thread view's collaborator overrides: its composer, who is typing, and the end of its timeline. */
@@ -166,7 +181,7 @@ export function useCollaboratorChatFork(
   const configs = useServerConfigs();
   const served =
     thread != null &&
-    access !== "frozen" &&
+    typingServedFork(access) &&
     configs.get(thread.environmentId)?.environment.capabilities.collaboratorsFork === true;
   const shared = useEnvironmentQuerySelector(
     served
@@ -250,7 +265,14 @@ export function useCollaboratorChatFork(
 
   return {
     typing:
-      thread == null ? null : <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />,
+      thread == null ? null : access === "read" ? (
+        // A team thread shows no composer: this slot sits just above it, so it hides its next sibling.
+        <div className="[&+div]:hidden">
+          <ComposerBannerStack items={[localizedBanner(TEAM_BANNER, messages)]} detached />
+        </div>
+      ) : (
+        <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />
+      ),
     composer: (items: ReadonlyArray<ComposerBannerStackItem>) => {
       const bannerItems = hostOffline(items);
       if (browsingName !== null) {
@@ -276,6 +298,12 @@ export function useCollaboratorChatFork(
           canOperateThread: false,
           sendDisabledReason: gt("The host stopped sharing this thread."),
           bannerItems: [localizedBanner(FROZEN_BANNER, messages), ...bannerItems],
+        };
+      }
+      if (access === "read") {
+        return {
+          canOperateThread: false,
+          sendDisabledReason: gt("Team project threads are read only."),
         };
       }
       // While a saved colleague's machine is away, a send waits here for it. The reconnect
@@ -506,7 +534,7 @@ export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) 
   const served =
     threadRef !== null &&
     configs.get(threadRef.environmentId)?.environment.capabilities.collaboratorsFork === true &&
-    thread?.collaboratorFork !== "frozen";
+    typingServedFork(thread?.collaboratorFork);
   const typing = useEnvironmentQuery(
     served
       ? typingSubscription({

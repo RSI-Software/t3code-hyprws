@@ -1,5 +1,6 @@
 // Fork-only (colleague-collab): share one thread with a collaborator through a pairing link.
-// Each session's RPCs adapt to these shares in `CollaboratorSession.fork.ts`.
+// Each session's RPCs adapt to these shares in `CollaboratorSession.fork.ts`; a saved colleague
+// also reads every team project thread there.
 // Unsharing freezes their copy; `approve` access holds messages in `CollaboratorMessages.fork.ts`.
 import {
   AuthOrchestrationReadScope,
@@ -142,6 +143,11 @@ export class CollaboratorSharesFork extends Context.Service<
     ) => Effect.Effect<void, CollaboratorAccessErrorFork>;
     /** Whether the thread is shared live with the subject. */
     readonly isShared: (subject: string, threadId: string) => boolean;
+    /**
+     * The one read check for a collaborator subject: shared live, or a saved colleague's view of
+     * a team project's thread, which is read-only.
+     */
+    readonly canRead: (subject: string, threadId: string) => Effect.Effect<boolean>;
     /** Each subject's live shared threads, now and on every change. */
     readonly liveThreadIds: Stream.Stream<ReadonlyMap<string, ReadonlyArray<ThreadId>>>;
     /** The waiting-message handlers for `subject`, or the host's for `null`. */
@@ -397,13 +403,13 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(CollaboratorSharesFork, make);
 
-/** Refuses a collaborator's HTTP read of a thread not shared with it live, failing closed. */
+/** Refuses a collaborator's HTTP read of a thread it cannot read, failing closed. */
 export const requireCollaboratorHttpThreadFork = Effect.fn("requireCollaboratorHttpThreadFork")(
   function* (threadId: string) {
     const { subject } = yield* EnvironmentAuthenticatedPrincipal;
     if (!isCollaboratorSubject(subject)) return;
     const shares = yield* Effect.serviceOption(CollaboratorSharesFork);
-    if (Option.isSome(shares) && shares.value.isShared(subject, threadId)) return;
+    if (Option.isSome(shares) && (yield* shares.value.canRead(subject, threadId))) return;
     return yield* failEnvironmentScopeRequired(AuthOrchestrationReadScope);
   },
 );

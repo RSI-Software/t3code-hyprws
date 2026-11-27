@@ -36,6 +36,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
@@ -222,6 +223,10 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
           environment,
           config,
           threads,
+          Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({
+            latestApplicationSequence: Effect.succeed(0),
+            streamApplicationEvents: () => Stream.never,
+          }),
           Layer.mock(GitVcsDriver.GitVcsDriver)({
             execute: () => Effect.succeed({ stdout: "" } as never),
           }),

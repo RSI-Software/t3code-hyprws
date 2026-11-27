@@ -1,0 +1,83 @@
+// Fork-only (colleague-collab): a saved colleague reads every thread of a team project, with no
+// share rows. Access is derived from `fork_colleagues` and `fork_team_projects`; `CollaboratorShares`
+// joins it with hand shares into one read check, and refuses every write.
+import { type ProjectId, ThreadId } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
+
+export const makeTeamThreads = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const events = yield* OrchestrationEventStore.OrchestrationEventStore;
+
+  const readTeam = sql<{ readonly projectId: string }>`
+    SELECT project_id AS "projectId" FROM fork_team_projects
+  `.pipe(Effect.map((rows): ReadonlySet<string> => new Set(rows.map((row) => row.projectId))));
+  // The cursor first, so a mark landing before the first read is replayed, not missed.
+  const afterSequence = yield* events.latestApplicationSequence.pipe(Effect.orDie);
+  const team = yield* SubscriptionRef.make(yield* readTeam.pipe(Effect.orDie));
+  // Marking, unmarking, or deleting a project reaches open views at once.
+  yield* events.streamApplicationEvents({ afterSequence }).pipe(
+    Stream.filter((stored) => "aggregateKind" in stored && stored.aggregateKind === "project"),
+    Stream.mapEffect(() =>
+      readTeam.pipe(Effect.flatMap((next) => SubscriptionRef.set(team, next))),
+    ),
+    Stream.runDrain,
+    // Team access keeps its last marks; the log names the failure kind, never its text.
+    Effect.catchCause((cause) =>
+      Effect.logWarning("team project marks stopped updating", {
+        failure: Cause.hasInterruptsOnly(cause)
+          ? "interrupted"
+          : Cause.hasFails(cause)
+            ? "sql"
+            : "defect",
+      }),
+    ),
+    Effect.forkScoped,
+  );
+
+  /** Only a saved colleague reads team threads; a one-time guest sees its hand shares alone. */
+  const isColleague = Effect.fn("TeamThreadsFork.isColleague")(
+    function* (subject: string) {
+      const rows = yield* sql`SELECT 1 FROM fork_colleagues WHERE subject = ${subject}`;
+      return rows.length > 0;
+    },
+    Effect.orElseSucceed(() => false),
+  );
+
+  const projectOf = Effect.fn("TeamThreadsFork.projectOf")(
+    function* (threadId: string) {
+      const thread = yield* threads.getThreadShell(ThreadId.make(threadId));
+      return thread === null || thread.deletedAt !== null ? undefined : thread.projectId;
+    },
+    Effect.orElseSucceed((): ProjectId | undefined => undefined),
+  );
+
+  /** Whether the thread sits in a team project now; failing closed. */
+  const inTeam = Effect.fn("TeamThreadsFork.inTeam")(function* (
+    threadId: string,
+    marks: ReadonlySet<string>,
+  ) {
+    if (marks.size === 0) return false;
+    const projectId = yield* projectOf(threadId);
+    return projectId !== undefined && marks.has(projectId);
+  });
+
+  return {
+    /** Team project ids, now and on every change. */
+    changes: SubscriptionRef.changes(team),
+    isColleague,
+    inTeam,
+    /** May this subject read the thread through a team project: a saved colleague, a marked project. */
+    readable: Effect.fn("TeamThreadsFork.readable")(function* (subject: string, threadId: string) {
+      if (!(yield* isColleague(subject))) return false;
+      return yield* inTeam(threadId, yield* SubscriptionRef.get(team));
+    }),
+  };
+});

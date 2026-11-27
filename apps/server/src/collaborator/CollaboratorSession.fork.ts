@@ -1,6 +1,7 @@
 // Fork-only (colleague-collab): adapts one session's RPC handlers to the threads shared with it.
 // A collaborator session reaches a closed RPC set and a closed command set, attributed to them;
 // the host's messages name the host to the agent. Share state stays in `CollaboratorShares.fork.ts`.
+// A saved colleague also reads every team project thread (`TeamThreads.fork.ts`), never writing.
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
@@ -20,6 +21,7 @@ import {
   type OrchestrationV2SubscribeShellInput,
   type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2SubscribeThreadInput,
+  type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
   type RunId,
   RpcScopeAuthorization,
@@ -41,6 +43,7 @@ import {
 } from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
 import { collaboratorSubject, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
+import { makeTeamThreads } from "./TeamThreads.fork.ts";
 
 // Every host session types as one typist, so a host never sees their own other device.
 const HOST_TYPIST: CollaboratorTypistFork = { subject: "host" };
@@ -75,17 +78,34 @@ const frozenShells = (share: CollaboratorShare | undefined) =>
     collaboratorFork: "frozen" as const,
   }));
 
-/** Narrows one shell item; an authoritative snapshot resets `projects` to the shared threads'. */
+/** What one collaborator session reads: its hand shares, and the team projects of a colleague. */
+interface ShellView {
+  readonly share: CollaboratorShare | undefined;
+  /** Team project ids; empty for a one-time guest. */
+  readonly team: ReadonlySet<string>;
+}
+
+/** What the session was last sent: a snapshot resets both to what it holds. */
+interface ShellVisible {
+  readonly projects: Set<string>;
+  /** Live threads only; a frozen copy never updates. */
+  readonly threads: Set<string>;
+}
+
+/** Narrows one shell item; an authoritative snapshot resets `visible` to the readable threads'. */
 const filterShellItem = (
-  share: CollaboratorShare | undefined,
-  projects: Set<string>,
+  { share, team }: ShellView,
+  visible: ShellVisible,
   item: OrchestrationV2ShellStreamItem,
 ): OrchestrationV2ShellStreamItem | undefined => {
-  const hasThread = (id: string) => share?.threadIds.has(id) === true;
+  const { projects } = visible;
+  // A hand share keeps its access; a team thread only reads.
+  const accessOf = (thread: { readonly id: string; readonly projectId: string }) =>
+    share?.threadIds.get(thread.id) ?? (team.has(thread.projectId) ? ("read" as const) : undefined);
   // The collaborator's client reads its access from the thread itself.
-  const withAccess = <T extends { readonly id: string }>(thread: T) => {
-    const access = share?.threadIds.get(thread.id);
-    return access === undefined ? thread : { ...thread, collaboratorFork: access };
+  const readable = <T extends OrchestrationV2ThreadShell>(thread: T) => {
+    const access = accessOf(thread);
+    return access === undefined ? [] : [{ ...thread, collaboratorFork: access }];
   };
   switch (item.kind) {
     case "synchronized":
@@ -102,17 +122,19 @@ const filterShellItem = (
           },
         };
       }
+      const live = snapshot.threads.flatMap(readable);
+      const liveArchived = snapshot.archivedThreads.flatMap(readable);
+      visible.threads.clear();
+      for (const thread of [...live, ...liveArchived]) visible.threads.add(thread.id);
       // A frozen copy stands in for the live thread, so it never reveals later changes.
-      const frozen = frozenShells(share);
-      const threads = [
-        ...snapshot.threads.filter((thread) => hasThread(thread.id)).map(withAccess),
-        ...frozen.filter((thread) => thread.archivedAt === null),
-      ];
+      const frozen = frozenShells(share).filter((thread) => !visible.threads.has(thread.id));
+      const threads = [...live, ...frozen.filter((thread) => thread.archivedAt === null)];
       const archivedThreads = [
-        ...snapshot.archivedThreads.filter((thread) => hasThread(thread.id)).map(withAccess),
+        ...liveArchived,
         ...frozen.filter((thread) => thread.archivedAt !== null),
       ];
       projects.clear();
+      for (const id of team) projects.add(id);
       for (const thread of [...threads, ...archivedThreads]) projects.add(thread.projectId);
       return {
         ...item,
@@ -128,10 +150,19 @@ const filterShellItem = (
       return projects.has(item.project.id) ? item : undefined;
     case "project.removed":
       return projects.has(item.projectId) ? item : undefined;
-    case "thread.updated":
-      return hasThread(item.thread.id) ? { ...item, thread: withAccess(item.thread) } : undefined;
+    case "thread.updated": {
+      const [thread] = readable(item.thread);
+      if (thread !== undefined) {
+        visible.threads.add(thread.id);
+        return { ...item, thread };
+      }
+      // A team thread moved to another project leaves the view.
+      if (!visible.threads.delete(item.thread.id)) return undefined;
+      const { sequence, location } = item;
+      return { kind: "thread.removed", sequence, location, threadId: item.thread.id };
+    }
     case "thread.removed":
-      return hasThread(item.threadId) ? item : undefined;
+      return visible.threads.delete(item.threadId) ? item : undefined;
   }
 };
 
@@ -263,6 +294,11 @@ const notCollaboratorRpc = new EnvironmentAuthorizationError({
   requiredScope: AuthOrchestrationReadScope,
 });
 
+const readOnly = new EnvironmentAuthorizationError({
+  message: "Team project threads are read-only for colleagues.",
+  requiredScope: AuthOrchestrationOperateScope,
+});
+
 const needsApproval = new EnvironmentAuthorizationError({
   message: "The host approves your messages before they run. Send them from the composer.",
   requiredScope: AuthOrchestrationOperateScope,
@@ -311,11 +347,10 @@ const COLLABORATOR_OPEN_RPCS: ReadonlySet<string> = new Set([
   // Accepting an invite saves the host as a colleague; `ColleaguesFork.save` refuses non-sharers.
   WS_METHODS.colleagueSaveFork,
 ]);
+// Writing and presence need a live hand share; the reads also serve a team thread.
+const SHARE_ONLY_RPCS: ReadonlySet<string> = new Set([SUBMIT, RESOLVE, SET_TYPING, TYPING]);
 const COLLABORATOR_THREAD_RPCS: ReadonlySet<string> = new Set([
-  SUBMIT,
-  RESOLVE,
-  SET_TYPING,
-  TYPING,
+  ...SHARE_ONLY_RPCS,
   ORCHESTRATION_V2_WS_METHODS.getTurnDiff,
   ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff,
   ORCHESTRATION_V2_WS_METHODS.getTurnItem,
@@ -353,6 +388,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
   const { current, changes, isShared } = state;
   const messages = yield* makeCollaboratorMessages;
   const typing = yield* makeCollaboratorTyping;
+  const teamThreads = yield* makeTeamThreads;
   const config = yield* ServerConfig.ServerConfig;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const git = yield* GitVcsDriver.GitVcsDriver;
@@ -387,41 +423,79 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
       ...fresh
     } = input;
     // A shared thread moving to a project the collaborator cannot see re-snapshots to bring it in.
-    const narrowed = (
-      collaboratorShare: CollaboratorShare | undefined,
-    ): Stream.Stream<OrchestrationV2ShellStreamItem, SE, SR> =>
+    const narrowed = (view: ShellView): Stream.Stream<OrchestrationV2ShellStreamItem, SE, SR> =>
       Stream.suspend(() => {
-        const projects = new Set<string>();
+        const visible: ShellVisible = { projects: new Set(), threads: new Set() };
         let moved = false;
         return open(fresh).pipe(
-          Stream.map((item) => filterShellItem(collaboratorShare, projects, item)),
+          Stream.map((item) => filterShellItem(view, visible, item)),
           Stream.filter(Predicate.isNotUndefined),
           Stream.takeUntil(
             (item) =>
-              (moved = item.kind === "thread.updated" && !projects.has(item.thread.projectId)),
+              (moved =
+                item.kind === "thread.updated" && !visible.projects.has(item.thread.projectId)),
             { excludeLast: true },
           ),
-          Stream.concat(Stream.suspend(() => (moved ? narrowed(collaboratorShare) : Stream.empty))),
+          Stream.concat(Stream.suspend(() => (moved ? narrowed(view) : Stream.empty))),
         );
       });
-    return changes.pipe(
-      Stream.map((shares) => shares.get(subject)),
-      Stream.changesWith(sameShare),
-      Stream.switchMap(narrowed),
+    // A colleague's view also re-snapshots when a project is marked or unmarked team.
+    return Stream.unwrap(
+      teamMarks(subject).pipe(
+        Effect.map((marks) =>
+          Stream.zipLatest(
+            changes.pipe(
+              Stream.map((shares) => shares.get(subject)),
+              Stream.changesWith(sameShare),
+            ),
+            marks,
+          ).pipe(
+            Stream.map(([share, team]): ShellView => ({ share, team })),
+            Stream.switchMap(narrowed),
+          ),
+        ),
+      ),
     );
   };
 
+  const canRead: Service["canRead"] = Effect.fn("CollaboratorSharesFork.canRead")(
+    function* (subject, threadId) {
+      return isShared(subject, threadId) || (yield* teamThreads.readable(subject, threadId));
+    },
+  );
+
+  const NO_TEAM: ReadonlySet<string> = new Set();
+  /** The team projects a subject reads, now and on every change; none for a one-time guest. */
+  const teamMarks = Effect.fn("CollaboratorSharesFork.teamMarks")(function* (subject: string) {
+    return (yield* teamThreads.isColleague(subject))
+      ? teamThreads.changes.pipe(Stream.changesWith<ReadonlySet<string>>(sameIds))
+      : Stream.succeed(NO_TEAM);
+  });
+
   const accessChanges = (subject: string, threadId: string) =>
-    changes.pipe(
-      Stream.map((shares) => {
-        const share = shares.get(subject);
-        if (share?.threadIds.has(threadId)) return "live" as const;
-        return share?.frozen.has(threadId) ? ("frozen" as const) : ("none" as const);
-      }),
-      Stream.changes,
+    Stream.unwrap(
+      teamMarks(subject).pipe(
+        Effect.map((marks) =>
+          Stream.zipLatest(changes, marks).pipe(
+            Stream.mapEffect(([shares, team]) => {
+              const share = shares.get(subject);
+              if (share?.threadIds.has(threadId)) return Effect.succeed("live" as const);
+              const stopped = share?.frozen.has(threadId) ? ("frozen" as const) : ("none" as const);
+              return teamThreads
+                .inTeam(threadId, team)
+                .pipe(Effect.map((read) => (read ? ("live" as const) : stopped)));
+            }),
+            Stream.changes,
+          ),
+        ),
+      ),
     );
 
-  const rpcRefusal = (subject: string, method: string, payload: unknown) => {
+  const rpcRefusal = Effect.fn("CollaboratorSharesFork.rpcRefusal")(function* (
+    subject: string,
+    method: string,
+    payload: unknown,
+  ) {
     if (COLLABORATOR_OPEN_RPCS.has(method)) return undefined;
     const threadId = COLLABORATOR_THREAD_RPCS.has(method)
       ? payloadThreadId(payload)
@@ -430,16 +504,21 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         : undefined;
     if (threadId === null) return undefined;
     if (threadId === undefined) return notCollaboratorRpc;
-    return isShared(subject, threadId) ? undefined : notShared(AuthOrchestrationReadScope);
-  };
+    const read = SHARE_ONLY_RPCS.has(method)
+      ? isShared(subject, threadId)
+      : yield* canRead(subject, threadId);
+    return read ? undefined : notShared(AuthOrchestrationReadScope);
+  });
 
   const guardRpc: Service["guardRpc"] = (subject) =>
     Effect.updateService(RpcScopeAuthorization, (authorize) =>
       isCollaboratorSubject(subject)
-        ? (effect, options) => {
-            const refusal = rpcRefusal(subject, options.rpc._tag, options.payload);
-            return refusal === undefined ? authorize(effect, options) : Effect.fail(refusal);
-          }
+        ? (effect, options) =>
+            rpcRefusal(subject, options.rpc._tag, options.payload).pipe(
+              Effect.flatMap((refusal) =>
+                refusal === undefined ? authorize(effect, options) : Effect.fail(refusal),
+              ),
+            )
         : authorize,
     );
 
@@ -591,7 +670,11 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         const share = current().get(subject);
         const access = share?.threadIds.get(commandThreadId(command));
         if (share === undefined || access === undefined) {
-          return Effect.fail(notShared(AuthOrchestrationOperateScope));
+          return canRead(subject, commandThreadId(command)).pipe(
+            Effect.flatMap((read) =>
+              Effect.fail(read ? readOnly : notShared(AuthOrchestrationOperateScope)),
+            ),
+          );
         }
         if (access === "approve") return Effect.fail(needsApproval);
         if (command.type === "queued-run.edit" || command.type === "queued-run.cancel") {
@@ -660,5 +743,8 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     yield* typing.drop(threadId, subject);
   });
 
-  return { handlers: { messageHandlers, typingHandlers, guardRpc, wrapHandlers }, endShare };
+  return {
+    handlers: { messageHandlers, typingHandlers, guardRpc, wrapHandlers, canRead },
+    endShare,
+  };
 });

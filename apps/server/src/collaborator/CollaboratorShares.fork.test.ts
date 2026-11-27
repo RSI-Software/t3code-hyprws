@@ -42,6 +42,7 @@ import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { collaboratorAttribution, hostAttribution } from "./CollaboratorMessages.fork.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
@@ -154,6 +155,14 @@ const git = Layer.mock(GitVcsDriver.GitVcsDriver)({
   execute: () => Effect.succeed({ stdout: `${HOST}\n` } as never),
 });
 
+// Project events wake the team marks; the team test supplies the queue.
+const projectEvents: { queue?: Queue.Queue<object> } = {};
+const events = Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({
+  latestApplicationSequence: Effect.succeed(0),
+  streamApplicationEvents: () =>
+    projectEvents.queue ? (Stream.fromQueue(projectEvents.queue) as never) : Stream.never,
+});
+
 const database = it.layer(
   Layer.mergeAll(
     NodeSqliteClient.layer({ filename: ":memory:" }),
@@ -163,6 +172,7 @@ const database = it.layer(
     auth,
     config,
     git,
+    events,
   ),
 );
 type Ingress = ReadonlyArray<{ hostname?: string; path?: string; service: string }>;
@@ -716,6 +726,107 @@ database("CollaboratorSharesFork", (it) => {
         assert.isTrue(yield* httpRead("owner", other));
       }),
     ),
+  );
+
+  it.effect("a saved colleague reads every team project thread, and writes none", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      projectEvents.queue = yield* Queue.unbounded<object>();
+      const marked = (on: boolean) =>
+        (on
+          ? sql`INSERT INTO fork_team_projects (project_id, marked_at) VALUES (${otherProject}, '')`
+          : sql`DELETE FROM fork_team_projects WHERE project_id = ${otherProject}`
+        ).pipe(Effect.andThen(Queue.offer(projectEvents.queue!, { aggregateKind: "project" })));
+      yield* withService(
+        Effect.gen(function* () {
+          yield* sql`
+            INSERT INTO fork_colleagues (subject, name, environment_id, url, secret_name, saved_at)
+            VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
+          `;
+          const service = yield* CollaboratorShares.CollaboratorSharesFork;
+          const alex = { ...handlers };
+          Object.assign(alex, service.wrapHandlers("colleague:alex", alex));
+          const items = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+          shellEvents.queue = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+          const fiber = yield* alex["orchestration.subscribeShell"]({}, undefined as never).pipe(
+            Stream.runForEach((item) => Queue.offer(items, item)),
+            Effect.forkChild,
+          );
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
+
+          // Marking opens the project's threads, read-only; the unmarked project stays hidden.
+          yield* marked(true);
+          const afterMark = yield* Queue.take(items);
+          assert.deepStrictEqual(visibleThreads(afterMark), [other]);
+          assert.deepStrictEqual(visibleProjects(afterMark), [otherProject]);
+          assert.strictEqual(
+            afterMark.kind === "snapshot" ? afterMark.snapshot.threads[0]?.collaboratorFork : null,
+            "read",
+          );
+          // A thread started after marking arrives live.
+          const later = { ...threadShell(other), id: ThreadId.make("later") };
+          yield* Queue.offer(shellEvents.queue, { kind: "thread.updated", thread: later } as never);
+          const arrived = yield* Queue.take(items);
+          assert.strictEqual(arrived.kind === "thread.updated" && arrived.thread.id, later.id);
+          assert.isTrue(yield* service.canRead("colleague:alex", other));
+          assert.isFalse(yield* service.canRead("colleague:alex", shared));
+          // A one-time guest with no saved colleague row reads no team thread.
+          assert.isFalse(yield* service.canRead("colleague:pat", other));
+
+          // Read-only on the server: every write to a team thread is refused.
+          const dispatch = alex["orchestration.dispatchCommand"];
+          for (const type of ["message.dispatch", "run.interrupt", "thread.archive"]) {
+            const refused: { readonly message: string } = yield* Effect.flip(
+              dispatch(message(other, type), undefined as never),
+            );
+            assert.strictEqual(
+              refused.message,
+              "Team project threads are read-only for colleagues.",
+            );
+          }
+          const submit =
+            service.messageHandlers("colleague:alex")["collaborator.submitMessageFork"];
+          assert.isTrue(
+            Exit.isFailure(yield* Effect.exit(submit({ threadId: other, text: "hi" }))),
+          );
+          const check = (method: string, payload: unknown) =>
+            Effect.service(RpcScopeAuthorization).pipe(
+              service.guardRpc("colleague:alex"),
+              Effect.provideService(RpcScopeAuthorization, (effect) => effect),
+              Effect.flatMap((authorize) =>
+                Effect.exit(
+                  authorize(Effect.void as never, { rpc: { _tag: method }, payload } as never),
+                ),
+              ),
+              Effect.map(Exit.isSuccess),
+              Effect.scoped,
+            );
+          assert.isTrue(yield* check(ORCHESTRATION_V2_WS_METHODS.getTurnItem, { threadId: other }));
+          assert.isFalse(
+            yield* check(ORCHESTRATION_V2_WS_METHODS.getTurnItem, { threadId: shared }),
+          );
+          assert.isFalse(
+            yield* check(WS_METHODS.collaboratorSubmitMessageFork, { threadId: other }),
+          );
+          assert.isFalse(
+            yield* check(WS_METHODS.collaboratorSetTypingFork, { threadId: other, typing: true }),
+          );
+
+          // Unmarking removes them at once.
+          yield* marked(false);
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
+          assert.isFalse(yield* service.canRead("colleague:alex", other));
+          yield* Fiber.interrupt(fiber);
+
+          // Removing the colleague removes access too, marked or not.
+          yield* marked(true);
+          yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;
+          assert.isFalse(yield* service.canRead("colleague:alex", other));
+          yield* marked(false);
+        }),
+      );
+      delete projectEvents.queue;
+    }),
   );
 
   it.effect(
