@@ -1,5 +1,7 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  ChatAttachmentId,
   CommandId,
   EnvironmentId,
   MessageId,
@@ -15,11 +17,16 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import type * as PlatformError from "effect/PlatformError";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
+import { createPendingAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
+import * as ServerConfig from "../config.ts";
+import * as DocumentText from "../provider/DocumentText.ts";
 import { ClaudeProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -167,7 +174,11 @@ const scenario = (
     > extends Effect.Effect<infer A, infer _E, infer _R>
       ? Effect.Effect<A>
       : never;
-  }) => Effect.Effect<void>,
+  }) => Effect.Effect<
+    void,
+    PlatformError.PlatformError,
+    FileSystem.FileSystem | ServerConfig.ServerConfig
+  >,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -211,6 +222,12 @@ const scenario = (
       }).pipe(
         Effect.provide(
           ColleagueThreadFork.layerFromRuntime.pipe(
+            Layer.provideMerge(
+              Layer.mergeAll(
+                ServerConfig.layerTest(cwd, { prefix: "t3-colleague-fork-" }),
+                DocumentText.layer,
+              ).pipe(Layer.provideMerge(NodeServices.layer)),
+            ),
             Layer.provideMerge(
               layerWithRegistry(
                 {
@@ -276,6 +293,47 @@ it.live("with no copy, the new thread only links to the original and says so", (
       );
       const [first] = yield* send("Start fresh");
       assert.equal(first?.text, "Start fresh");
+    }),
+  ),
+);
+
+it.live("a fork claims the images it copied here and names the ones it could not", () =>
+  scenario("colleague-fork-attachments", ({ fork, projection }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { attachmentsDir } = yield* ServerConfig.ServerConfig;
+      const pendingId = createPendingAttachmentId();
+      yield* fs.makeDirectory(attachmentsDir, { recursive: true });
+      yield* fs.writeFileString(`${attachmentsDir}/${pendingId}.png`, "png");
+      yield* fork({
+        ...input([
+          {
+            role: "user",
+            text: "Here is the plan.\n\n[Not copied: spec.pdf]",
+            createdAt: at(1),
+            attachments: [
+              {
+                type: "image",
+                id: ChatAttachmentId.make(pendingId),
+                name: "plan.png",
+                mimeType: "image/png",
+                sizeBytes: 3,
+              },
+            ],
+          },
+        ]),
+        missingAttachments: ["spec.pdf"],
+      });
+      const [notice, message] = (yield* projection()).visibleTurnItems.map(({ item }) => item);
+      assert.include(
+        notice?.type === "system_notice" ? notice.message : "",
+        "Not copied from Alex: spec.pdf.",
+      );
+      const [image] = message?.type === "user_message" ? message.attachments : [];
+      assert.equal(image?.name, "plan.png");
+      assert.notEqual(image?.id, pendingId);
+      const stored = image && resolveAttachmentPath({ attachmentsDir, attachment: image });
+      assert.equal(stored ? yield* fs.readFileString(stored) : null, "png");
     }),
   ),
 );
