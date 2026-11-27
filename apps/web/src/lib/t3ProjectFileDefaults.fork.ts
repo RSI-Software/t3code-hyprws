@@ -14,4 +14,14 @@ export const withProjectFileTimeoutFork =
     timeoutMs = PROJECT_FILE_DEFAULTS_TIMEOUT_MS,
   ): typeof executeAtomQuery =>
   (registry, atom, options, reporter) =>
-    query(registry, atom, { ...options, signal: AbortSignal.timeout(timeoutMs) }, reporter);
+    query(
+      registry,
+      atom,
+      {
+        ...options,
+        signal: options?.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
+          : AbortSignal.timeout(timeoutMs),
+      },
+      reporter,
+    );
