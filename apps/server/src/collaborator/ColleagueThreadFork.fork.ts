@@ -1,7 +1,9 @@
 // Fork-only (colleague-collab): forks a colleague's thread onto this machine from the client's copy
 // of it. The new thread holds the copied messages as run-less `v1_import` history, which upstream
-// hands to the first run's fresh provider session as context. A notice names the original.
+// hands to the first run's fresh provider session as context. A notice names the original. The
+// client uploads each message's images and files here first; the fork claims them for the thread.
 import {
+  type ChatAttachment,
   ColleagueForkThreadErrorFork,
   type ColleagueForkThreadInputFork,
   CommandId,
@@ -14,12 +16,16 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 
+import * as ServerConfig from "../config.ts";
+import * as AttachmentClaims from "../orchestration-v2/AttachmentClaims.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
+import * as DocumentText from "../provider/DocumentText.ts";
 
 export class ColleagueThreadForkFork extends Context.Service<
   ColleagueThreadForkFork,
@@ -34,19 +40,33 @@ const PREFIX = "colleague-fork";
 
 /** The notice at the top of the new thread: where it came from, and what of it arrived. */
 const originNoticeFork = (
-  input: Pick<ColleagueForkThreadInputFork, "hostName" | "originTitle" | "messages" | "partial">,
+  input: Pick<
+    ColleagueForkThreadInputFork,
+    "hostName" | "originTitle" | "messages" | "partial" | "missingAttachments"
+  >,
 ) => {
   const from = `Forked from ${input.hostName}'s thread "${input.originTitle}".`;
   if (input.messages.length === 0) {
     return `${from} This device had no copy of it, so this thread starts empty and only links to the original.`;
   }
-  return input.partial ? `${from} Its oldest messages were not in this device's copy.` : from;
+  const missing = input.missingAttachments ?? [];
+  return [
+    from,
+    input.partial ? "Its oldest messages were not in this device's copy." : "",
+    missing.length === 0 ? "" : `Not copied from ${input.hostName}: ${missing.join(", ")}.`,
+  ]
+    .filter((part) => part !== "")
+    .join(" ");
 };
 
-/** The events that write the copied history into `threadId`, the notice first. */
+/**
+ * The events that write the copied history into `threadId`, the notice first. `attachments` holds
+ * each message's claimed attachments, by index.
+ */
 const historyEventsFork = (
   threadId: ThreadId,
   input: ColleagueForkThreadInputFork,
+  attachments: ReadonlyArray<ReadonlyArray<ChatAttachment>>,
   at: DateTime.Utc,
 ): ReadonlyArray<OrchestrationV2DomainEvent> => {
   const base = {
@@ -100,7 +120,7 @@ const historyEventsFork = (
             nodeId: null,
             role: message.role,
             text: message.text,
-            attachments: [],
+            attachments: attachments[index] ?? [],
             streaming: false,
             createdBy: message.role === "user" ? "user" : "agent",
             creationSource: "server",
@@ -122,7 +142,7 @@ const historyEventsFork = (
                   creationSource: "server",
                   inputIntent: "turn_start",
                   text: message.text,
-                  attachments: [],
+                  attachments: attachments[index] ?? [],
                 }
               : { ...common, type: "assistant_message", text: message.text, streaming: false },
         },
@@ -138,6 +158,9 @@ const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const eventSink = yield* EventSink.EventSinkV2;
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+  const claimContext = yield* Effect.context<
+    FileSystem.FileSystem | ServerConfig.ServerConfig | DocumentText.DocumentText
+  >();
 
   const fork = Effect.fn("ColleagueThreadForkFork.fork")(function* (
     input: ColleagueForkThreadInputFork,
@@ -159,7 +182,9 @@ const make = Effect.gen(function* () {
       })
       .pipe(failedFork("create-thread", input.threadId));
     // Thread commands write whole thread rows, so hold their lock from the re-read through the
-    // write that marks the history imported.
+    // write that marks the history imported. Claims copy each pending upload, so a failed write
+    // releases only these copies.
+    const claimedPaths: Array<string> = [];
     yield* threadCommands
       .withLock(
         input.threadId,
@@ -168,10 +193,24 @@ const make = Effect.gen(function* () {
             "turnItems",
           ]);
           if (turnItems.length > 0) return;
+          const attachments = yield* Effect.forEach(input.messages, (message) =>
+            message.role !== "user" || (message.attachments ?? []).length === 0
+              ? Effect.succeed([])
+              : AttachmentClaims.claimPendingAttachments({
+                  threadId: input.threadId,
+                  attachments: message.attachments ?? [],
+                }).pipe(
+                  Effect.provide(claimContext),
+                  Effect.map((claimed) => {
+                    claimedPaths.push(...claimed.claimedPaths);
+                    return claimed.attachments;
+                  }),
+                ),
+          );
           const at = yield* DateTime.now;
           yield* eventSink.write({
             events: [
-              ...historyEventsFork(input.threadId, input, at),
+              ...historyEventsFork(input.threadId, input, attachments, at),
               ...(input.messages.length === 0
                 ? []
                 : [
@@ -186,7 +225,15 @@ const make = Effect.gen(function* () {
                   ]),
             ],
           });
-        }),
+        }).pipe(
+          Effect.onError(() =>
+            AttachmentClaims.releaseClaimedAttachments(claimedPaths).pipe(
+              Effect.provide(claimContext),
+            ),
+          ),
+          // Outside the release: an interrupt after the write must not delete what history names.
+          Effect.uninterruptible,
+        ),
       )
       .pipe(failedFork("write-history", input.threadId));
   });

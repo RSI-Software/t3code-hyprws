@@ -3,9 +3,13 @@ import {
   PrimaryConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import { Persistence } from "@t3tools/client-runtime/platform";
-import { readColleagueThreadFork } from "@t3tools/client-runtime/state/colleague-thread-read";
+import {
+  colleagueForkMessagesFork,
+  readColleagueThreadFork,
+} from "@t3tools/client-runtime/state/colleague-thread-read";
 import { ThreadSnapshotLoader } from "@t3tools/client-runtime/state/threads";
 import {
+  ChatAttachmentId,
   EnvironmentId,
   MessageId,
   type OrchestrationV2ThreadDetailSnapshot,
@@ -151,31 +155,66 @@ describe("forking a colleague's thread", () => {
     Effect.gen(function* () {
       const copy = snapshot(["plan", "reply", ""], true);
       const live = yield* read({ host: snapshot(["plan", "reply", "follow-up"], false), copy });
-      expect(live).toMatchObject({ source: "host", partial: false, omittedAttachments: 0 });
+      expect(live).toMatchObject({ source: "host", partial: false });
       expect(live.messages.map(({ role, text }) => `${role}:${text}`)).toEqual([
         "user:plan",
         "assistant:reply",
         "user:follow-up",
       ]);
 
-      // An unreachable host falls back to the copy, which lacks its oldest messages. Its image
-      // is not copied, so its message names it instead.
+      // An unreachable host falls back to the copy, which lacks its oldest messages.
       for (const host of [undefined, null]) {
         const offline = yield* read({ ...(host === undefined ? {} : { host }), copy });
-        expect(offline).toMatchObject({ source: "copy", partial: true, omittedAttachments: 1 });
-        expect(offline.messages.map(({ text }) => text)).toEqual([
-          "plan",
-          "reply",
-          "[Not copied: plan.png]",
-        ]);
+        expect(offline).toMatchObject({ source: "copy", partial: true });
+        expect(offline.messages.map(({ text, attachments }) => [text, attachments.length])).toEqual(
+          [
+            ["plan", 0],
+            ["reply", 0],
+            ["", 1],
+          ],
+        );
       }
 
-      expect(yield* read({})).toEqual({
-        messages: [],
-        partial: false,
-        source: "none",
-        omittedAttachments: 0,
+      expect(yield* read({})).toEqual({ messages: [], partial: false, source: "none" });
+    }),
+  );
+
+  it.effect("sends the attachments it copied and names the rest", () =>
+    Effect.gen(function* () {
+      const file = (name: string) => ({
+        type: "file" as const,
+        id: ChatAttachmentId.make(name.replace(/\W/g, "-")),
+        name,
+        mimeType: "application/pdf",
+        sizeBytes: 1,
       });
+      const createdAt = "2026-11-27T00:00:00.000Z";
+      const forked = yield* colleagueForkMessagesFork(
+        [
+          {
+            role: "user",
+            text: "See both",
+            createdAt,
+            attachments: [file("a.pdf"), file("b.pdf")],
+          },
+          { role: "user", text: "", createdAt, attachments: [file("gone.pdf")] },
+          { role: "assistant", text: "Read them", createdAt, attachments: [] },
+        ],
+        (attachment) =>
+          attachment.name === "a.pdf"
+            ? Effect.succeed({ ...attachment, id: ChatAttachmentId.make("pending-a") })
+            : attachment.name === "b.pdf"
+              ? Effect.fail("host gone")
+              : Effect.succeed(null),
+      );
+      expect(forked.missingAttachments).toEqual(["b.pdf", "gone.pdf"]);
+      expect(
+        forked.messages.map(({ text, attachments }) => [text, attachments?.map(({ id }) => id)]),
+      ).toEqual([
+        ["See both\n\n[Not copied: b.pdf]", ["pending-a"]],
+        ["[Not copied: gone.pdf]", undefined],
+        ["Read them", undefined],
+      ]);
     }),
   );
 

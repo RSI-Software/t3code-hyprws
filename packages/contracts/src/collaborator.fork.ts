@@ -15,7 +15,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
+import { ChatAttachment, PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 
@@ -554,6 +554,8 @@ export const ColleagueThreadMessageFork = Schema.Struct({
   role: Schema.Literals(["user", "assistant"]),
   text: Schema.String,
   createdAt: IsoDateTime,
+  /** Copies of the message's images and files, as pending uploads on this server. */
+  attachments: Schema.optional(Schema.Array(ChatAttachment)),
 });
 export type ColleagueThreadMessageFork = typeof ColleagueThreadMessageFork.Type;
 
@@ -573,6 +575,8 @@ export const ColleagueForkThreadInputFork = Schema.Struct({
   messages: Schema.Array(ColleagueThreadMessageFork).check(Schema.isMaxLength(10_000)),
   /** The copy lacks the thread's oldest messages. */
   partial: Schema.Boolean,
+  /** Names of the images and files this device could not copy, which the notice lists. */
+  missingAttachments: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 export type ColleagueForkThreadInputFork = typeof ColleagueForkThreadInputFork.Type;
 
