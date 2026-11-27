@@ -82,6 +82,7 @@ function CopyColleague(props: { readonly environmentId: EnvironmentId }) {
     held: new Map<ThreadId, string>(),
     retries: new Set<ReturnType<typeof setTimeout>>(),
   }));
+  const gone = useRef(false);
   const [, setRetries] = useState(0);
   const latestThreads = useRef(snapshot?.threads ?? []);
   const threads =
@@ -97,6 +98,7 @@ function CopyColleague(props: { readonly environmentId: EnvironmentId }) {
     for (const { threadId, version } of sharedThreadsToCopyFork(threads, copies.asked)) {
       copies.asked.set(threadId, version);
       void copy({ environmentId, threadId }).then((result) => {
+        if (gone.current) return;
         const outcome = result._tag === "Success" ? result.value : "unavailable";
         if (outcome === "current") {
           copies.held.set(threadId, version);
@@ -125,14 +127,15 @@ function CopyColleague(props: { readonly environmentId: EnvironmentId }) {
     };
   }, [copies, environmentId, live, shared]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a host leaving this app stops its pending retries.
-  useEffect(
-    () => () => {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a host leaving this app stops its pending retries and ignores late copies.
+  useEffect(() => {
+    gone.current = false;
+    return () => {
+      gone.current = true;
       for (const retry of copies.retries) clearTimeout(retry);
       copies.retries.clear();
-    },
-    [copies],
-  );
+    };
+  }, [copies]);
   return null;
 }
 

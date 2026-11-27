@@ -58,13 +58,13 @@ export const copySharedThreadFork = Effect.fn("ColleagueCopy.copyThread")(functi
   const cache = yield* Persistence.EnvironmentCacheStore;
   const loaded = yield* loader.load(prepared, threadId);
   if (loaded._tag !== "present") return loaded._tag;
-  if (!(yield* wanted)) return "missing" as const;
   const held = yield* cache
     .loadThread(environmentId, threadId)
     .pipe(Effect.orElseSucceed(() => Option.none()));
   if (Option.isSome(held) && held.value.snapshotSequence >= loaded.snapshot.snapshotSequence) {
     return "current" as const;
   }
+  if (!(yield* wanted)) return "missing" as const;
   yield* cache.saveThread(environmentId, {
     ...loaded.snapshot,
     ...(loaded.history === undefined
