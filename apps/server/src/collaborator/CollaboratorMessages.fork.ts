@@ -104,6 +104,7 @@ interface MessageRow {
   readonly text: string;
   readonly submitted_at: string;
   readonly outcome: string | null;
+  readonly force_reply: number | null;
 }
 
 const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
@@ -114,6 +115,7 @@ const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
   text: row.text,
   submittedAt: row.submitted_at,
   outcome: row.outcome === "dismissed" ? "dismissed" : undefined,
+  ...(row.force_reply === 1 ? { forceReplyFork: true as const } : {}),
 });
 
 export const makeCollaboratorMessages = Effect.gen(function* () {
@@ -126,7 +128,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   const lock = (yield* Semaphore.make(1)).withPermits(1);
 
   const read = sql<MessageRow>`
-  SELECT id, thread_id, subject, collaborator_name, text, submitted_at, outcome
+  SELECT id, thread_id, subject, collaborator_name, text, submitted_at, outcome, force_reply
   FROM fork_collaborator_messages ORDER BY submitted_at
 `.pipe(Effect.map((rows) => rows.map(fromRow)));
   const ref = yield* SubscriptionRef.make(yield* read.pipe(Effect.orDie));
@@ -138,6 +140,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly text: string;
     readonly id?: string | undefined;
+    readonly forceReplyFork?: true | undefined;
   }) {
     const undelivered = (cause: unknown) =>
       new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
@@ -168,8 +171,8 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     const submittedAt = DateTime.formatIso(yield* DateTime.now);
     yield* sql`
     INSERT INTO fork_collaborator_messages
-      (id, thread_id, subject, collaborator_name, text, submitted_at)
-    VALUES (${id}, ${input.threadId}, ${input.subject}, ${input.name}, ${input.text}, ${submittedAt})
+      (id, thread_id, subject, collaborator_name, text, submitted_at, force_reply)
+    VALUES (${id}, ${input.threadId}, ${input.subject}, ${input.name}, ${input.text}, ${submittedAt}, ${input.forceReplyFork ? 1 : null})
   `.pipe(Effect.andThen(reload), Effect.mapError(undelivered));
   });
 
@@ -193,10 +196,12 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
       return yield* new CollaboratorMessageMissingErrorFork({ messageId: input.messageId });
     }
     if (input.decision === "send" && subject === null) {
-      const attribution = collaboratorAttribution(message.name, message.text);
+      const forced = message.forceReplyFork === true;
+      const attribution = collaboratorAttribution(message.name, message.text, forced);
       const context: OrchestrationMessageContext = {
         version: 1,
         records: [],
+        ...(forced ? { forceReplyFork: true as const } : {}),
         collaboratorFork: { ...attribution.context.collaboratorFork, sentByHost: true },
       };
       // Ids from the message, so a retry after a failed delete replays instead of sending twice.
