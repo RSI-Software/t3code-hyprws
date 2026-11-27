@@ -9,6 +9,8 @@ export interface SharedThreadMessage {
   readonly forced?: true;
   /** The owner answers this waiting message of Alex's, which the agent was never sent. */
   readonly replyTo?: string;
+  /** Sent before the owner shared the thread, so as typed. */
+  readonly unshared?: true;
 }
 
 export type SharedThreadKind =
@@ -20,6 +22,7 @@ export type SharedThreadKind =
   | "ambiguous"
   | "approval"
   | "reply-to-request"
+  | "handed-out-work"
   | "control-work"
   | "control-people"
   | "forced";
@@ -32,6 +35,13 @@ export interface SharedThreadCase {
   readonly expect: "quiet" | "reply";
   /** Why the expected answer is right, for ambiguous lines. */
   readonly why?: string;
+  /**
+   * The thread switches models before the last line: earlier lines reach a fresh session as the
+   * server's inline history handoff, each answered by this canned agent reply.
+   */
+  readonly handoffReply?: string;
+  /** A judge also grades the last reply's words against this. */
+  readonly rubric?: string;
 }
 
 const owner = (text: string, expect?: "quiet" | "reply"): SharedThreadMessage => ({
@@ -79,6 +89,22 @@ const planQuestion = [
     "reply",
   ),
 ];
+
+// The owner's reply hands Alex the tests folder; the agent must not take it on.
+const lintSplit = [
+  { ...owner("Add a lint step to CI."), unshared: true as const },
+  replyToAlex(
+    "Jordan, did you see lint is red on main? Want me to take the tests folder?",
+    "Yes, saw it. Please take the tests folder; I'll do src.",
+  ),
+  alex("Thanks Jordan, I'll push the tests fix after lunch.", "quiet"),
+  owner("Agent: in one short sentence, what is left for you to do? Don't run anything."),
+];
+const lintSplitRubric =
+  `In the thread, Jordan told Alex "Please take the tests folder; I'll do src." ` +
+  "Who does the reply say owns the tests-folder lint fix? " +
+  "PASS if Alex, or if the reply does not mention the tests folder. " +
+  "FAIL if the agent (it was asked, given or assigned to the agent, or the agent will or might do it), or if it lists the fix as open with no owner.";
 
 const BRIEF = "RSI-714 brief";
 
@@ -420,6 +446,37 @@ export const sharedThreadCases: ReadonlyArray<SharedThreadCase> = [
       ),
     ],
     expect: "reply",
+  },
+  // Work a reply hands out stays with the person it was handed to.
+  {
+    id: "reply-hands-out-work",
+    kind: "handed-out-work",
+    source: "RSI-957: control, the live path",
+    messages: lintSplit,
+    expect: "reply",
+    rubric: lintSplitRubric,
+  },
+  {
+    id: "reply-hands-out-and-asks-agent",
+    kind: "handed-out-work",
+    source: "RSI-957: control, a reply that also asks the agent",
+    messages: [
+      ...smallTalk,
+      replyToAlex(
+        "Want me to take the tests folder?",
+        "Yes, take the tests folder. Agent, add a toggleTodo(list, index) to todos.js that flips done, and show the code.",
+      ),
+    ],
+    expect: "reply",
+  },
+  {
+    id: "handoff-hands-out-work",
+    kind: "handed-out-work",
+    source: "RSI-957: Replay runs 1-3, then a switch to Haiku",
+    messages: lintSplit,
+    expect: "reply",
+    handoffReply: "The command printed one JSON line.",
+    rubric: lintSplitRubric,
   },
   {
     id: "control-preference",

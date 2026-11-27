@@ -9,17 +9,26 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
+import { OrchestrationV2HistoricalMessage } from "@t3tools/contracts";
+import {
+  handoffCoverage,
+  renderHistory,
+  selectHistory,
+} from "@t3tools/provider-core/server/handoffBudget";
+import * as Schema from "effect/Schema";
 import {
   collaboratorAttribution,
   hostAttribution,
 } from "../../apps/server/src/collaborator/CollaboratorMessages.fork.ts";
 import { QUIET_MARKER } from "../../apps/server/src/collaborator/quietTurn.fork.ts";
+import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
 import { sharedThreadCases, type SharedThreadMessage } from "./cases.ts";
 
 const { values } = NodeUtil.parseArgs({
   options: {
     arm: { type: "string", default: "current" },
     model: { type: "string", default: "claude-haiku-5-5" },
+    "judge-model": { type: "string", default: "claude-sonnet-5-5" },
     case: { type: "string", multiple: true },
     samples: { type: "string", default: "3" },
     concurrency: { type: "string", default: "6" },
@@ -52,17 +61,21 @@ const attributed712 = (message: SharedThreadMessage) =>
     : `[${COLLABORATOR}, a collaborator the owner shared this thread with, wrote the message below. ${rule712(`the owner and ${COLLABORATOR}`)}]\n\n${message.text}`;
 
 const attributed = (message: SharedThreadMessage) =>
-  arm === "rsi-712"
-    ? attributed712(message)
-    : message.from === "owner"
-      ? hostAttribution(
-          HOST,
-          [COLLABORATOR],
-          message.text,
-          message.forced,
-          message.replyTo === undefined ? undefined : { name: COLLABORATOR, text: message.replyTo },
-        ).text
-      : collaboratorAttribution(COLLABORATOR, message.text, message.forced).text;
+  message.unshared
+    ? message.text
+    : arm === "rsi-712"
+      ? attributed712(message)
+      : message.from === "owner"
+        ? hostAttribution(
+            HOST,
+            [COLLABORATOR],
+            message.text,
+            message.forced,
+            message.replyTo === undefined
+              ? undefined
+              : { name: COLLABORATOR, text: message.replyTo },
+          ).text
+        : collaboratorAttribution(COLLABORATOR, message.text, message.forced).text;
 
 // Keep the developer's CLAUDE.md, hooks and MCP servers out of the agent's session; auth stays.
 const claudeSettings = process.env.EVAL_CLAUDE_SETTINGS;
@@ -73,9 +86,9 @@ interface Turn {
   readonly costUsd: number;
 }
 
-const claudeTurn = (cwd: string, text: string, session: string | undefined) =>
+const claudeTurn = (cwd: string, text: string, session: string | undefined, as = model) =>
   new Promise<Turn>((resolve, reject) => {
-    const args = ["-p", "--model", model, "--output-format", "json"];
+    const args = ["-p", "--model", as, "--output-format", "json"];
     if (claudeSettings) args.push("--setting-sources", "", "--settings", claudeSettings);
     args.push("--strict-mcp-config", "--disallowedTools", "Bash,Edit,Write,NotebookEdit");
     if (session) args.push("--resume", session);
@@ -109,6 +122,60 @@ const claudeTurn = (cwd: string, text: string, session: string | undefined) =>
     child.stdin?.end();
   });
 
+// The server's inline handoff after a model switch: every earlier line, then the last as the new turn.
+const historical = Schema.decodeUnknownSync(OrchestrationV2HistoricalMessage);
+const handoffPrompt = (
+  history: ReadonlyArray<SharedThreadMessage>,
+  last: SharedThreadMessage,
+  agentReply: string,
+) => {
+  const threadId = "thread-shared";
+  const messages = history.flatMap((message, index) =>
+    (
+      [
+        ["user", "user_message", attributed(message)],
+        ["assistant", "assistant_message", agentReply],
+      ] as const
+    ).map(([role, kind, text]) =>
+      historical({
+        role,
+        kind,
+        text,
+        threadId,
+        runId: `run-${index + 1}`,
+        itemId: `item-${index + 1}-${role}`,
+        providerThreadId: "provider-thread-replay",
+        status: "completed",
+        runStatus: "completed",
+      }),
+    ),
+  );
+  const selected = selectHistory({
+    messages,
+    coverage: handoffCoverage({
+      threadId,
+      coveredRunOrdinals: { from: 1, to: history.length },
+      items: [],
+    }),
+    budget: 200_000,
+  });
+  return withInlineContext(renderHistory(selected.messages, selected.context), attributed(last));
+};
+
+const judgeModel = values["judge-model"]!;
+const judge = async (cwd: string, rubric: string, reply: string) => {
+  const verdict = await claudeTurn(
+    cwd,
+    `Grade a coding agent's reply against a rubric. Reason briefly, then give your verdict as the last line: exactly PASS or FAIL.\n\nRubric: ${rubric}\n\nReply:\n"""\n${reply}\n"""`,
+    undefined,
+    judgeModel,
+  );
+  return {
+    pass: verdict.reply.split("\n").at(-1)?.trim().replace(/\*/g, "") === "PASS",
+    costUsd: verdict.costUsd,
+  };
+};
+
 const gotOf = (turn: Turn) => (turn.reply === QUIET_MARKER ? "quiet" : "reply");
 
 const runSample = async (fixture: (typeof sharedThreadCases)[number], sample: number) => {
@@ -119,11 +186,22 @@ const runSample = async (fixture: (typeof sharedThreadCases)[number], sample: nu
   );
   let session: string | undefined;
   const lines: Array<{ expect?: "quiet" | "reply"; turn: Turn }> = [];
+  let judged: { pass: boolean; costUsd: number } | undefined;
   try {
-    for (const message of fixture.messages) {
-      const turn = await claudeTurn(cwd, attributed(message), session);
-      session = turn.session;
-      lines.push({ ...(message.expect ? { expect: message.expect } : {}), turn });
+    if (fixture.handoffReply === undefined) {
+      for (const message of fixture.messages) {
+        const turn = await claudeTurn(cwd, attributed(message), session);
+        session = turn.session;
+        lines.push({ ...(message.expect ? { expect: message.expect } : {}), turn });
+      }
+    } else {
+      const last = fixture.messages.at(-1)!;
+      const prompt = handoffPrompt(fixture.messages.slice(0, -1), last, fixture.handoffReply);
+      lines.push({ turn: await claudeTurn(cwd, prompt, undefined) });
+    }
+    const reply = lines.at(-1)!.turn;
+    if (fixture.rubric !== undefined && gotOf(reply) === "reply") {
+      judged = await judge(cwd, fixture.rubric, reply.reply);
     }
   } finally {
     // The eval's sessions should not crowd the developer's own resume lists.
@@ -143,9 +221,10 @@ const runSample = async (fixture: (typeof sharedThreadCases)[number], sample: nu
     sample,
     expect: fixture.expect,
     got,
-    pass: got === fixture.expect,
+    pass: got === fixture.expect && (fixture.rubric === undefined || judged?.pass === true),
+    ...(judged === undefined ? {} : { judged: judged.pass ? "pass" : "fail" }),
     reply: lines.at(-1)!.turn.reply,
-    costUsd: lines.reduce((sum, line) => sum + line.turn.costUsd, 0),
+    costUsd: lines.reduce((sum, line) => sum + line.turn.costUsd, judged?.costUsd ?? 0),
     history: lines
       .slice(0, -1)
       .flatMap((line) =>
@@ -170,7 +249,9 @@ await Promise.all(
       try {
         const row = await runSample(fixture, sample);
         rows.push(row);
-        console.log(`${row.id} #${sample}: expect ${row.expect}, got ${row.got}`);
+        console.log(
+          `${row.id} #${sample}: expect ${row.expect}, got ${row.got}${row.judged ? `, judged ${row.judged}` : ""}`,
+        );
       } catch (error) {
         failures.push({ id: fixture.id, sample, error: String(error) });
         console.log(`${fixture.id} #${sample}: error ${String(error).slice(0, 200)}`);
