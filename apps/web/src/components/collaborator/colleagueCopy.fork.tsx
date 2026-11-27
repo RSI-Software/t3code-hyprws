@@ -1,6 +1,6 @@
 // Fork-only (colleague-collab): keeps this device's copy of each shared thread current while its
-// host is reachable, records when that was, and says so on the thread once the host is offline.
-// "Offline" is upstream's: the environment's connection is not `connected`.
+// host is reachable, records when each copy was last in sync, and says so on the thread once the
+// host is offline. "Offline" is upstream's: the environment's connection is not `connected`.
 import { useAtomValue } from "@effect/atom-react";
 import { createRuntimeCommand } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { useGT } from "gt-react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
@@ -19,7 +19,11 @@ import { environmentSnapshotAtom, useEnvironmentShellStatus } from "~/state/shel
 import { useAtomCommand } from "~/state/use-atom-command";
 import { formatDayAwareTimestamp } from "~/timestampFormat";
 import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
-import { copySharedThreadFork, sharedThreadsToCopyFork } from "./colleagueCopy.logic.fork";
+import {
+  copySharedThreadFork,
+  sharedThreadsInSyncFork,
+  sharedThreadsToCopyFork,
+} from "./colleagueCopy.logic.fork";
 
 interface CopyInput {
   readonly environmentId: EnvironmentId;
@@ -33,31 +37,29 @@ const copyCommand = createRuntimeCommand(connectionAtomRuntime, {
     Option.match(
       registry.get(environmentSession.preparedConnectionValueAtom(input.environmentId)),
       {
-        onNone: () => Effect.succeed(false),
+        onNone: () => Effect.succeed("unavailable" as const),
         onSome: (prepared) => copySharedThreadFork(input.environmentId, prepared, input.threadId),
       },
     ),
 });
 
-// The version each copy was taken at, per environment, for this window's life.
-const copiedVersions = new Map<EnvironmentId, Map<ThreadId, string>>();
-const copiedFor = (environmentId: EnvironmentId) => {
-  const versions = copiedVersions.get(environmentId) ?? new Map<ThreadId, string>();
-  copiedVersions.set(environmentId, versions);
-  return versions;
-};
+const RETRY_MS = 15_000;
 
-const LAST_SYNCED_PREFIX = "t3code:colleague-synced-fork:";
-const readLastSynced = (environmentId: EnvironmentId) => {
+const SyncedTimes = Schema.Record(Schema.String, Schema.Number);
+const syncedKey = (environmentId: EnvironmentId) => `t3code:colleague-synced-fork:${environmentId}`;
+const readSynced = (environmentId: EnvironmentId) => {
   try {
-    return getLocalStorageItem(`${LAST_SYNCED_PREFIX}${environmentId}`, Schema.Number);
+    return getLocalStorageItem(syncedKey(environmentId), SyncedTimes) ?? {};
   } catch {
-    return null;
+    return {};
   }
 };
-const markSynced = (environmentId: EnvironmentId) => {
+const markSynced = (environmentId: EnvironmentId, threadIds: ReadonlyArray<ThreadId>) => {
+  if (threadIds.length === 0) return;
+  const times = { ...readSynced(environmentId) };
+  for (const threadId of threadIds) times[threadId] = Date.now();
   try {
-    setLocalStorageItem(`${LAST_SYNCED_PREFIX}${environmentId}`, Date.now(), Schema.Number);
+    setLocalStorageItem(syncedKey(environmentId), times, SyncedTimes);
   } catch {
     // Storage off: the offline banner leaves out the time.
   }
@@ -65,33 +67,52 @@ const markSynced = (environmentId: EnvironmentId) => {
 
 function CopyColleague(props: { readonly environmentId: EnvironmentId }) {
   const { environmentId } = props;
-  const threads = useAtomValue(environmentSnapshotAtom(environmentId))?.threads;
+  const snapshot = useAtomValue(environmentSnapshotAtom(environmentId));
   const live = useEnvironmentShellStatus(environmentId) === "live";
-  const shared = threads?.some((thread) => thread.collaboratorFork !== undefined) ?? false;
   const copy = useAtomCommand(copyCommand, { reportFailure: false });
+  // The version each copy was asked for and the one it holds, for this host's time in the catalog.
+  const [copies] = useState(() => ({
+    asked: new Map<ThreadId, string>(),
+    held: new Map<ThreadId, string>(),
+  }));
+  const [, setRetries] = useState(0);
+  const latestThreads = useRef(snapshot?.threads ?? []);
+  const threads =
+    snapshot === null || snapshot === undefined
+      ? undefined
+      : [...snapshot.threads, ...snapshot.archivedThreads];
+  const shared = threads?.some((thread) => thread.collaboratorFork !== undefined) ?? false;
+
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the host's shared threads to this device's cache while the host is reachable.
   useEffect(() => {
     if (!live || threads === undefined) return;
-    const versions = copiedFor(environmentId);
-    for (const { threadId, version } of sharedThreadsToCopyFork(threads, versions)) {
-      versions.set(threadId, version);
+    latestThreads.current = threads;
+    for (const { threadId, version } of sharedThreadsToCopyFork(threads, copies.asked)) {
+      copies.asked.set(threadId, version);
       void copy({ environmentId, threadId }).then((result) => {
-        const current = result._tag === "Success" && result.value;
-        if (!current && versions.get(threadId) === version) versions.delete(threadId);
+        const outcome = result._tag === "Success" ? result.value : "unavailable";
+        if (outcome === "current") {
+          copies.held.set(threadId, version);
+          markSynced(environmentId, [threadId]);
+        } else if (outcome === "unavailable" && copies.asked.get(threadId) === version) {
+          copies.asked.delete(threadId);
+          setTimeout(() => setRetries((count) => count + 1), RETRY_MS);
+        }
       });
     }
   });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records when this host was last in sync: as it goes offline, and as this app closes.
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records which copies were in sync as this host goes offline or this app closes.
   useEffect(() => {
     if (!live || !shared) return;
-    const mark = () => markSynced(environmentId);
-    mark();
+    const mark = () =>
+      markSynced(environmentId, sharedThreadsInSyncFork(latestThreads.current, copies.held));
     window.addEventListener("pagehide", mark);
     return () => {
       window.removeEventListener("pagehide", mark);
       mark();
     };
-  }, [environmentId, live, shared]);
+  }, [copies, environmentId, live, shared]);
   return null;
 }
 
@@ -107,15 +128,18 @@ export function ColleagueCopiesSyncFork() {
  * On a shared thread whose host is offline, the connection banner says the host is offline and
  * when this copy was last in sync.
  */
-export function useColleagueOfflineBannerFork(environmentId: EnvironmentId | null) {
+export function useColleagueOfflineBannerFork(
+  environmentId: EnvironmentId | null,
+  threadId: ThreadId | null,
+) {
   const gt = useGT();
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const host = useEnvironment(environmentId)?.label;
   return (items: ReadonlyArray<ComposerBannerStackItem>) => {
-    if (environmentId === null || host === undefined) return items;
-    const lastSynced = readLastSynced(environmentId);
+    if (environmentId === null || threadId === null || host === undefined) return items;
+    const lastSynced = readSynced(environmentId)[threadId];
     const time =
-      lastSynced === null
+      lastSynced === undefined
         ? null
         : formatDayAwareTimestamp(new Date(lastSynced).toISOString(), timestampFormat);
     return items.map((item) =>

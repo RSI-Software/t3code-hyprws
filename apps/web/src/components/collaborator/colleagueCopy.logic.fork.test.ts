@@ -17,7 +17,11 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import { makeThreadProjectionFixture } from "../../test-fixtures";
-import { copySharedThreadFork, sharedThreadsToCopyFork } from "./colleagueCopy.logic.fork";
+import {
+  copySharedThreadFork,
+  sharedThreadsInSyncFork,
+  sharedThreadsToCopyFork,
+} from "./colleagueCopy.logic.fork";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("alex"),
@@ -115,7 +119,7 @@ const copyAll = (
   });
 
 describe("colleague copies", () => {
-  it("copies each shared thread between runs, once per change", () => {
+  it("copies each shared thread between runs, once per change, and knows which are in sync", () => {
     const row = {
       id: THREAD_ID,
       collaboratorFork: "send" as const,
@@ -133,6 +137,8 @@ describe("colleague copies", () => {
     const copied = new Map([[THREAD_ID, first[0]!.version]]);
     expect(sharedThreadsToCopyFork([row], copied)).toEqual([]);
     expect(sharedThreadsToCopyFork([{ ...row, itemCount: 3 }], copied)).toHaveLength(1);
+    expect(sharedThreadsInSyncFork([row], copied)).toEqual([THREAD_ID]);
+    expect(sharedThreadsInSyncFork([{ ...row, itemCount: 3 }], copied)).toEqual([]);
   });
 
   it.effect("a host's return catches the copy up without duplicating its turns", () =>

@@ -14,29 +14,38 @@ type SharedThreadRow = Pick<
   "id" | "collaboratorFork" | "activeRunId" | "latestRunId" | "itemCount" | "updatedAt"
 >;
 
-/** Changes whenever the host's thread does, so a copy is fetched once per change. */
-const sharedThreadVersion = (thread: SharedThreadRow) =>
-  `${DateTime.formatIso(thread.updatedAt)}|${thread.itemCount}|${thread.latestRunId ?? ""}`;
+interface SharedThreadVersion {
+  readonly threadId: ThreadId;
+  readonly version: string;
+}
 
-/**
- * The shared threads whose copy is behind: still shared, between runs, and changed since
- * `copied` last recorded them. A running thread is copied once it settles.
- */
-export function sharedThreadsToCopyFork(
-  threads: ReadonlyArray<SharedThreadRow>,
-  copied: ReadonlyMap<ThreadId, string>,
-): ReadonlyArray<{ readonly threadId: ThreadId; readonly version: string }> {
-  return threads.flatMap((thread) => {
+/** Still shared and between runs, with a version that changes whenever the host's thread does. */
+const idleSharedThreads = (threads: ReadonlyArray<SharedThreadRow>) =>
+  threads.flatMap((thread): ReadonlyArray<SharedThreadVersion> => {
     if (thread.collaboratorFork === undefined || thread.collaboratorFork === "frozen") return [];
     if (thread.activeRunId !== null) return [];
-    const version = sharedThreadVersion(thread);
-    return copied.get(thread.id) === version ? [] : [{ threadId: thread.id, version }];
+    const version = `${DateTime.formatIso(thread.updatedAt)}|${thread.itemCount}|${thread.latestRunId ?? ""}`;
+    return [{ threadId: thread.id, version }];
   });
-}
+
+/** The shared threads whose copy is behind `copied`. A running thread is copied once it settles. */
+export const sharedThreadsToCopyFork = (
+  threads: ReadonlyArray<SharedThreadRow>,
+  copied: ReadonlyMap<ThreadId, string>,
+) => idleSharedThreads(threads).filter(({ threadId, version }) => copied.get(threadId) !== version);
+
+/** The shared threads whose copy matches the host's thread right now. */
+export const sharedThreadsInSyncFork = (
+  threads: ReadonlyArray<SharedThreadRow>,
+  copied: ReadonlyMap<ThreadId, string>,
+) =>
+  idleSharedThreads(threads)
+    .filter(({ threadId, version }) => copied.get(threadId) === version)
+    .map(({ threadId }) => threadId);
 
 /**
  * Saves the host's current thread over HTTP as this device's copy. A copy already at or past that
- * point, such as an open thread's own, is kept. True once the copy is current.
+ * point, such as an open thread's own, is kept.
  */
 export const copySharedThreadFork = Effect.fn("ColleagueCopy.copyThread")(function* (
   environmentId: EnvironmentId,
@@ -46,12 +55,12 @@ export const copySharedThreadFork = Effect.fn("ColleagueCopy.copyThread")(functi
   const loader = yield* ThreadSnapshotLoader;
   const cache = yield* Persistence.EnvironmentCacheStore;
   const loaded = yield* loader.load(prepared, threadId);
-  if (loaded._tag !== "present") return false;
+  if (loaded._tag !== "present") return loaded._tag;
   const held = yield* cache
     .loadThread(environmentId, threadId)
     .pipe(Effect.orElseSucceed(() => Option.none()));
   if (Option.isSome(held) && held.value.snapshotSequence >= loaded.snapshot.snapshotSequence) {
-    return true;
+    return "current" as const;
   }
   yield* cache.saveThread(environmentId, {
     ...loaded.snapshot,
@@ -62,5 +71,5 @@ export const copySharedThreadFork = Effect.fn("ColleagueCopy.copyThread")(functi
           hasMoreHistory: loaded.history.hasMoreHistory,
         }),
   });
-  return true;
+  return "current" as const;
 });

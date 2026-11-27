@@ -63,7 +63,11 @@ export const useCollaboratorSessionFork = (environmentId: EnvironmentId) => {
   const sharedCopy = useAtomValue(
     environmentSnapshotAtom(environmentId),
     (snapshot) =>
-      snapshot?.threads.some((thread) => thread.collaboratorFork !== undefined) ?? false,
+      snapshot !== null &&
+      snapshot !== undefined &&
+      [...snapshot.threads, ...snapshot.archivedThreads].some(
+        (thread) => thread.collaboratorFork !== undefined,
+      ),
   );
   return session ?? sharedCopy;
 };

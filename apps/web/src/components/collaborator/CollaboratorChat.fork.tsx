@@ -158,6 +158,7 @@ export function useCollaboratorChatFork(
   );
   const hostOffline = useColleagueOfflineBannerFork(
     access === undefined ? null : (thread?.environmentId ?? null),
+    access === undefined ? null : (thread?.id ?? null),
   );
 
   const submitForApproval = (event?: { preventDefault: () => void }) => {
