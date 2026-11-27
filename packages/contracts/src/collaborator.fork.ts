@@ -120,12 +120,20 @@ export const CollaboratorSubmitMessageInputFork = Schema.Struct({
 });
 export type CollaboratorSubmitMessageInputFork = typeof CollaboratorSubmitMessageInputFork.Type;
 
-/** The host sends or dismisses; a collaborator may only dismiss, withdrawing or clearing their own. */
-export const CollaboratorResolveMessageInputFork = Schema.Struct({
-  threadId: ThreadId,
-  messageId: TrimmedNonEmptyString,
-  decision: Schema.Literals(["send", "dismiss"]),
-});
+const ResolvedMessage = { threadId: ThreadId, messageId: TrimmedNonEmptyString };
+
+/**
+ * The host sends, dismisses, or replies in the thread with `text`, which the agent reads as said
+ * to the person; a collaborator may only dismiss, withdrawing or clearing their own.
+ */
+export const CollaboratorResolveMessageInputFork = Schema.Union([
+  Schema.Struct({ ...ResolvedMessage, decision: Schema.Literals(["send", "dismiss"]) }),
+  Schema.Struct({
+    ...ResolvedMessage,
+    decision: Schema.Literal("reply"),
+    text: CollaboratorMessageText,
+  }),
+]);
 export type CollaboratorResolveMessageInputFork = typeof CollaboratorResolveMessageInputFork.Type;
 
 export const COLLABORATOR_DRAFT_TEXT_MAX_CHARS = 4_000;
@@ -201,6 +209,8 @@ export const CollaboratorAttributionFork = Schema.Struct({
   sentByHost: Schema.optional(Schema.Literal(true)),
   /** The host's own message in a shared thread: named for the agent, shown as the host's. */
   host: Schema.optional(Schema.Literal(true)),
+  /** The host's reply to a waiting message, which the agent never got: its author and words. */
+  replyTo: Schema.optional(Schema.Struct({ name: Schema.String, text: Schema.String })),
 });
 export type CollaboratorAttributionFork = typeof CollaboratorAttributionFork.Type;
 
