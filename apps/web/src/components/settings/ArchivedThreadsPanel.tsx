@@ -23,6 +23,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { archivedRowControlsFork } from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/archive-read-only-import
 
 import { msg, T, useGT, useMessages } from "gt-react";
 import { type ReactNode, useRef, useState } from "react";
@@ -308,6 +309,7 @@ export function ArchivedThreadsPanel() {
             ))}
           </div>
         }
+        {...archivedRowControlsFork(thread)} // fork-hook: colleague-collab/archive-read-only
       />
     );
   };
