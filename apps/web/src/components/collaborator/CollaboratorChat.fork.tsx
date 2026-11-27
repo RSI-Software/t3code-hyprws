@@ -1,7 +1,7 @@
-// Fork-only (colleague-collab): the collaborator parts of a thread view. Messages waiting for the
-// host sit at the end of the timeline like queued ones, with Send and Dismiss for the host and
-// Withdraw for their author. An `approve` collaborator's composer queues for the host instead of sending, a thread
-// its host stopped sharing stays readable with a locked composer, and a team thread shows no composer.
+// Fork-only (colleague-collab): the collaborator parts of a thread view. Waiting messages sit at
+// the timeline's end with Send, Reply and Dismiss for the host and Withdraw for their author; a
+// reply goes from the host's composer. An `approve` collaborator's composer queues for the host, a
+// thread its host stopped sharing stays readable and locked, and a team thread shows no composer.
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -33,6 +33,7 @@ import {
   EyeIcon,
   HourglassIcon,
   MessageCircleQuestionIcon,
+  ReplyIcon,
   UnplugIcon,
   XIcon,
 } from "lucide-react";
@@ -162,6 +163,7 @@ export function useCollaboratorChatFork(
     (message) => message.threadId === thread?.id,
   );
   const threadKey = thread?.id ?? null;
+  const [replyingTo, setReplyingTo] = useState<CollaboratorMessageFork | null>(null);
   const waitingIds = waiting.map(({ id }) => id).join(",");
   const previousWaiting = useRef({ threadKey, waitingIds });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the timeline to a new waiting message, which joins the list footer the list does not follow
@@ -174,9 +176,10 @@ export function useCollaboratorChatFork(
     if (followingTimeline && waitingIds.split(",").some((id) => id !== "" && !seen.has(id))) {
       scrollToEnd(true);
     }
-  }, [threadKey, waitingIds, followingTimeline, scrollToEnd]);
+  }, [threadKey, waitingIds, followingTimeline, scrollToEnd, previousWaiting]);
   const submit = useAtomCommand(submitMessageCommand);
   const outbox = useColleagueOutboxFork(thread);
+  const resolve = useAtomCommand(resolveMessageCommand);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const access = thread?.collaboratorFork;
   const configs = useServerConfigs();
@@ -197,6 +200,11 @@ export function useCollaboratorChatFork(
   const browsing = useColleagueInboxFork().browsing;
   const browsingName =
     browsing !== null && browsing.environmentId === thread?.environmentId ? browsing.name : null;
+  const replying = access === undefined && replyingTo?.threadId === thread?.id ? replyingTo : null;
+  // Its author may withdraw it, or another tab answer it; the draft must not then reach the agent.
+  const replyGone =
+    replying !== null &&
+    !waiting.some((message) => message.id === replying.id && message.outcome === undefined);
 
   /** Hands the composer's text to `deliver`, clearing it once that lands. Text only. */
   const sendText =
@@ -207,6 +215,7 @@ export function useCollaboratorChatFork(
         readonly attachmentsDescription: string;
         readonly failure: string;
       },
+      sent?: () => void,
     ) =>
     (event?: { preventDefault: () => void }) => {
       event?.preventDefault();
@@ -230,8 +239,10 @@ export function useCollaboratorChatFork(
               gt("Could not deliver the message."),
           });
         }
+        if (result._tag !== "Success") return;
+        sent?.();
         // Keep anything typed while the message was on its way.
-        if (result._tag !== "Success" || prompt() !== text) return;
+        if (prompt() !== text) return;
         clearComposerContent(draftTarget);
         composerRef.current?.resetCursorState();
       });
@@ -261,6 +272,29 @@ export function useCollaboratorChatFork(
   const editQueued = async (message: { readonly id: string; readonly text: string }) => {
     if (!(await outbox.unqueue(message.id))) return;
     composerRef.current?.insertTextAtEnd(message.text, { ensureLeadingBoundary: true });
+    composerRef.current?.focusAtEnd();
+  };
+
+  const sendReply = (message: CollaboratorMessageFork) =>
+    sendText(
+      (text) =>
+        thread == null
+          ? null
+          : resolve({
+              environmentId: thread.environmentId,
+              input: { threadId: thread.id, messageId: message.id, decision: "reply", text },
+            }),
+      {
+        attachmentsTitle: gt("Only text goes in a reply"),
+        attachmentsDescription: gt("Remove the attachments to send this reply."),
+        failure: gt("Could not send the reply"),
+      },
+      // A newer reply target chosen while this one was on its way stays.
+      () => setReplyingTo((current) => (current?.id === message.id ? null : current)),
+    );
+
+  const startReply = (message: CollaboratorMessageFork) => {
+    setReplyingTo(message);
     composerRef.current?.focusAtEnd();
   };
 
@@ -313,6 +347,28 @@ export function useCollaboratorChatFork(
           sendDisabledReason: gt("Team project threads are read only."),
         };
       }
+      if (replying !== null) {
+        const gone = gt("{name}'s message is no longer waiting", { name: replying.name });
+        return {
+          onSend: sendReply(replying),
+          ...(replyGone ? { sendDisabledReason: gone } : {}),
+          bannerItems: [
+            {
+              id: "collaborator-reply",
+              variant: replyGone ? "warning" : "info",
+              group: "attention",
+              icon: <ReplyIcon />,
+              title: replyGone ? gone : gt("Replying to {name}", { name: replying.name }),
+              description: (
+                <span className="line-clamp-2">{assistantCitationsToPlainText(replying.text)}</span>
+              ),
+              dismissLabel: gt("Cancel reply"),
+              onDismiss: () => setReplyingTo(null),
+            } satisfies ComposerBannerStackItem,
+            ...bannerItems,
+          ],
+        };
+      }
       // While a saved colleague's machine is away, a send waits here for it. The reconnect
       // banner stays; only the composer's offline lock lifts.
       const offline = outbox.queues
@@ -344,6 +400,8 @@ export function useCollaboratorChatFork(
                     environmentId={thread.environmentId}
                     messages={waiting}
                     asAuthor={access !== undefined}
+                    replyingTo={replying?.id ?? null}
+                    onReply={startReply}
                   />
                 )}
                 {outbox.queued.length === 0 ? null : (
@@ -367,11 +425,15 @@ function WaitingMessages({
   environmentId,
   messages,
   asAuthor,
+  replyingTo,
+  onReply,
 }: {
   readonly environmentId: EnvironmentId;
   readonly messages: ReadonlyArray<CollaboratorMessageFork>;
-  /** The collaborator sees their own, to withdraw; the host sends or dismisses. */
+  /** The collaborator sees their own, to withdraw; the host sends, replies or dismisses. */
   readonly asAuthor: boolean;
+  readonly replyingTo: string | null;
+  readonly onReply: (message: CollaboratorMessageFork) => void;
 }) {
   const gt = useGT();
   const timestampFormat = useEnvironmentSettings(environmentId).timestampFormat;
@@ -453,6 +515,26 @@ function WaitingMessages({
                       </Button>
                     </TooltipTrigger>
                     <TooltipPopup>{gt("Send to the agent")}</TooltipPopup>
+                  </Tooltip>
+                )}
+                {asAuthor ? null : (
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="flex shrink-0" />}>
+                      <Button
+                        size="xs"
+                        variant="ghost-muted"
+                        disabled={busy}
+                        aria-pressed={replyingTo === message.id}
+                        aria-label={gt("Reply to {name}", { name: message.name })}
+                        onClick={() => onReply(message)}
+                      >
+                        <ReplyIcon />
+                        {gt("Reply", { $context: "verb, answer a person's message" })}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipPopup>
+                      {gt("Answer {name} in the thread", { name: message.name })}
+                    </TooltipPopup>
                   </Tooltip>
                 )}
                 <Tooltip>

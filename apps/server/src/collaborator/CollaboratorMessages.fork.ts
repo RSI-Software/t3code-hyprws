@@ -1,5 +1,6 @@
 // Fork-only (colleague-collab): a collaborator with `approve` access sends nothing to the agent.
-// Their messages wait here until the host sends or dismisses each one, or they withdraw it.
+// Their messages wait here until the host sends, replies to or dismisses each one, or they
+// withdraw it.
 // A dismissed one stays, so its author sees the outcome, until they clear it.
 import {
   CollaboratorMessageBusyErrorFork,
@@ -47,6 +48,9 @@ const forcedRule = (people: string) =>
 
 const PREFIX_ENDS = [`${QUIET_MARKER} and nothing else.]\n\n`, `${FORCED_END}]\n\n`];
 
+// Enough of a waiting message for the agent to tell what the host's reply answers.
+const REPLY_QUOTE_MAX = 500;
+
 /**
  * A queued edit starts from the already attributed text, maybe under an older share list or the
  * other rule, so any prefix by the same author is replaced rather than nested.
@@ -77,22 +81,39 @@ export const collaboratorAttribution = (name: string, text: string, forced = fal
   return { text: prompt, context: { collaboratorFork: { name, text: own } } };
 };
 
-/** The host's own message in a shared thread names them too; people still see it as the host's. */
+/**
+ * The host's own message in a shared thread names them too; people still see it as the host's.
+ * A reply to a waiting message tells the agent it answers a person, and keeps what it answers.
+ */
 export const hostAttribution = (
   host: string | undefined,
   others: ReadonlyArray<string>,
   text: string,
   forced = false,
+  replyTo?: { readonly name: string; readonly text: string },
 ) => {
+  const reply =
+    replyTo === undefined
+      ? ""
+      : ` in reply to this message ${replyTo.name} wrote to the owner, which you were not sent: ` +
+        `"${replyTo.text.length > REPLY_QUOTE_MAX ? `${replyTo.text.slice(0, REPLY_QUOTE_MAX)}…` : replyTo.text}". ` +
+        `It answers ${replyTo.name}, not anything you asked, so it is between people, even when it turns down or puts off what ${replyTo.name} asked for, unless it also asks you to do something`;
   const { own, text: prompt } = attributed(
-    `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below. `,
+    `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below${reply}. `,
     `${host ?? "the owner"} and ${others.join(" and ")}`,
     text,
     forced,
   );
   return {
     text: prompt,
-    context: { collaboratorFork: { name: host ?? "", text: own, host: true as const } },
+    context: {
+      collaboratorFork: {
+        name: host ?? "",
+        text: own,
+        host: true as const,
+        ...(replyTo === undefined ? {} : { replyTo }),
+      },
+    },
   };
 };
 
@@ -118,7 +139,13 @@ const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
   ...(row.force_reply === 1 ? { forceReplyFork: true as const } : {}),
 });
 
-export const makeCollaboratorMessages = Effect.gen(function* () {
+/** `people` names the host and a thread's collaborators, for the host's reply to the agent. */
+export const makeCollaboratorMessages = Effect.fn("makeCollaboratorMessages")(function* (
+  people: (threadId: string) => Effect.Effect<{
+    readonly host: string | undefined;
+    readonly others: ReadonlyArray<string>;
+  }>,
+) {
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
@@ -177,8 +204,9 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
   });
 
   /**
-   * `subject` null is the host, who sends or dismisses a waiting message; a collaborator may
-   * only remove their own, withdrawing it while it waits or clearing it once dismissed.
+   * `subject` null is the host, who sends, dismisses or replies to a waiting message; a
+   * collaborator may only remove their own, withdrawing it while it waits or clearing it once
+   * dismissed.
    */
   const resolve = Effect.fn("CollaboratorMessagesFork.resolve")(function* (
     input: CollaboratorResolveMessageInputFork,
@@ -195,16 +223,31 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     if (message === undefined) {
       return yield* new CollaboratorMessageMissingErrorFork({ messageId: input.messageId });
     }
-    if (input.decision === "send" && subject === null) {
-      const forced = message.forceReplyFork === true;
-      const attribution = collaboratorAttribution(message.name, message.text, forced);
+    if (input.decision !== "dismiss" && subject === null) {
+      const reply = input.decision === "reply";
+      // A reply answers the person, so a forced ask on the request does not carry over.
+      const forced = !reply && message.forceReplyFork === true;
+      const attribution =
+        input.decision === "reply"
+          ? yield* people(message.threadId).pipe(
+              Effect.map(({ host, others }) =>
+                hostAttribution(host, others, input.text, false, {
+                  name: message.name,
+                  text: message.text,
+                }),
+              ),
+            )
+          : collaboratorAttribution(message.name, message.text, forced);
       const context: OrchestrationMessageContext = {
         version: 1,
         records: [],
         ...(forced ? { forceReplyFork: true as const } : {}),
-        collaboratorFork: { ...attribution.context.collaboratorFork, sentByHost: true },
+        collaboratorFork: reply
+          ? attribution.context.collaboratorFork
+          : { ...attribution.context.collaboratorFork, sentByHost: true },
       };
-      // Ids from the message, so a retry after a failed delete replays instead of sending twice.
+      // Ids from the message, so a retry after a failed delete replays instead of sending twice;
+      // a reply shares it, so a repeat flush of the request it answers stays delivered.
       yield* threads
         .dispatch({
           type: "message.dispatch",

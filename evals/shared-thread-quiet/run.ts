@@ -55,7 +55,13 @@ const attributed = (message: SharedThreadMessage) =>
   arm === "rsi-712"
     ? attributed712(message)
     : message.from === "owner"
-      ? hostAttribution(HOST, [COLLABORATOR], message.text, message.forced).text
+      ? hostAttribution(
+          HOST,
+          [COLLABORATOR],
+          message.text,
+          message.forced,
+          message.replyTo === undefined ? undefined : { name: COLLABORATOR, text: message.replyTo },
+        ).text
       : collaboratorAttribution(COLLABORATOR, message.text, message.forced).text;
 
 // Keep the developer's CLAUDE.md, hooks and MCP servers out of the agent's session; auth stays.
