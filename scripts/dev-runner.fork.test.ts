@@ -12,6 +12,7 @@ import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/process";
+import { parse as parseToml } from "smol-toml";
 
 import { runDevRunnerWithInput } from "./dev-runner.ts";
 
@@ -111,7 +112,7 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
       assert.equal(kept?.T3CODE_DEV_ELECTRON_USER_DATA, "/tmp/mine");
     }).pipe(Effect.scoped),
   );
-  it.effect("runs worktree Claude from its own home with only the developer's sign-in", () =>
+  it.effect("runs worktree Claude and Codex from their own homes with only the sign-in", () =>
     Effect.gen(function* () {
       const cwd = yield* makeWorktree;
       const claude = NodePath.join(cwd, "home", ".claude");
@@ -129,6 +130,25 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
           hooks: { Stop: [] },
         }),
       );
+      const codex = NodePath.join(cwd, "home", ".codex");
+      NodeFS.mkdirSync(codex, { recursive: true });
+      const tokens = { access_token: "a", refresh_token: "r", account_id: "x" };
+      NodeFS.writeFileSync(
+        NodePath.join(codex, "auth.json"),
+        JSON.stringify({ auth_mode: "chatgpt", tokens }),
+      );
+      NodeFS.writeFileSync(
+        NodePath.join(codex, "config.toml"),
+        [
+          'model_provider = "proxy"',
+          "[model_providers.proxy]",
+          'base_url = "https://proxy"',
+          "[mcp_servers.linear]",
+          'command = "linear"',
+          "[features]",
+          "hooks = true",
+        ].join("\n"),
+      );
       const env = yield* spawnedEnv({ cwd, home: NodePath.join(cwd, "home") });
       const own = NodePath.join(cwd, ".t3", "claude");
       assert.equal(env?.CLAUDE_CONFIG_DIR, own);
@@ -142,8 +162,23 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
         apiKeyHelper: "helper",
         env: { ANTHROPIC_BASE_URL: "https://proxy" },
       });
+      const ownCodex = NodePath.join(cwd, ".t3", "codex");
+      assert.equal(env?.CODEX_HOME, ownCodex);
+      assert.deepEqual(
+        JSON.parse(NodeFS.readFileSync(NodePath.join(ownCodex, "auth.json"), "utf8")),
+        { auth_mode: "chatgpt", tokens: { ...tokens, refresh_token: "" } },
+      );
+      assert.deepEqual(
+        parseToml(NodeFS.readFileSync(NodePath.join(ownCodex, "config.toml"), "utf8")),
+        {
+          model_provider: "proxy",
+          model_providers: { proxy: { base_url: "https://proxy" } },
+          features: { apps: false },
+        },
+      );
       const explicit = yield* spawnedEnv({ cwd, t3Home: NodePath.join(cwd, "explicit-home") });
       assert.isUndefined(explicit?.CLAUDE_CONFIG_DIR);
+      assert.isUndefined(explicit?.CODEX_HOME);
     }).pipe(Effect.scoped),
   );
   it.effect("disables zmux for worktree state unless opted back in", () =>

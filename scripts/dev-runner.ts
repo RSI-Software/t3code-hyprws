@@ -21,7 +21,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { ChildProcess } from "effect/process";
 
 import { defaultDevMemoryLimitBytes, enforceDevMemoryLimit } from "./lib/dev-memory-limit.ts";
-import { isolateDevClaudeHome } from "./lib/dev-claude-home.fork.ts"; // fork-hook: fork-meta/dev-runner-claude-home-import
+import { isolateDevAgentHomes } from "./lib/dev-agent-home.fork.ts"; // fork-hook: fork-meta/dev-runner-agent-home-import
 import { acquireDevRunnerLock } from "./lib/dev-runner-lock.ts";
 import { type DevShareError, shareDevServer, unshareDevServer } from "./lib/dev-share.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
@@ -928,7 +928,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     worktreeHome: baseDir === worktreeHome ? worktreeHome : undefined,
     env,
   });
-  yield* isolateDevClaudeHome(env, input.mode, baseDir === worktreeHome ? baseDir : undefined); // fork-hook: fork-meta/dev-runner-claude-home
+  yield* isolateDevAgentHomes(env, input.mode, baseDir === worktreeHome ? baseDir : undefined); // fork-hook: fork-meta/dev-runner-agent-home
 
   const args = [...(built ? BUILT_DEV_ARGS : MODE_ARGS[input.mode]), ...input.runArgs];
   const spawnCommand = yield* resolveSpawnCommand("vp", args, { env });
