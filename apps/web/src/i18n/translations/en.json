@@ -6191,6 +6191,7 @@
   "a6615c82020deb59": "Connect",
   "05780a7d2cfae2ef": "Connect to an environment first.",
   "1fb4b6adec9303c7": "T3 Connect is not available in this build.",
+  "8ca015df3704e556": "T3 Connect is off in this build. Cloud apps like Claude and Poke cannot reach {url}. Use an app on this computer, or an https route such as Tailscale HTTPS.",
   "5f46e2ad137db6ca": "What can the app do?",
   "a0105a8d01f5a369": "What can {app} do?",
   "bdca1a253b468137": "Runs commands and edits files without asking",
