@@ -8,7 +8,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import { askSkippedLineFork } from "./QuietTurnRow.fork";
+import { askSkippedLineFork, canAskAgentFork } from "./QuietTurnRow.fork";
 
 const now = DateTime.makeUnsafe("2026-11-27T10:00:00.000Z");
 const base = {
@@ -73,5 +73,22 @@ describe("askSkippedLineFork", () => {
 
   it("falls back when the line is not loaded", () => {
     expect(askSkippedLineFork([], quiet)).toBe("Answer the message above.");
+  });
+});
+
+describe("canAskAgentFork", () => {
+  const idle = {
+    canOperateThread: true,
+    isWorking: false,
+    isRevertingCheckpoint: false,
+    latestRunId: RunId.make("run-2"),
+    quiet,
+    shell: {},
+  };
+
+  it("offers the ask only on the latest idle turn, never during a rewind", () => {
+    expect(canAskAgentFork(idle)).toBe(true);
+    expect(canAskAgentFork({ ...idle, isRevertingCheckpoint: true })).toBe(false);
+    expect(canAskAgentFork({ ...idle, latestRunId: RunId.make("run-3") })).toBe(false);
   });
 });

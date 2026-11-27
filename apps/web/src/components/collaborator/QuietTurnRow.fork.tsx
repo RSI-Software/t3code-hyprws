@@ -4,8 +4,11 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ThreadStructureTurnItem } from "@t3tools/client-runtime/state/models";
-import type { OrchestrationV2TurnItem } from "@t3tools/contracts";
+import type {
+  EnvironmentThreadShell,
+  ThreadStructureTurnItem,
+} from "@t3tools/client-runtime/state/models";
+import type { OrchestrationV2TurnItem, RunId } from "@t3tools/contracts";
 import { T, useGT } from "gt-react";
 import { EarIcon, MessageCircleQuestionIcon } from "lucide-react";
 import { use, useState } from "react";
@@ -50,6 +53,27 @@ export const askSkippedLineFork = (
   return `Answer ${said.name}'s message: "${quoted}"`;
 };
 
+/**
+ * Whether a quiet row offers "Ask the agent": on the thread's latest turn, while the agent is idle
+ * and no rewind is removing the skipped line.
+ */
+export const canAskAgentFork = (input: {
+  readonly canOperateThread: boolean;
+  readonly isWorking: boolean;
+  readonly isRevertingCheckpoint: boolean;
+  readonly latestRunId: RunId | null;
+  readonly quiet: Pick<OrchestrationV2TurnItem, "runId">;
+  readonly shell: Pick<EnvironmentThreadShell, "collaboratorFork">;
+}) =>
+  input.canOperateThread &&
+  !input.isWorking &&
+  !input.isRevertingCheckpoint &&
+  input.quiet.runId !== null &&
+  input.quiet.runId === input.latestRunId &&
+  // Approval sends text only, so the forced ask stays with those who send directly.
+  input.shell.collaboratorFork !== "approve" &&
+  input.shell.collaboratorFork !== "frozen";
+
 export function QuietTurnRowFork({ row }: { readonly row: MessageRow }) {
   return (
     <div className="flex min-w-0 items-center gap-2 px-1 py-0.5 text-muted-foreground text-xs">
@@ -76,13 +100,7 @@ function AskAgentFork({ quiet }: { readonly quiet: OrchestrationV2TurnItem }) {
   if (
     threadRef === null ||
     shell === null ||
-    !ctx.canOperateThread ||
-    activity.isWorking ||
-    quiet.runId === null ||
-    quiet.runId !== activity.latestRunId ||
-    // Approval sends text only, so the forced ask stays with those who send directly.
-    shell.collaboratorFork === "approve" ||
-    shell.collaboratorFork === "frozen"
+    !canAskAgentFork({ ...activity, canOperateThread: ctx.canOperateThread, quiet, shell })
   ) {
     return null;
   }
