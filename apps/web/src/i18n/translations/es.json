@@ -3330,6 +3330,12 @@
   "bb081b4501ebd5a7": "Enviar",
   "ad8c4a4debf2aa28": "Enviar al agente",
   "18a2f729d0cd05f2": "Retirar mensaje",
+  "ebd1f4ca59d9596f": "Solo el texto espera a {name}",
+  "81f11dcfc7928654": "Quita los adjuntos para poner este mensaje en cola.",
+  "c30dcaac3c11235b": "No se pudo poner el mensaje en cola",
+  "27b886dd348ddfce": "Se envía cuando {name} vuelva",
+  "8b4eabdfc58b5fa0": "Editar",
+  "40a55ffa2bc11c31": "No se pudo enviar tu mensaje en cola a {name}",
   "2b2f6ceaad1c5c41": "Descartar el mensaje de {name}",
   "e9d69bd661f6b1d9": "Retirar",
   "1965b3aad7088aad": "{name} envió un mensaje para aprobación",
@@ -13100,11 +13106,5 @@
   "201490988858b511": "retirada por {by}",
   "99451a5d2d40440f": "Retirada por {by}.",
   "3ee30a50b70fffab": "Retirada por {by}: {reason}",
-  "92e129bf413a1220": "retirada",
-  "ebd1f4ca59d9596f": "Solo el texto espera a {name}",
-  "81f11dcfc7928654": "Quita los adjuntos para poner este mensaje en cola.",
-  "c30dcaac3c11235b": "No se pudo poner el mensaje en cola",
-  "27b886dd348ddfce": "Se envía cuando {name} vuelva",
-  "8b4eabdfc58b5fa0": "Editar",
-  "40a55ffa2bc11c31": "No se pudo enviar tu mensaje en cola a {name}"
+  "92e129bf413a1220": "retirada"
 }
