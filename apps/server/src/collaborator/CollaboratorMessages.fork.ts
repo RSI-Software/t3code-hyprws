@@ -149,10 +149,11 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
       const sent = yield* receipts
         .getByCommandId(CommandId.make(collaboratorMessageCommandId(input.id)))
         .pipe(Effect.mapError(undelivered));
-      // A rejected send never reached the thread, so this one still needs to.
       if (Option.exists(sent, (r) => r.status === "accepted" && r.threadId === input.threadId)) {
         return;
       }
+      // A rejected id replays its rejection forever; the sender edits it to try again.
+      if (Option.isSome(sent)) return yield* undelivered(sent.value.error);
     }
     const waiting = messages.filter(
       (message) =>

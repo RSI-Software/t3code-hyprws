@@ -598,14 +598,12 @@ database("CollaboratorSharesFork", (it) => {
         yield* resolve(host, "outbox-1", "send");
         yield* sam["collaborator.submitMessageFork"](flushed);
         assert.deepStrictEqual(yield* waiting(host), []);
-        // A send that was refused never reached the thread, so its retry waits again.
+        // A refused send never reached the thread and can never run under its id, so its retry
+        // fails rather than waiting or counting as sent.
         rejectedReceipts.add("collaborator-message:outbox-2");
-        yield* sam["collaborator.submitMessageFork"]({ ...flushed, id: "outbox-2" });
-        assert.deepStrictEqual(
-          (yield* waiting(host)).map(({ id }) => id),
-          ["outbox-2"],
-        );
-        yield* resolve(sam, "outbox-2", "dismiss");
+        const retry = sam["collaborator.submitMessageFork"]({ ...flushed, id: "outbox-2" });
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(retry)));
+        assert.deepStrictEqual(yield* waiting(host), []);
         for (const text of ["a", "b", "c"]) {
           yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text });
         }

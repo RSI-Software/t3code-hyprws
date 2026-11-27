@@ -60,6 +60,8 @@ const outboxFamily = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRu
 });
 
 const NO_QUEUED: ReadonlyArray<ColleagueQueuedMessageFork> = [];
+const FIRST_RETRY_MS = 30_000;
+const LAST_RETRY_MS = 10 * 60_000;
 const quiet = { reportFailure: false } as const;
 
 /** This app's own server, when it keeps saved colleagues and so their queue. */
@@ -212,9 +214,9 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   const submit = useAtomCommand(submitMessageCommand, quiet);
   const startTurn = useOrchestrationCommand(threadEnvironment.startTurn, quiet);
   const unqueue = useAtomCommand(unqueueCommand, quiet);
-  // Messages that failed to send or leave the queue while their colleague stayed connected; a
-  // reconnect tries them again.
-  const failed = useRef(new Set<string>());
+  // Messages that failed to send or leave the queue: each waits twice as long as before it tries
+  // again while their colleague stays connected, and a reconnect tries it at once.
+  const failed = useRef(new Map<string, { readonly tries: number; readonly retryAt: number }>());
   const flushing = useRef(false);
   // The queue as it is now, so a message withdrawn or edited mid-flush is skipped.
   const live = useRef(queued);
@@ -230,10 +232,18 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
       (shell) => shell.environmentId === message.environmentId && shell.id === message.threadId,
     );
   const route = (message: ColleagueQueuedMessageFork): OutboxRouteFork => {
-    if (!connected.has(message.environmentId) || failed.current.has(message.id)) return null;
+    if (!connected.has(message.environmentId)) return null;
+    if ((failed.current.get(message.id)?.retryAt ?? 0) > Date.now()) return null;
     if (!live.current.some((candidate) => candidate.id === message.id)) return null;
     const access = shellOf(message)?.collaboratorFork;
     return access === "send" || access === "approve" ? access : null;
+  };
+  /** Holds a message after a failure; true the first time, when the sender should hear of it. */
+  const hold = (id: string) => {
+    const tries = (failed.current.get(id)?.tries ?? 0) + 1;
+    const wait = Math.min(FIRST_RETRY_MS * 2 ** (tries - 1), LAST_RETRY_MS);
+    failed.current.set(id, { tries, retryAt: Date.now() + wait });
+    return tries === 1;
   };
   const deliver = async (message: ColleagueQueuedMessageFork, how: "send" | "approve") => {
     const shell = shellOf(message);
@@ -263,8 +273,7 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
             },
           });
     if (result._tag === "Success") return true;
-    failed.current.add(message.id);
-    if (!isAtomCommandInterrupted(result)) {
+    if (hold(message.id) && !isAtomCommandInterrupted(result)) {
       const environment = environments.find(
         (candidate) => candidate.environmentId === message.environmentId,
       );
@@ -283,20 +292,27 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   // A failed removal holds the message too; its retry lands once, as the host skips a repeat.
   const remove = async (message: ColleagueQueuedMessageFork) => {
     if ((await unqueue({ environmentId: server, input: { id: message.id } }))._tag === "Success") {
+      failed.current.delete(message.id);
       return true;
     }
-    failed.current.add(message.id);
+    hold(message.id);
     return false;
   };
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- delivers to a colleague's server, an external system, once its environment connects.
   useEffect(() => {
     live.current = queued;
-    for (const id of failed.current) {
+    for (const id of failed.current.keys()) {
       const message = queued.find((candidate) => candidate.id === id);
       if (message === undefined || !connected.has(message.environmentId)) failed.current.delete(id);
     }
-    if (flushing.current || !colleagueOutboxReadyFork(queued, route)) return;
+    if (flushing.current) return;
+    if (!colleagueOutboxReadyFork(queued, route)) {
+      const next = Math.min(...[...failed.current.values()].map(({ retryAt }) => retryAt));
+      if (!Number.isFinite(next)) return;
+      const retry = setTimeout(() => setRound((value) => value + 1), next - Date.now());
+      return () => clearTimeout(retry);
+    }
     flushing.current = true;
     void flushColleagueOutboxFork(queued, { route, deliver, remove }).finally(() => {
       flushing.current = false;
