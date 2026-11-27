@@ -1,7 +1,9 @@
 // Fork-only (colleague-collab): what "Fork to my machine" copies from a colleague's thread. It reads
 // the host's thread over HTTP while the host is reachable, history page by history page, and else
-// this device's copy of it, which the web app keeps current while the host is reachable.
+// this device's copy of it, which the web app keeps current while the host is reachable. Images and
+// files the fork cannot copy are named in their message and in the new thread's notice.
 import type {
+  ChatAttachment,
   ColleagueThreadMessageFork,
   EnvironmentId,
   OrchestrationV2TurnItem,
@@ -23,12 +25,18 @@ import * as ThreadSnapshotHttp from "./threadSnapshotHttp.ts";
 const MAX_MESSAGES = 10_000;
 const MAX_HISTORY_PAGES = 200;
 
+/** One message as read, with the host's own attachments, which only the host holds bytes for. */
+export interface ColleagueReadMessageFork {
+  readonly role: ColleagueThreadMessageFork["role"];
+  readonly text: string;
+  readonly createdAt: string;
+  readonly attachments: ReadonlyArray<ChatAttachment>;
+}
+
 export interface ColleagueThreadReadFork {
-  readonly messages: ReadonlyArray<ColleagueThreadMessageFork>;
+  readonly messages: ReadonlyArray<ColleagueReadMessageFork>;
   /** The thread's oldest messages are missing. */
   readonly partial: boolean;
-  /** Images and files the messages carried, which a fork does not copy. */
-  readonly omittedAttachments: number;
   /** `host`: read live. `copy`: this device's copy. `none`: neither, so the fork only links. */
   readonly source: "host" | "copy" | "none";
 }
@@ -36,30 +44,67 @@ export interface ColleagueThreadReadFork {
 /** The conversation messages among `items`, oldest first, each item once. */
 const colleagueThreadMessagesFork = (
   items: ReadonlyArray<OrchestrationV2TurnItem>,
-): ReadonlyArray<ColleagueThreadMessageFork> => {
+): ReadonlyArray<ColleagueReadMessageFork> => {
   const seen = new Set<string>();
-  return items.flatMap((item): ReadonlyArray<ColleagueThreadMessageFork> => {
+  return items.flatMap((item): ReadonlyArray<ColleagueReadMessageFork> => {
     if (seen.has(item.id)) return [];
     seen.add(item.id);
     if (item.type !== "user_message" && item.type !== "assistant_message") return [];
-    // A fork copies no images or files, so each message names the ones it carried.
-    const names = item.type === "user_message" ? item.attachments.map(({ name }) => name) : [];
-    const text = [
-      item.text.trim() === "" ? "" : item.text,
-      names.length === 0 ? "" : `[Not copied: ${names.join(", ")}]`,
-    ]
-      .filter((part) => part !== "")
-      .join("\n\n");
-    if (text === "") return [];
+    const attachments = item.type === "user_message" ? item.attachments : [];
+    if (item.text.trim() === "" && attachments.length === 0) return [];
     return [
       {
         role: item.type === "user_message" ? "user" : "assistant",
-        text,
+        text: item.text.trim() === "" ? "" : item.text,
         createdAt: DateTime.formatIso(item.startedAt ?? item.updatedAt),
+        attachments,
       },
     ];
   });
 };
+
+/**
+ * The messages a fork sends: each with the copies `copy` made of its attachments on this server.
+ * An attachment `copy` fails on, or yields null for, is named in its message and in
+ * `missingAttachments` instead.
+ */
+export const colleagueForkMessagesFork = Effect.fn("ColleagueFork.copyAttachments")(function* <
+  E,
+  R,
+>(
+  messages: ReadonlyArray<ColleagueReadMessageFork>,
+  copy: (attachment: ChatAttachment) => Effect.Effect<ChatAttachment | null, E, R>,
+) {
+  const copies = yield* Effect.forEach(
+    messages,
+    (message) =>
+      Effect.forEach(message.attachments, (attachment) =>
+        copy(attachment).pipe(Effect.orElseSucceed(() => null)),
+      ),
+    { concurrency: 3 },
+  );
+  const missingAttachments: Array<string> = [];
+  const forked = messages.flatMap((message, index): ReadonlyArray<ColleagueThreadMessageFork> => {
+    const copied = copies[index]!.filter((attachment) => attachment !== null);
+    const missing = message.attachments
+      .filter((_, at) => copies[index]![at] === null)
+      .map(({ name }) => name);
+    missingAttachments.push(...missing);
+    const text = [message.text, missing.length === 0 ? "" : `[Not copied: ${missing.join(", ")}]`]
+      .filter((part) => part !== "")
+      .join("\n\n");
+    if (text === "" && copied.length === 0) return [];
+    return [
+      {
+        role: message.role,
+        text,
+        createdAt: message.createdAt,
+        ...(copied.length === 0 ? {} : { attachments: copied }),
+      },
+    ];
+  });
+  return { messages: forked, missingAttachments };
+});
 
 /** What a fork copies from `items`: at most the latest `MAX_MESSAGES` messages. */
 const readOfFork = (
@@ -68,13 +113,9 @@ const readOfFork = (
   source: ColleagueThreadReadFork["source"],
 ): ColleagueThreadReadFork => {
   const messages = colleagueThreadMessagesFork(items);
-  const omittedAttachments = items.reduce(
-    (count, item) => count + (item.type === "user_message" ? item.attachments.length : 0),
-    0,
-  );
   return messages.length <= MAX_MESSAGES
-    ? { messages, partial, source, omittedAttachments }
-    : { messages: messages.slice(-MAX_MESSAGES), partial: true, source, omittedAttachments };
+    ? { messages, partial, source }
+    : { messages: messages.slice(-MAX_MESSAGES), partial: true, source };
 };
 
 /** The host's whole thread over HTTP: its bounded snapshot, then each older history page. */
