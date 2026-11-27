@@ -40,6 +40,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as RpcAuthorization from "../auth/RpcAuthorization.ts";
 import * as ServerConfig from "../config.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { collaboratorAttribution, hostAttribution } from "./CollaboratorMessages.fork.ts";
@@ -120,8 +121,17 @@ const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
       Effect.andThen(Effect.sync(() => hostDispatches.push(command as OrchestrationV2Command))),
       Effect.as({} as never),
     ),
-  hasReceipt: (commandId) =>
-    Effect.sync(() => hostDispatches.some((command) => command.commandId === commandId)),
+});
+// Sent commands are accepted; a test may file a rejected one here.
+const rejectedReceipts = new Set<string>();
+const receipts = Layer.mock(CommandReceiptStore.CommandReceiptStoreV2)({
+  getByCommandId: (commandId) =>
+    Effect.sync(() => {
+      const accepted = hostDispatches.some((command) => command.commandId === commandId);
+      return accepted || rejectedReceipts.has(commandId)
+        ? Option.some({ threadId: shared, status: accepted ? "accepted" : "rejected" } as never)
+        : Option.none();
+    }),
 });
 const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
   createPairingLink: (input) =>
@@ -149,6 +159,7 @@ const database = it.layer(
     NodeSqliteClient.layer({ filename: ":memory:" }),
     NodeCrypto.layer,
     threads,
+    receipts,
     auth,
     config,
     git,
@@ -587,6 +598,14 @@ database("CollaboratorSharesFork", (it) => {
         yield* resolve(host, "outbox-1", "send");
         yield* sam["collaborator.submitMessageFork"](flushed);
         assert.deepStrictEqual(yield* waiting(host), []);
+        // A send that was refused never reached the thread, so its retry waits again.
+        rejectedReceipts.add("collaborator-message:outbox-2");
+        yield* sam["collaborator.submitMessageFork"]({ ...flushed, id: "outbox-2" });
+        assert.deepStrictEqual(
+          (yield* waiting(host)).map(({ id }) => id),
+          ["outbox-2"],
+        );
+        yield* resolve(sam, "outbox-2", "dismiss");
         for (const text of ["a", "b", "c"]) {
           yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text });
         }

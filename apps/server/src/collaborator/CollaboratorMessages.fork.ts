@@ -17,11 +17,13 @@ import {
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { QUIET_MARKER } from "./quietTurn.fork.ts";
 
@@ -117,6 +119,7 @@ const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
 export const makeCollaboratorMessages = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   const random = yield* SecureRandom.SecureRandom;
   // One change at a time: two tabs cannot both send one message, and a submit cannot slip
   // between an unshare's purge and its freeze.
@@ -142,11 +145,14 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     // A flush from their queue may repeat after a lost reply: it already waits here, or it went
     // out under the id both delivery paths share.
     if (messages.some(({ id, subject }) => id === input.id && subject === input.subject)) return;
-    if (
-      input.id !== undefined &&
-      (yield* threads.hasReceipt(CommandId.make(collaboratorMessageCommandId(input.id))))
-    ) {
-      return;
+    if (input.id !== undefined) {
+      const sent = yield* receipts
+        .getByCommandId(CommandId.make(collaboratorMessageCommandId(input.id)))
+        .pipe(Effect.mapError(undelivered));
+      // A rejected send never reached the thread, so this one still needs to.
+      if (Option.exists(sent, (r) => r.status === "accepted" && r.threadId === input.threadId)) {
+        return;
+      }
     }
     const waiting = messages.filter(
       (message) =>

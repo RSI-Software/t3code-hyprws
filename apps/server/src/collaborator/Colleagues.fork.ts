@@ -67,6 +67,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
 import { makeColleagueOutbox } from "./ColleagueOutbox.fork.ts";
 import {
@@ -580,5 +581,5 @@ const make = Effect.gen(function* () {
 
 /** Carries the share service, which it builds on, so the server provides both from one place. */
 export const layer = Layer.effect(ColleaguesFork, make).pipe(
-  Layer.provideMerge(CollaboratorShares.layer),
+  Layer.provideMerge(CollaboratorShares.layer.pipe(Layer.provide(CommandReceiptStore.layer))),
 );

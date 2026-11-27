@@ -212,7 +212,8 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   const submit = useAtomCommand(submitMessageCommand, quiet);
   const startTurn = useOrchestrationCommand(threadEnvironment.startTurn, quiet);
   const unqueue = useAtomCommand(unqueueCommand, quiet);
-  // Messages that failed while their colleague stayed connected; a reconnect tries them again.
+  // Messages that failed to send or leave the queue while their colleague stayed connected; a
+  // reconnect tries them again.
   const failed = useRef(new Set<string>());
   const flushing = useRef(false);
   // The queue as it is now, so a message withdrawn or edited mid-flush is skipped.
@@ -279,8 +280,14 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
     }
     return false;
   };
-  const remove = async (message: ColleagueQueuedMessageFork) =>
-    (await unqueue({ environmentId: server, input: { id: message.id } }))._tag === "Success";
+  // A failed removal holds the message too; its retry lands once, as the host skips a repeat.
+  const remove = async (message: ColleagueQueuedMessageFork) => {
+    if ((await unqueue({ environmentId: server, input: { id: message.id } }))._tag === "Success") {
+      return true;
+    }
+    failed.current.add(message.id);
+    return false;
+  };
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- delivers to a colleague's server, an external system, once its environment connects.
   useEffect(() => {
