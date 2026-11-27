@@ -24,6 +24,7 @@ import {
 } from "../../keybindings";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
+import { forkKeybindingLabels } from "./keybindingLabels.fork"; // fork-hook: upstream-fixes/keybinding-labels-import
 
 // Rank every usage command; mixing rank and alphabetical comparisons makes order input-dependent.
 const usageCommandOrder = new Map<KeybindingCommand, number>(
@@ -465,6 +466,7 @@ export function buildKeybindingCommandOptions(
 }
 
 const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
+  ...forkKeybindingLabels, // fork-hook: upstream-fixes/keybinding-labels
   "workspace.focusNext": msg("Focus Next Workspace Area"),
   "workspace.focusPrevious": msg("Focus Previous Workspace Area"),
   "composer.sendAlternate": msg("Composer: Opposite Queue or Steer Action"),
