@@ -43,6 +43,7 @@ import { makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failu
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { stripUnservedToolOutputImageBytes } from "./toolOutputImageBytes.ts";
 import { boundFileChangeForStorage } from "./WireProjection.ts";
+import { quietTurnPayloadFork } from "../collaborator/quietTurn.fork.ts"; // fork-hook: colleague-collab/quiet-turn-payload-import
 
 export class ProviderEventNormalizeError extends Schema.TaggedError<ProviderEventNormalizeError>()(
   "ProviderEventNormalizeError",
@@ -625,6 +626,7 @@ export const layer: Layer.Layer<
                   ),
                   runId: input.event.turnItem.runId,
                   nodeId: input.event.turnItem.nodeId,
+                  ...(yield* quietTurnPayloadFork(projections, input.event.turnItem)), // fork-hook: colleague-collab/quiet-turn-payload
                 }),
               ];
             case "runtime_request.updated":
