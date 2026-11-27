@@ -25,7 +25,6 @@ import * as Schema from "effect/Schema";
 import { makeIsServerInternalPath } from "../auth/serverInternalPaths.ts";
 import * as KnownWorkspaces from "./KnownWorkspaces.ts";
 import * as WorkspaceFileSystemFork from "./WorkspaceFileSystem.fork.ts"; // fork-hook: upstream-fixes/wfs-fork-import
-import { externalSymlinksAllowed } from "./ExternalSymlinks.fork.ts"; // fork-hook: upstream-fixes/wfs-external-symlinks-policy
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
@@ -369,8 +368,6 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     });
-    const resolvesOutsideWorkspace = !isInsideRealRoot(realWorkspaceRoot, resolved.realTargetPath); // fork-hook: upstream-fixes/wfs-external-symlinks-follow
-    const followsExternalSymlinks = resolvesOutsideWorkspace && (yield* externalSymlinksAllowed); // fork-hook: upstream-fixes/wfs-external-symlinks-follow
     // A link out of the workspace reads like an absolute path would; writes still refuse it.
     const outsideRoot = !isInsideRealRoot(realWorkspaceRoot, resolved.realTargetPath);
     if (outsideRoot && isNetworkPath(resolved.realTargetPath)) {
