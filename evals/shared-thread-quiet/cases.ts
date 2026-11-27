@@ -7,6 +7,8 @@ export interface SharedThreadMessage {
   readonly expect?: "quiet" | "reply";
   /** Sent with "Ask the agent": the agent answers whoever it is to. */
   readonly forced?: true;
+  /** The owner answers this waiting message of Alex's, which the agent was never sent. */
+  readonly replyTo?: string;
 }
 
 export type SharedThreadKind =
@@ -17,6 +19,7 @@ export type SharedThreadKind =
   | "about-output"
   | "ambiguous"
   | "approval"
+  | "reply-to-request"
   | "control-work"
   | "control-people"
   | "forced";
@@ -35,6 +38,11 @@ const owner = (text: string, expect?: "quiet" | "reply"): SharedThreadMessage =>
   from: "owner",
   text,
   ...(expect ? { expect } : {}),
+});
+const replyToAlex = (request: string, text: string): SharedThreadMessage => ({
+  from: "owner",
+  text,
+  replyTo: request,
 });
 const alex = (text: string, expect?: "quiet" | "reply"): SharedThreadMessage => ({
   from: "collaborator",
@@ -365,6 +373,53 @@ export const sharedThreadCases: ReadonlyArray<SharedThreadCase> = [
     source: `${BRIEF}: control, people only`,
     messages: [...smallTalk, owner("Thanks Alex, appreciate you looking.")],
     expect: "quiet",
+  },
+  // The owner replies to a request Alex left waiting for them; the agent never saw it.
+  {
+    id: "reply-to-request",
+    kind: "reply-to-request",
+    source: "RSI-719: reply to a waiting request",
+    messages: [
+      ...smallTalk,
+      ...toggleWork,
+      replyToAlex("Can we pair on the tests after lunch?", "Sure, 2pm works for me."),
+    ],
+    expect: "quiet",
+  },
+  {
+    id: "reply-go-ahead",
+    kind: "reply-to-request",
+    source: "RSI-719: reply to a waiting request",
+    messages: [
+      ...priorityQuestion,
+      replyToAlex("Mind if I take the due-dates part?", "Yes, go ahead."),
+    ],
+    expect: "quiet",
+    why: "The agent's question is still open, but the yes answers Alex's request, not the agent.",
+  },
+  {
+    id: "reply-declines-work",
+    kind: "reply-to-request",
+    source: "RSI-719: reply to a waiting request",
+    messages: [
+      ...smallTalk,
+      replyToAlex("Could we get a toggleTodo too?", "Not now, let's keep this one small."),
+    ],
+    expect: "quiet",
+    why: "Alex's request names work, but the owner declines it.",
+  },
+  {
+    id: "reply-asks-agent",
+    kind: "reply-to-request",
+    source: "RSI-719: reply to a waiting request",
+    messages: [
+      ...smallTalk,
+      replyToAlex(
+        "Could we get a toggleTodo too?",
+        "Good idea. Add a toggleTodo(list, index) to todos.js that flips done, and show the code.",
+      ),
+    ],
+    expect: "reply",
   },
   {
     id: "control-preference",
