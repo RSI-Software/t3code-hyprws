@@ -127,4 +127,24 @@ layer("ForkSchema columns", (it) => {
       assert.deepStrictEqual(rows, [{ pinned: null }]);
     }),
   );
+
+  it.effect("keeps collaborator messages saved before the force column", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* sql`ALTER TABLE fork_collaborator_messages DROP COLUMN force_reply`;
+      yield* sql`
+        INSERT INTO fork_collaborator_messages
+          (id, thread_id, subject, collaborator_name, text, submitted_at)
+        VALUES ('m', 't', 's', 'Sam', 'hi', '2026-11-20T00:00:00.000Z')
+      `;
+      assert.isTrue(yield* hasPendingMigrations());
+      yield* runMigrations();
+      assert.isFalse(yield* hasPendingMigrations());
+      const rows = yield* sql<{ readonly text: string; readonly force: number | null }>`
+        SELECT text, force_reply AS "force" FROM fork_collaborator_messages
+      `;
+      assert.deepStrictEqual(rows, [{ text: "hi", force: null }]);
+    }),
+  );
 });

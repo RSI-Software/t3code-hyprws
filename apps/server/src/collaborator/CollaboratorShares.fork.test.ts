@@ -567,6 +567,22 @@ database("CollaboratorSharesFork", (it) => {
           hostDispatches.map((command) => [sentText(command), sentAuthor(command)]),
           [[collaboratorPrompt("Sam", "first"), { name: "Sam", text: "first", sentByHost: true }]],
         );
+        // "Ask the agent" waits with the message; the host's send forces the answer.
+        yield* sam["collaborator.submitMessageFork"]({
+          threadId: shared,
+          text: "thanks",
+          forceReplyFork: true,
+        });
+        const [ask] = yield* waiting(host);
+        assert.isTrue(ask!.forceReplyFork);
+        yield* host["collaborator.resolveMessageFork"]({
+          threadId: shared,
+          messageId: ask!.id,
+          decision: "send",
+        });
+        const forced = hostDispatches.at(-1)!;
+        assert.strictEqual(sentText(forced), collaboratorAttribution("Sam", "thanks", true).text);
+        assert.isTrue(sentContext(forced)?.forceReplyFork);
 
         // A dismissal stays with Sam, past a restart, until Sam clears it, and holds no slot.
         yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "maybe" });

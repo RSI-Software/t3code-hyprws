@@ -26,10 +26,22 @@ import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitation
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { AsyncResult } from "effect/reactivity";
 import { msg, useGT, useMessages } from "gt-react";
-import { ArrowUpIcon, Clock3Icon, EyeIcon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  Clock3Icon,
+  EyeIcon,
+  HourglassIcon,
+  MessageCircleQuestionIcon,
+  UnplugIcon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
-import { useComposerDraftStore, type ComposerThreadTarget } from "~/composerDraftStore";
+import {
+  composerTargetKey,
+  useComposerDraftStore,
+  type ComposerThreadTarget,
+} from "~/composerDraftStore";
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
@@ -57,6 +69,7 @@ import {
   submitMessageCommand,
   useColleagueOutboxFork,
 } from "./colleagueOutbox.fork";
+import { takeForceReplyFork } from "./sendMenu.fork";
 
 const resolveMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "resolve collaborator message",
@@ -207,17 +220,23 @@ export function useCollaboratorChatFork(
         composerRef.current?.resetCursorState();
       });
     };
-  const submitForApproval = sendText(
-    (text) =>
-      thread == null
-        ? null
-        : submit({ environmentId: thread.environmentId, input: { threadId: thread.id, text } }),
-    {
-      attachmentsTitle: gt("Only text waits for the host"),
-      attachmentsDescription: gt("Remove the attachments to send this message for approval."),
-      failure: gt("Could not send for approval"),
-    },
-  );
+  const submitForApproval = (event?: { preventDefault: () => void }) => {
+    const forced = takeForceReplyFork(composerTargetKey(draftTarget));
+    sendText(
+      (text) =>
+        thread == null
+          ? null
+          : submit({
+              environmentId: thread.environmentId,
+              input: { threadId: thread.id, text, ...(forced ? { forceReplyFork: true } : {}) },
+            }),
+      {
+        attachmentsTitle: gt("Only text waits for the host"),
+        attachmentsDescription: gt("Remove the attachments to send this message for approval."),
+        failure: gt("Could not send for approval"),
+      },
+    )(event);
+  };
   const queueOffline = sendText(outbox.queue, {
     attachmentsTitle: gt("Only text waits for {name}", { name: outbox.name }),
     attachmentsDescription: gt("Remove the attachments to queue this message."),
@@ -270,10 +289,11 @@ export function useCollaboratorChatFork(
         return {
           ...offline,
           canInterrupt: false,
+          // The offline queue keeps text only, so "Ask the agent" waits for the host to return.
+          ...(outbox.queues ? {} : { sendMenuFork: { askAgent: true } }),
           bannerItems: [localizedBanner(APPROVAL_BANNER, messages), ...bannerItems],
         };
       }
-      // Offered to the host and to collaborators who send directly; approval sends text only.
       const sendMenu = shared ? { sendMenuFork: { askAgent: true } } : {};
       return access === undefined ? sendMenu : { ...sendMenu, bannerItems };
     },
@@ -365,6 +385,12 @@ function WaitingMessages({
                 </p>
               </div>
               <div className="flex items-center gap-0.5 pe-1 text-muted-foreground text-xs">
+                {message.forceReplyFork ? (
+                  <span className="flex items-center gap-1 px-1">
+                    <MessageCircleQuestionIcon aria-hidden className="size-3" />
+                    {gt("Asks the agent")}
+                  </span>
+                ) : null}
                 <span className="me-1 flex items-center px-1 opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/queued:opacity-100">
                   <TimelineRowTimestamp
                     createdAt={message.submittedAt}

@@ -8317,6 +8317,7 @@
   "a85d0fac4d4faa40": "Read-only here. Switch to My inbox to reply.",
   "d1d22e0eb69c0478": "Nothing from {name} yet",
   "ffc0bd737d170544": "{name}'s inbox",
+  "f60fcf9b0a7cd260": "Asks the agent",
   "1f293df910bc80a1": "Revoke all other clients?",
   "b58ba344f4da84a1": "Enable network access",
   "0d1a41cbf4fab7af": "Failed to update WSL backend.",
