@@ -6,6 +6,7 @@ import {
   CollaboratorMessageDeliveryErrorFork,
   type CollaboratorMessageFork,
   CollaboratorMessageMissingErrorFork,
+  collaboratorMessageCommandId,
   CommandId,
   type CollaboratorResolveMessageInputFork,
   GUEST_PENDING_MESSAGE_LIMIT,
@@ -138,8 +139,15 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     const undelivered = (cause: unknown) =>
       new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
     const messages = yield* SubscriptionRef.get(ref);
-    // A flush from their queue may repeat after a lost reply; it already waits here.
+    // A flush from their queue may repeat after a lost reply: it already waits here, or it went
+    // out under the id both delivery paths share.
     if (messages.some(({ id, subject }) => id === input.id && subject === input.subject)) return;
+    if (
+      input.id !== undefined &&
+      (yield* threads.hasReceipt(CommandId.make(collaboratorMessageCommandId(input.id))))
+    ) {
+      return;
+    }
     const waiting = messages.filter(
       (message) =>
         message.subject === input.subject &&
@@ -188,9 +196,9 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
       yield* threads
         .dispatch({
           type: "message.dispatch",
-          commandId: CommandId.make(`collaborator-message:${message.id}`),
+          commandId: CommandId.make(collaboratorMessageCommandId(message.id)),
           threadId: message.threadId,
-          messageId: MessageId.make(`collaborator-message:${message.id}`),
+          messageId: MessageId.make(collaboratorMessageCommandId(message.id)),
           text: attribution.text,
           context,
           attachments: [],

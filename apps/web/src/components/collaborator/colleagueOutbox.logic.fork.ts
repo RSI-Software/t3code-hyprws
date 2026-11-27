@@ -18,13 +18,8 @@ export async function flushColleagueOutboxFork(
     readonly remove: (message: ColleagueQueuedMessageFork) => Promise<boolean>;
   },
 ): Promise<void> {
-  const threads = new Map<string, ColleagueQueuedMessageFork[]>();
-  for (const message of queued) {
-    const key = `${message.environmentId}:${message.threadId}`;
-    threads.set(key, [...(threads.get(key) ?? []), message]);
-  }
   await Promise.all(
-    [...threads.values()].map(async (messages) => {
+    byThread(queued).map(async (messages) => {
       for (const message of messages) {
         const route = io.route(message);
         if (route === null) return;
@@ -33,4 +28,19 @@ export async function flushColleagueOutboxFork(
       }
     }),
   );
+}
+
+/** Whether a flush would deliver anything: only a thread's oldest message may go next. */
+export const colleagueOutboxReadyFork = (
+  queued: ReadonlyArray<ColleagueQueuedMessageFork>,
+  route: (message: ColleagueQueuedMessageFork) => OutboxRouteFork,
+) => byThread(queued).some(([head]) => head !== undefined && route(head) !== null);
+
+function byThread(queued: ReadonlyArray<ColleagueQueuedMessageFork>) {
+  const threads = new Map<string, ColleagueQueuedMessageFork[]>();
+  for (const message of queued) {
+    const key = `${message.environmentId}:${message.threadId}`;
+    threads.set(key, [...(threads.get(key) ?? []), message]);
+  }
+  return [...threads.values()];
 }

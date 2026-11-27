@@ -1,7 +1,11 @@
 import { EnvironmentId, IsoDateTime, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { flushColleagueOutboxFork, type OutboxRouteFork } from "./colleagueOutbox.logic.fork";
+import {
+  colleagueOutboxReadyFork,
+  flushColleagueOutboxFork,
+  type OutboxRouteFork,
+} from "./colleagueOutbox.logic.fork";
 
 const queued = (id: string, environment: string, thread: string) => ({
   id,
@@ -42,5 +46,13 @@ describe("flushColleagueOutboxFork", () => {
 
     expect(delivered).toEqual(["a1:send", "a3:approve", "a2:send"]);
     expect(removed).toEqual(["a1", "a3"]);
+  });
+
+  it("is not ready while each thread's oldest message is held, even if a later one could go", () => {
+    const outbox = [queued("a1", "env-alex", "t1"), queued("a2", "env-alex", "t1")];
+    expect(
+      colleagueOutboxReadyFork(outbox, (message) => (message.id === "a1" ? null : "send")),
+    ).toBe(false);
+    expect(colleagueOutboxReadyFork(outbox, () => "approve")).toBe(true);
   });
 });

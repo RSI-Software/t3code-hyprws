@@ -8,6 +8,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  collaboratorMessageCommandId,
   CommandId,
   type ColleagueQueuedMessageFork,
   type EnvironmentId,
@@ -34,7 +35,11 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
-import { flushColleagueOutboxFork, type OutboxRouteFork } from "./colleagueOutbox.logic.fork";
+import {
+  colleagueOutboxReadyFork,
+  flushColleagueOutboxFork,
+  type OutboxRouteFork,
+} from "./colleagueOutbox.logic.fork";
 
 /** @public A message left for the host of a shared thread to send. */
 export const submitMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
@@ -105,8 +110,10 @@ export function useColleagueOutboxFork(
             environmentId: server,
             input: { environmentId: thread.environmentId, threadId: thread.id, text },
           }),
-    unqueue: (id: string) =>
-      server === null ? Promise.resolve(false) : unqueue({ environmentId: server, input: { id } }),
+    /** Resolves true once the message left the queue. */
+    unqueue: async (id: string) =>
+      server !== null &&
+      (await unqueue({ environmentId: server, input: { id } }))._tag === "Success",
   };
 }
 
@@ -208,6 +215,8 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   // Messages that failed while their colleague stayed connected; a reconnect tries them again.
   const failed = useRef(new Set<string>());
   const flushing = useRef(false);
+  // The queue as it is now, so a message withdrawn or edited mid-flush is skipped.
+  const live = useRef(queued);
   // Bumped after each flush, so messages that became ready during it get their turn.
   const [, setRound] = useState(0);
   const connected = new Set(
@@ -221,13 +230,14 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
     );
   const route = (message: ColleagueQueuedMessageFork): OutboxRouteFork => {
     if (!connected.has(message.environmentId) || failed.current.has(message.id)) return null;
+    if (!live.current.some((candidate) => candidate.id === message.id)) return null;
     const access = shellOf(message)?.collaboratorFork;
     return access === "send" || access === "approve" ? access : null;
   };
   const deliver = async (message: ColleagueQueuedMessageFork, how: "send" | "approve") => {
     const shell = shellOf(message);
     if (shell === undefined) return false;
-    const target = `colleague-outbox:${message.id}`;
+    const target = collaboratorMessageCommandId(message.id);
     const result =
       how === "approve"
         ? await submit({
@@ -274,11 +284,12 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- delivers to a colleague's server, an external system, once its environment connects.
   useEffect(() => {
+    live.current = queued;
     for (const id of failed.current) {
       const message = queued.find((candidate) => candidate.id === id);
       if (message === undefined || !connected.has(message.environmentId)) failed.current.delete(id);
     }
-    if (flushing.current || !queued.some((message) => route(message) !== null)) return;
+    if (flushing.current || !colleagueOutboxReadyFork(queued, route)) return;
     flushing.current = true;
     void flushColleagueOutboxFork(queued, { route, deliver, remove }).finally(() => {
       flushing.current = false;

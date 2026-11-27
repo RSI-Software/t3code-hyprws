@@ -376,6 +376,9 @@ export type ColleagueQueueMessageInputFork = typeof ColleagueQueueMessageInputFo
 
 export const ColleagueUnqueueMessageInputFork = Schema.Struct({ id: TrimmedNonEmptyString });
 
+/** One id for a collaborator message on either path, so the thread's receipt sees it once. */
+export const collaboratorMessageCommandId = (id: string) => `collaborator-message:${id}`;
+
 export class ColleagueMissingErrorFork extends Schema.TaggedError<ColleagueMissingErrorFork>()(
   "ColleagueMissingErrorFork",
   { subject: Schema.String },

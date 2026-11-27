@@ -120,6 +120,8 @@ const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
       Effect.andThen(Effect.sync(() => hostDispatches.push(command as OrchestrationV2Command))),
       Effect.as({} as never),
     ),
+  hasReceipt: (commandId) =>
+    Effect.sync(() => hostDispatches.some((command) => command.commandId === commandId)),
 });
 const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
   createPairingLink: (input) =>
@@ -573,7 +575,8 @@ database("CollaboratorSharesFork", (it) => {
           restarted.map(({ text, outcome }) => ({ text, outcome })),
           [{ text: "maybe", outcome: "dismissed" }],
         );
-        // A flush from Sam's queue that repeats after a lost reply waits once.
+        // A flush from Sam's queue that repeats after a lost reply waits once, and once sent
+        // never waits again.
         const flushed = { threadId: shared, text: "queued offline", id: "outbox-1" };
         yield* sam["collaborator.submitMessageFork"](flushed);
         yield* sam["collaborator.submitMessageFork"](flushed);
@@ -581,13 +584,15 @@ database("CollaboratorSharesFork", (it) => {
           (yield* waiting(host)).map(({ id, text }) => ({ id, text })),
           [{ id: "outbox-1", text: "queued offline" }],
         );
-        yield* resolve(sam, "outbox-1", "dismiss");
+        yield* resolve(host, "outbox-1", "send");
+        yield* sam["collaborator.submitMessageFork"](flushed);
+        assert.deepStrictEqual(yield* waiting(host), []);
         for (const text of ["a", "b", "c"]) {
           yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text });
         }
         for (const { id } of yield* waiting(sam)) yield* resolve(sam, id, "dismiss");
         assert.deepStrictEqual(yield* waiting(sam), []);
-        assert.strictEqual(hostDispatches.length, 1);
+        assert.strictEqual(hostDispatches.length, 2);
 
         // Send access lets Sam's messages through directly, and refuses the approval path.
         yield* service.setAccess({ subject: "colleague:sam", threadId: shared, access: "send" });
