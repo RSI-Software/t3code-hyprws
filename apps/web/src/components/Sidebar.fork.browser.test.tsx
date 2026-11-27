@@ -66,17 +66,18 @@ function project(environmentId: string): Project {
 
 async function renderSidebar() {
   const projects = ["mine", "alex", "guest"].map(project);
-  const thread = (environmentId: string, title: string, collaboratorFork?: "send") =>
+  const thread = (environmentId: string, title: string, collaboratorFork?: "send" | "read") =>
     makeThreadFixture({
       environmentId: EnvironmentId.make(environmentId),
       projectId: ProjectId.make(`project-${environmentId}`),
-      id: ThreadId.make(`thread-${environmentId}`),
+      id: ThreadId.make(`thread-${environmentId}${collaboratorFork === "read" ? "-team" : ""}`),
       title,
       ...(collaboratorFork && { collaboratorFork }),
     });
   const threads = [
     thread("mine", "My thread"),
     thread("alex", "Alex's thread", "send"),
+    thread("alex", "Alex's team thread", "read"),
     thread("guest", "Guest link thread", "send"),
   ];
   const routeThreadRef = { environmentId: threads[0]!.environmentId, threadId: threads[0]!.id };
@@ -111,6 +112,7 @@ it("names who shared a thread on its card, and leaves my own cards alone", async
 
   await expect.element(card("Alex's thread")).toHaveAccessibleDescription("Shared by Alex");
   await expect.element(card("Guest link thread")).toHaveAccessibleDescription("Shared with you");
+  await expect.element(card("Alex's team thread")).toHaveAccessibleDescription("Team project");
   await expect.element(card("My thread")).not.toHaveAttribute("aria-describedby");
   await expect.element(card("My thread")).not.toHaveTextContent("Shared");
 });
