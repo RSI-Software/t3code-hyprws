@@ -14,6 +14,7 @@ import {
   CollaboratorUnshareErrorFork,
   EnvironmentAuthorizationError,
   ORCHESTRATION_V2_WS_METHODS,
+  type OrchestrationMessageContext,
   type OrchestrationV2Command,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2SubscribeShellInput,
@@ -209,12 +210,16 @@ const commandThreadId = (command: OrchestrationV2Command) =>
       ? command.parentThreadId
       : command.threadId;
 
+/** The sender chose "Ask the agent", so the agent answers without judging who the line is for. */
+const forcedReply = (command: { readonly context?: OrchestrationMessageContext | undefined }) =>
+  command.context?.forceReplyFork === true;
+
 /** Names the collaborator in the text the agent reads; their own words ride the context. */
 const attributed = <Command extends Extract<OrchestrationV2Command, { readonly text: string }>>(
   name: string,
   command: Command,
 ): Command => {
-  const attribution = collaboratorAttribution(name, command.text);
+  const attribution = collaboratorAttribution(name, command.text, forcedReply(command));
   return {
     ...command,
     text: attribution.text,
@@ -562,7 +567,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
           }
           return hostName.pipe(
             Effect.flatMap((host) => {
-              const attribution = hostAttribution(host, others, clean.text);
+              const attribution = hostAttribution(host, others, clean.text, forcedReply(clean));
               return dispatch(
                 {
                   ...clean,

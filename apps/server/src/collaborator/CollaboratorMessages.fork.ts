@@ -36,25 +36,40 @@ const sharedThreadRule = (people: string) =>
   `When unsure, treat it as for the agent. ` +
   `When the message is not for you, do nothing: no tools, no work, and reply with exactly ${QUIET_MARKER} and nothing else.`;
 
-const PREFIX_END = `${QUIET_MARKER} and nothing else.]\n\n`;
+const FORCED_END = `never reply with ${QUIET_MARKER}.`;
+// "Ask the agent": the writer chose the agent, so no judgement; earlier quiet turns made Haiku stay quiet.
+const forcedRule = (people: string) =>
+  `This thread is shared: ${people} read it and your replies live. ` +
+  `The writer chose to ask you directly, so this message is for you: answer it in words, even if it is addressed to a person or is only thanks or small talk, and ${FORCED_END}`;
+
+const PREFIX_ENDS = [`${QUIET_MARKER} and nothing else.]\n\n`, `${FORCED_END}]\n\n`];
 
 /**
- * A queued edit starts from the already attributed text, maybe under an older share list, so any
- * prefix by the same author is replaced rather than nested.
+ * A queued edit starts from the already attributed text, maybe under an older share list or the
+ * other rule, so any prefix by the same author is replaced rather than nested.
  */
-const attributed = (intro: string, people: string, text: string) => {
-  const end = text.startsWith(intro) ? text.indexOf(PREFIX_END) : -1;
-  const own = end === -1 ? text : text.slice(end + PREFIX_END.length);
-  return { own, text: `${intro}${sharedThreadRule(people)}]\n\n${own}` };
+const attributed = (intro: string, people: string, text: string, forced: boolean) => {
+  const cut = text.startsWith(intro)
+    ? Math.min(
+        ...PREFIX_ENDS.map((end) => {
+          const at = text.indexOf(end);
+          return at === -1 ? Infinity : at + end.length;
+        }),
+      )
+    : Infinity;
+  const own = cut === Infinity ? text : text.slice(cut);
+  const rule = forced ? forcedRule(people) : sharedThreadRule(people);
+  return { own, text: `${intro}${rule}]\n\n${own}` };
 };
 
 /** What the agent reads from a collaborator, and the context that shows their own words. */
-export const collaboratorAttribution = (name: string, text: string) => {
+export const collaboratorAttribution = (name: string, text: string, forced = false) => {
   // Naming the host here made Haiku read collaborators' doubts as addressed to them.
   const { own, text: prompt } = attributed(
     `[${name}, a collaborator the owner shared this thread with, wrote the message below. `,
     `the owner and ${name}`,
     text,
+    forced,
   );
   return { text: prompt, context: { collaboratorFork: { name, text: own } } };
 };
@@ -64,11 +79,13 @@ export const hostAttribution = (
   host: string | undefined,
   others: ReadonlyArray<string>,
   text: string,
+  forced = false,
 ) => {
   const { own, text: prompt } = attributed(
     `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below. `,
     `${host ?? "the owner"} and ${others.join(" and ")}`,
     text,
+    forced,
   );
   return {
     text: prompt,
