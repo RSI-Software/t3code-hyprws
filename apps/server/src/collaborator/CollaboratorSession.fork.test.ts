@@ -137,6 +137,16 @@ const sentContext = (command: OrchestrationV2Command) =>
 const sentAuthor = (command: OrchestrationV2Command) => sentContext(command)?.collaboratorFork;
 
 database("CollaboratorSessionFork", (it) => {
+  const replyEdit = (threadId: ThreadId, runId: string) =>
+    Effect.flatMap(CollaboratorShares.CollaboratorSharesFork, (service) =>
+      service
+        .wrapHandlers("owner", handlers)
+        ["orchestration.dispatchCommand"](
+          { ...(message(threadId, "queued-run.edit", "Sure, 4 works.") as object), runId } as never,
+          undefined as never,
+        ),
+    );
+
   it.effect("narrows a collaborator's shell live, from a fresh snapshot on every change", () =>
     withService(
       Effect.gen(function* () {
@@ -219,18 +229,17 @@ database("CollaboratorSessionFork", (it) => {
         const edited = yield* ownerDispatch(message(shared, "queued-run.edit", stale));
         assert.strictEqual(sentText(edited), sentText(ownerSent));
         assert.deepStrictEqual(sentAuthor(edited), { name: HOST, text: "hi", host: true });
-        // Editing a queued reply keeps the waiting message it answers.
-        const replyEdit = yield* ownerDispatch({
-          ...(message(shared, "queued-run.edit", "Sure, 4 works.") as object),
-          runId: "run-reply",
-        } as never);
-        assert.include(sentText(replyEdit), `in reply to this message Sam wrote to the owner`);
-        assert.deepStrictEqual(sentAuthor(replyEdit), {
-          name: HOST,
-          text: "Sure, 4 works.",
-          host: true,
-          replyTo: { name: "Sam", text: "pair at 3?" },
-        });
+        // Editing a queued reply keeps the waiting message it answers, even with no share left.
+        for (const threadId of [shared, other]) {
+          const edited = yield* replyEdit(threadId, "run-reply");
+          assert.include(sentText(edited), `in reply to this message Sam wrote to the owner`);
+          assert.deepStrictEqual(sentAuthor(edited), {
+            name: HOST,
+            text: "Sure, 4 works.",
+            host: true,
+            replyTo: { name: "Sam", text: "pair at 3?" },
+          });
+        }
         // A forced line never nests, and editing it without the flag judges it again.
         const forced = yield* ownerDispatch(
           message(shared, "message.dispatch", "hi", {
@@ -254,6 +263,15 @@ database("CollaboratorSessionFork", (it) => {
           undefined as never,
         );
         assert.isUndefined(launched.initialMessage?.context?.collaboratorFork);
+      }),
+    ),
+  );
+
+  it.effect("refuses a queued edit whose reply it cannot read, rather than drop the quote", () =>
+    withService(
+      Effect.gen(function* () {
+        const exit = yield* Effect.exit(replyEdit(shared, "run-unreadable"));
+        assert.isTrue(Exit.isFailure(exit));
       }),
     ),
   );
