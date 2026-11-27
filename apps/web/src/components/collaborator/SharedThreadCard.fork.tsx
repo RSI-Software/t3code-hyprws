@@ -45,7 +45,8 @@ export function useSharedCardPropsFork() {
       : {
           sharedByFork: {
             name: nameByEnvironment.get(thread.environmentId) ?? null,
-            team: project?.teamFork === true,
+            // A "Can send" hand share keeps its sharer: the team grant gives only `approve`.
+            team: project?.teamFork === true && thread.collaboratorFork !== "send",
           } satisfies SharedCardFork,
           environmentLabel: null,
         };

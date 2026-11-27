@@ -85,6 +85,11 @@ async function renderSidebar() {
     thread("mine", "My thread"),
     thread("alex", "Alex's thread", "approve"),
     teamThread,
+    {
+      ...thread("alex", "Alex's send share in a team project", "send"),
+      projectId: ProjectId.make("project-alex-team"),
+      id: ThreadId.make("thread-alex-team-send"),
+    },
     thread("guest", "Guest link thread", "send"),
   ];
   const routeThreadRef = { environmentId: threads[0]!.environmentId, threadId: threads[0]!.id };
@@ -120,6 +125,9 @@ it("names who shared a thread on its card, and leaves my own cards alone", async
   await expect.element(card("Alex's thread")).toHaveAccessibleDescription("Shared by Alex");
   await expect.element(card("Guest link thread")).toHaveAccessibleDescription("Shared with you");
   await expect.element(card("Alex's team thread")).toHaveAccessibleDescription("Team project");
+  await expect
+    .element(card("Alex's send share in a team project"))
+    .toHaveAccessibleDescription("Shared by Alex");
   await expect.element(card("My thread")).not.toHaveAttribute("aria-describedby");
   await expect.element(card("My thread")).not.toHaveTextContent("Shared");
 });
