@@ -9,6 +9,7 @@ import * as CollaboratorShares from "./collaborator/CollaboratorShares.fork.ts";
 import * as Colleagues from "./collaborator/Colleagues.fork.ts";
 import * as ColleagueThreadFork from "./collaborator/ColleagueThreadFork.fork.ts";
 import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
+import * as IssueService from "./issue/IssueService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -25,6 +26,7 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
 }) {
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
+  const issues = yield* IssueService.IssueService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
   const collaborators = yield* CollaboratorShares.CollaboratorSharesFork;
   const colleagues = yield* Colleagues.ColleaguesFork;
@@ -63,5 +65,6 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
     "colleague.queueMessageFork": (input) => colleagues.queueMessage(input),
     "colleague.unqueueMessageFork": (input) => colleagues.unqueueMessage(input.id),
     "colleague.forkThreadFork": (input) => colleagueThreads.fork(input),
+    "issues.summaryFork": (input) => issues.summaryFork(input),
   });
 });

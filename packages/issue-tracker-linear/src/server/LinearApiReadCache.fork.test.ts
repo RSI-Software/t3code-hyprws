@@ -1,14 +1,40 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as IssueTrackerHost from "@t3tools/source-control-core/server/IssueTrackerHost";
 
 import * as LinearApi from "./LinearApi.ts";
 
+/** The account a read runs as; unset reads the fake's stored token. */
+const Account = Context.Reference<string | null>("test/LinearAccount", {
+  defaultValue: () => null,
+});
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+const issueNode = (identifier: string) => ({
+  id: identifier,
+  identifier,
+  number: Number(identifier.split("-")[1]),
+  title: `Title of ${identifier}`,
+  url: `https://linear.app/acme/issue/${identifier}`,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  completedAt: null,
+  canceledAt: null,
+  state: { id: "s", name: "Todo", type: "unstarted", position: 0 },
+  team: { key: "ENG" },
+  creator: null,
+  botActor: null,
+  assignee: null,
+  labels: { nodes: [] },
+});
 
 /** Counts each GraphQL operation sent; `fail` makes the next issue read a server error. */
 function fakeLinear() {
@@ -20,7 +46,8 @@ function fakeLinear() {
       Effect.sync(() => {
         const body = request.body;
         const text = body._tag === "Uint8Array" ? new TextDecoder().decode(body.body) : "";
-        const operation = /^(?:query|mutation) (\w+)/.exec(JSON.parse(text).query)?.[1] ?? "?";
+        const { query, variables } = JSON.parse(text);
+        const operation = /^(?:query|mutation) (\w+)/.exec(query)?.[1] ?? "?";
         sent.push(`${operation} ${request.headers.authorization}`);
         const answer =
           operation === "T3Viewer"
@@ -31,11 +58,22 @@ function fakeLinear() {
                   teams: { nodes: [] },
                 },
               })
-            : operation === "T3IssueUpdate"
-              ? json({ data: { issueUpdate: { success: true } } })
-              : state.fail
-                ? ((state.fail = false), json({ errors: [{ message: "boom" }] }, 500))
-                : json({ errors: [{ message: "Issue not found" }] });
+            : operation === "T3Issues"
+              ? json({
+                  data: {
+                    issues: {
+                      nodes: variables.filter.id.in
+                        .filter((identifier: string) => identifier !== "ENG-404")
+                        .map(issueNode),
+                      pageInfo: { hasNextPage: false, endCursor: null },
+                    },
+                  },
+                })
+              : operation === "T3IssueUpdate"
+                ? json({ data: { issueUpdate: { success: true } } })
+                : state.fail
+                  ? ((state.fail = false), json({ errors: [{ message: "boom" }] }, 500))
+                  : json({ errors: [{ message: "Issue not found" }] });
         return HttpClientResponse.fromWeb(request, answer);
       }),
     ),
@@ -44,7 +82,8 @@ function fakeLinear() {
     IssueTrackerHost.IssueTrackerHost,
     IssueTrackerHost.IssueTrackerHost.of({
       credentials: {
-        get: () => Effect.sync(() => Option.some({ token: state.token, fields: {} })),
+        get: () =>
+          Effect.map(Effect.service(Account), (account) => Option.some(account ?? state.token)),
       },
     }),
   );
@@ -71,6 +110,54 @@ describe("LinearApiReadCache", () => {
       yield* api.getIssue("ENG-1", 20);
       yield* api.viewer();
       expect(sent.slice(2)).toEqual(["T3Issue lin_api_two", "T3Viewer lin_api_two"]);
+    }),
+  );
+
+  // Each chip's read arrives as its own request, a few milliseconds apart.
+  it.effect("answers every chip in a view with one Linear call", () =>
+    Effect.gen(function* () {
+      const { api: make, sent } = fakeLinear();
+      const api = yield* make;
+      const read = (identifier: string) =>
+        api.getIssueSummaryFork(identifier).pipe(Effect.map((issue) => issue?.title ?? null));
+      const settled = <A, E>(effect: Effect.Effect<A, E>) =>
+        Effect.gen(function* () {
+          const fiber = yield* Effect.forkChild(effect);
+          yield* TestClock.adjust("1 second");
+          return yield* Fiber.join(fiber);
+        });
+      const titles = yield* settled(
+        Effect.all([read("ENG-1"), read("ENG-2").pipe(Effect.delay("5 millis")), read("ENG-404")], {
+          concurrency: "unbounded",
+        }),
+      );
+      expect(titles).toEqual(["Title of ENG-1", "Title of ENG-2", null]);
+      yield* read("ENG-1");
+      // ENG-404 may be archived, which the listing leaves out; it reads on its own.
+      expect(sent).toEqual(["T3Issues lin_api_one", "T3Issue lin_api_one"]);
+
+      yield* api.updateIssue("ENG-1", { title: "renamed" });
+      yield* settled(read("ENG-1"));
+      expect(sent.filter((op) => op.startsWith("T3Issues "))).toHaveLength(2);
+    }),
+  );
+
+  it.effect("batches each account's chips under its own credential", () =>
+    Effect.gen(function* () {
+      const { api: make, sent } = fakeLinear();
+      const api = yield* make;
+      const fiber = yield* Effect.forkChild(
+        Effect.all(
+          [
+            api.getIssueSummaryFork("ENG-1").pipe(Effect.provideService(Account, "lin_api_a")),
+            api.getIssueSummaryFork("ENG-2").pipe(Effect.provideService(Account, "lin_api_b")),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      );
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(fiber);
+      expect(sent.toSorted()).toEqual(["T3Issues lin_api_a", "T3Issues lin_api_b"]);
     }),
   );
 

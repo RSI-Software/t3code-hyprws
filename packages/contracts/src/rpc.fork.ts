@@ -15,6 +15,23 @@ import {
 } from "./pullRequest.ts";
 
 import { NonNegativeInt, ThreadId } from "./baseSchemas.ts";
+import { IssueOperationError, IssueRef, IssueSummary, IssueUnavailableError } from "./issue.ts";
+
+/** A chat chip's title and state; the server batches every chip's read into one tracker call. */
+export const issueSummaryRpcFork = {
+  methodNames: { issuesSummaryFork: "issues.summaryFork" } as const,
+  rpcs: [
+    Rpc.make("issues.summaryFork", {
+      payload: IssueRef,
+      success: IssueSummary,
+      error: Schema.Union([
+        IssueUnavailableError,
+        IssueOperationError,
+        EnvironmentAuthorizationError,
+      ]),
+    }),
+  ] as const,
+};
 
 /** Activity readers observe edits without subscribing to turn-only revisions. */
 export const pullRequestActivityRpcFork = {
@@ -301,6 +318,7 @@ export const collaboratorRpcFork = {
 export const wsRpcsFork = [
   ...pullRequestAttachmentRpcFork.rpcs,
   ...pullRequestActivityRpcFork.rpcs,
+  ...issueSummaryRpcFork.rpcs,
   ...checkoutMoveRpcFork.rpcs,
   ...threadGroupsRpcFork.rpcs,
   ...collaboratorRpcFork.rpcs,

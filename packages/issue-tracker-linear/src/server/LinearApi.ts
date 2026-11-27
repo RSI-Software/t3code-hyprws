@@ -122,6 +122,7 @@ export class LinearApi extends Context.Service<
       identifier: string,
       comments: number,
     ) => Effect.Effect<LinearIssueDetail | null, IssueTrackerError>;
+    readonly getIssueSummaryFork: LinearApiReadCache.GetIssueSummaryFork; // fork-hook: github-issues/linear-issue-summary
     readonly getComments: (input: {
       readonly identifier: string;
       readonly first: number;
@@ -425,7 +426,16 @@ export const make = Effect.gen(function* () {
         );
 
   const readCache = yield* LinearApiReadCache.make(
-    { viewer, getIssue, createIssue, updateIssue, createComment, createReaction, deleteReaction },
+    {
+      viewer,
+      getIssue,
+      listIssues,
+      createIssue,
+      updateIssue,
+      createComment,
+      createReaction,
+      deleteReaction,
+    },
     storedToken,
   ); // fork-hook: upstream-fixes/linear-read-cache
   return LinearApi.of({

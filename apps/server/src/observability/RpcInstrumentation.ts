@@ -170,6 +170,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.threadCheckoutMoveRequest]: "orchestration", // fork-hook: zmux-estate/checkout-move-rpc-aggregate
   [WS_METHODS.issuesList]: "issues",
   [WS_METHODS.issuesDetail]: "issues",
+  [WS_METHODS.issuesSummaryFork]: "issues", // fork-hook: github-issues/issue-summary-rpc-aggregate
   [WS_METHODS.issuesComments]: "issues",
   [WS_METHODS.issuesTemplates]: "issues",
   [WS_METHODS.issuesCandidates]: "issues",
