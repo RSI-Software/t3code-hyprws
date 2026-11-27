@@ -410,6 +410,7 @@ export function useCollaboratorChatFork(
                     messages={outbox.queued}
                     name={outbox.name}
                     online={outbox.online}
+                    held={outbox.held}
                     onEdit={(message) => void editQueued(message)}
                     onWithdraw={(message) => void outbox.unqueue(message.id)}
                   />
