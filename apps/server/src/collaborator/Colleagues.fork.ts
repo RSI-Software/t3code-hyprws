@@ -6,6 +6,13 @@ import {
   COLLABORATOR_SCOPES,
   COLLEAGUE_FORGET_ROUTE_FORK,
   COLLEAGUE_PAIR_CLIENT_ROUTE_FORK,
+  COLLEAGUE_THREAD_ROUTE_FORK,
+  COLLEAGUE_THREADS_ROUTE_FORK,
+  type ColleagueThreadOfInputFork,
+  ColleagueThreadResultFork,
+  type ColleaguesThreadsInputFork,
+  type ColleaguesThreadsResultFork,
+  ColleagueThreadsResultFork,
   type AuthEnvironmentScope,
   type CollaboratorShareErrorFork,
   type CollaboratorThreadMissingErrorFork,
@@ -53,6 +60,7 @@ import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -68,6 +76,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
+import * as ColleagueThreadReads from "./ColleagueThreadReads.fork.ts";
 import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
 import { makeColleagueOutbox } from "./ColleagueOutbox.fork.ts";
 import {
@@ -131,6 +140,36 @@ const grantOrigin = (url: string) => {
   return Effect.succeed(parsed.origin);
 };
 
+/** Their server refused a read: the thread is not one they let this side read. */
+export class ColleagueThreadRefusedErrorFork extends Schema.TaggedError<ColleagueThreadRefusedErrorFork>()(
+  "ColleagueThreadRefusedErrorFork",
+  { colleague: Schema.String, threadId: Schema.String },
+) {
+  override get message() {
+    return `${this.colleague}'s server refused: that thread is not in a team project there, and nobody shared it with you.`;
+  }
+}
+
+export class ColleagueNoneSavedErrorFork extends Schema.TaggedError<ColleagueNoneSavedErrorFork>()(
+  "ColleagueNoneSavedErrorFork",
+  {},
+) {
+  override get message() {
+    return "The user has no saved colleagues. They save one by accepting a share invite.";
+  }
+}
+
+export class ColleagueUnknownNameErrorFork extends Schema.TaggedError<ColleagueUnknownNameErrorFork>()(
+  "ColleagueUnknownNameErrorFork",
+  { asked: Schema.String, saved: Schema.Array(Schema.String) },
+) {
+  override get message() {
+    return `No saved colleague is named "${this.asked}". Saved: ${this.saved.join(", ")}.`;
+  }
+}
+
+const fold = (name: string) => name.normalize("NFKC").toLocaleLowerCase();
+
 export class ColleaguesFork extends Context.Service<
   ColleaguesFork,
   {
@@ -179,6 +218,26 @@ export class ColleaguesFork extends Context.Service<
     ) => Effect.Effect<void, ColleagueErrorFork>;
     /** Removes a queued message: delivered, withdrawn, or taken back to edit. */
     readonly unqueueMessage: (id: string) => Effect.Effect<void, ColleagueErrorFork>;
+    /**
+     * The threads each named or saved colleague's server lets this one read, as their grant here.
+     * Read-only. One colleague failing leaves the others readable.
+     */
+    readonly threadsOf: (
+      input: ColleaguesThreadsInputFork,
+    ) => Effect.Effect<
+      ColleaguesThreadsResultFork,
+      ColleagueNoneSavedErrorFork | ColleagueUnknownNameErrorFork
+    >;
+    /** One of those threads; a thread outside them is refused. */
+    readonly threadOf: (
+      input: ColleagueThreadOfInputFork,
+    ) => Effect.Effect<
+      ColleagueThreadResultFork,
+      | ColleagueErrorFork
+      | ColleagueNoneSavedErrorFork
+      | ColleagueUnknownNameErrorFork
+      | ColleagueThreadRefusedErrorFork
+    >;
   }
 >()("t3/collaborator/Colleagues.fork/ColleaguesFork") {}
 
@@ -408,16 +467,27 @@ const make = Effect.gen(function* () {
     return new TextDecoder().decode(stored.value);
   });
 
+  const decodeFrom =
+    <A>(row: ColleagueRow, schema: Schema.Codec<A, unknown>) =>
+    (response: HttpClientResponse.HttpClientResponse) =>
+      HttpClientResponse.schemaBodyJson(schema)(response).pipe(
+        Effect.mapError(
+          (cause) => new ColleagueUnknownShapeErrorFork({ colleague: row.name, cause }),
+        ),
+      );
+
   /** Posts to the colleague's server with its grant; their refusal and silence fail apart. */
   const callRemote = Effect.fn("ColleaguesFork.callRemote")(function* (
     row: ColleagueRow,
     route: string,
+    body?: object,
   ) {
     const token = yield* tokenOf(row);
+    const request = HttpClientRequest.post(`${row.url}${route}`).pipe(
+      HttpClientRequest.bearerToken(token),
+    );
     return yield* httpClient
-      .execute(
-        HttpClientRequest.post(`${row.url}${route}`).pipe(HttpClientRequest.bearerToken(token)),
-      )
+      .execute(body === undefined ? request : HttpClientRequest.bodyJsonUnsafe(request, body))
       .pipe(
         Effect.timeout(REMOTE_TIMEOUT),
         Effect.mapError((cause) => new ColleagueSilentErrorFork({ colleague: row.name, cause })),
@@ -541,6 +611,68 @@ const make = Effect.gen(function* () {
     yield* forgetHere(yield* rowOf(subject));
   }, exclusive);
 
+  const saved = SubscriptionRef.get(ref).pipe(
+    Effect.filterOrFail(
+      (rows) => rows.length > 0,
+      () => new ColleagueNoneSavedErrorFork(),
+    ),
+  );
+  /** Every saved colleague with that name: two people can share one. */
+  const named = Effect.fn("ColleaguesFork.named")(function* (name: string) {
+    const rows = yield* saved;
+    const found = rows.filter((row) => fold(row.name) === fold(name));
+    if (found.length > 0) return found;
+    return yield* new ColleagueUnknownNameErrorFork({
+      asked: name,
+      saved: rows.map((row) => row.name),
+    });
+  });
+
+  const threadsOf: ColleaguesFork["Service"]["threadsOf"] = Effect.fn("ColleaguesFork.threadsOf")(
+    function* ({ colleague, query }) {
+      const remote = (row: ColleagueRow) =>
+        callRemote(row, COLLEAGUE_THREADS_ROUTE_FORK, query === undefined ? {} : { query }).pipe(
+          Effect.flatMap(decodeFrom(row, ColleagueThreadsResultFork)),
+          Effect.map(({ threads }) => ({ name: row.name, threads })),
+          // One machine offline leaves the others readable.
+          Effect.catch((error) => Effect.succeed({ name: row.name, error: error.message })),
+        );
+      const rows = colleague === undefined ? yield* saved : yield* named(colleague);
+      return { colleagues: yield* Effect.forEach(rows, remote, { concurrency: "unbounded" }) };
+    },
+  );
+
+  const threadOf: ColleaguesFork["Service"]["threadOf"] = Effect.fn("ColleaguesFork.threadOf")(
+    function* ({ colleague, ...input }) {
+      const { threadId } = input;
+      // Their server answers 404 for any thread it will not let this side read.
+      const read = (row: ColleagueRow) =>
+        callRemote(row, COLLEAGUE_THREAD_ROUTE_FORK, input).pipe(
+          Effect.catchTags({
+            ColleagueRemoteErrorFork: (error) =>
+              Effect.fail(
+                error.status === 404
+                  ? new ColleagueThreadRefusedErrorFork({ colleague: row.name, threadId })
+                  : error,
+              ),
+          }),
+          Effect.flatMap(decodeFrom(row, ColleagueThreadResultFork)),
+        );
+      // Thread ids are unique, so of two colleagues with one name only the holder answers.
+      let failure: Effect.Error<ReturnType<typeof read>> = new ColleagueThreadRefusedErrorFork({
+        colleague,
+        threadId,
+      });
+      for (const row of yield* named(colleague)) {
+        const answer = yield* Effect.result(read(row));
+        if (Result.isSuccess(answer)) return answer.success;
+        // An offline or revoked namesake may hold the thread, so its reason beats a refusal.
+        if (failure._tag === "ColleagueThreadRefusedErrorFork") failure = answer.failure;
+      }
+      return yield* failure;
+    },
+  );
+
   const shareThread: ColleaguesFork["Service"]["shareThread"] = Effect.fn(
     "ColleaguesFork.shareThread",
   )(function* (input) {
@@ -577,10 +709,13 @@ const make = Effect.gen(function* () {
     remove,
     issueClientPairing,
     forget,
+    threadsOf,
+    threadOf,
   });
 });
 
-/** Carries the share service, which it builds on, so the server provides both from one place. */
-export const layer = Layer.effect(ColleaguesFork, make).pipe(
-  Layer.provideMerge(CollaboratorShares.layer.pipe(Layer.provide(CommandReceiptStore.layer))),
-);
+/** Carries the share service and the host's thread reads, so the server provides all from one place. */
+export const layer = Layer.merge(
+  Layer.effect(ColleaguesFork, make),
+  ColleagueThreadReads.layer,
+).pipe(Layer.provideMerge(CollaboratorShares.layer.pipe(Layer.provide(CommandReceiptStore.layer))));

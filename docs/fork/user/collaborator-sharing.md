@@ -32,6 +32,12 @@ The share dialog and command palette offer the same.
 **Settings → Sharing & access → Colleagues** lists each colleague with the threads you share with them.
 **Remove** ends their access to every shared thread on both sides; if their machine is unreachable, it still lists you until it is removed there too.
 
+## Ask your agent what colleagues are doing
+
+Your agents read **what a saved colleague lets you read**: their team project threads and the threads they share with you.
+Ask, for example: "What is Alex working on?" or "Has Alex already fixed the login timeout?"
+These reads **never send, run, or change** anything on their machine.
+
 ## Approve their messages
 
 By default each collaborator **Needs approval**: their messages **wait for you** at the end of the thread, with **Send**, **Reply** and **Dismiss**.

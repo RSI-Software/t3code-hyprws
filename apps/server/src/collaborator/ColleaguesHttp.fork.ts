@@ -1,15 +1,22 @@
 // Fork-only (colleague-collab): the routes a saved colleague's server calls with its grant here.
 // The caller's subject is the colleague; nothing in the body names anyone.
 import {
+  AuthOrchestrationReadScope,
   COLLEAGUE_FORGET_ROUTE_FORK,
   COLLEAGUE_PAIR_CLIENT_ROUTE_FORK,
+  COLLEAGUE_THREAD_ROUTE_FORK,
+  COLLEAGUE_THREADS_ROUTE_FORK,
   type ColleagueErrorFork,
+  ColleagueThreadInputFork,
+  ColleagueThreadsInputFork,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as ColleagueThreadReads from "./ColleagueThreadReads.fork.ts";
 import * as Colleagues from "./Colleagues.fork.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -57,9 +64,58 @@ const route = <A>(
     }),
   );
 
+/** A read for the calling colleague's subject; `canRead` inside decides every thread. */
+const readRoute = <I, A>(
+  path: `/${string}`,
+  input: Schema.Codec<I, unknown>,
+  answer: (
+    reads: ColleagueThreadReads.ColleagueThreadReadsFork["Service"],
+    subject: string,
+    input: I,
+  ) => Effect.Effect<
+    A,
+    | ColleagueThreadReads.ColleagueThreadUnreadableErrorFork
+    | ColleagueThreadReads.ColleagueThreadReadErrorFork
+  >,
+) =>
+  HttpRouter.add(
+    "POST",
+    path,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const auth = yield* EnvironmentAuth.EnvironmentAuth;
+      const reads = yield* ColleagueThreadReads.ColleagueThreadReadsFork;
+      const session = yield* auth.authenticateHttpRequest(request).pipe(Effect.option);
+      if (session._tag === "None") return json({ error: "Authentication required." }, 401);
+      if (!session.value.scopes.includes(AuthOrchestrationReadScope)) {
+        return json({ error: "This grant cannot read threads." }, 403);
+      }
+      const body = yield* request.json.pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(input)),
+        Effect.option,
+      );
+      if (body._tag === "None") return json({ error: "Unknown request shape." }, 400);
+      return yield* answer(reads, session.value.subject, body.value).pipe(
+        Effect.map((result) => json(result)),
+        Effect.catchTags({
+          ColleagueThreadUnreadableErrorFork: (error) =>
+            Effect.succeed(json({ error: error.message }, 404)),
+          ColleagueThreadReadErrorFork: (error) =>
+            Effect.succeed(json({ error: error.message }, 500)),
+        }),
+      );
+    }),
+  );
+
 export const routeLayerFork = Layer.mergeAll(
   route(COLLEAGUE_PAIR_CLIENT_ROUTE_FORK, (colleagues, session) =>
     colleagues.issueClientPairing(session),
   ),
   route(COLLEAGUE_FORGET_ROUTE_FORK, (colleagues, session) => colleagues.forget(session.subject)),
+  readRoute(COLLEAGUE_THREADS_ROUTE_FORK, ColleagueThreadsInputFork, (reads, subject, input) =>
+    reads.list(subject, input),
+  ),
+  readRoute(COLLEAGUE_THREAD_ROUTE_FORK, ColleagueThreadInputFork, (reads, subject, input) =>
+    reads.read(subject, input),
+  ),
 );
