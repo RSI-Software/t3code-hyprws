@@ -835,6 +835,7 @@ The link token is **single-use**, so a browser already paired opens the thread w
 `CollaboratorSharesFork.wrapHandlers` **narrows dispatch**, shell, and thread subscriptions in `ws.ts`.
 Shell items carry **`collaboratorFork`**: `send`, `approve`, `frozen`, or `read`.
 `approve` **refuses dispatch**; messages wait in `fork_collaborator_messages` until the host sends.
+A **reply** dispatches the host's text with the message quoted as what it answers, so the agent judges the line as said to that person.
 A waiting message **rides upstream's guest-request state** on the host's card, derived client-side from the host's message stream. A requested thread the shells leave out (older settled) is read **by its thread family**, as an open thread's route reads it.
 `send` dispatches **conversation commands only**; managing the thread **and its queue** stays the host's, except that a collaborator **edits or removes their own** queued messages.
 A collaborator's copy **hides host-only controls** (editor, scripts, Git, rewind) and labels the host's messages **by name or "the host"**.

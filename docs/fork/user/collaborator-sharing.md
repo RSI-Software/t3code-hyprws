@@ -34,14 +34,15 @@ The share dialog and command palette offer the same.
 
 ## Approve their messages
 
-By default each collaborator **Needs approval**: their messages **wait for you** at the end of the thread, with **Send** and **Dismiss**.
+By default each collaborator **Needs approval**: their messages **wait for you** at the end of the thread, with **Send**, **Reply** and **Dismiss**.
+**Reply** answers them from your composer: the agent reads it as said to them, so it usually stays quiet.
 Until you answer, the thread's card reads **Requested by** their name and **comes back** from Settled or a snooze.
 Switch them to **Can send** to let messages **reach the agent** at once.
 Change it beside their name in the share dialog, or under **Collaborators** in the thread details.
 
 While approval is on, they **send text only** and can **Withdraw** a waiting message.
 A message sent with **Ask the agent** waits marked **Asks the agent**; once you send it, the agent **answers it**.
-They see which you did: **Sent by the host** under a sent message, or **Dismissed by the host** on a dismissed one until they clear it.
+They see which you did: **Sent by the host** under a sent message, **Replied to** their name above your reply, or **Dismissed by the host** on a dismissed one until they clear it.
 
 ## Stop sharing
 

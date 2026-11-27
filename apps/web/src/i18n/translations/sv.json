@@ -6595,6 +6595,22 @@
   "0da38806c68e1f16": "Kunde inte dela med {name}",
   "d85dfc66abf19ee9": "Kollegor, ingen länk behövs:",
   "13c57da4b01e00a2": "{name} ser den i sidofältet nu. Ingen länk behövs.",
+  "1769c79bc7874e0d": "Ett svar kan bara innehålla text",
+  "0e4bda2d2988268b": "Meddelandet från {name} väntar inte längre",
+  "6287dd07811b8a57": "Ta bort bilagorna för att skicka svaret.",
+  "464a49aad5d86598": "Kunde inte skicka svaret",
+  "1b8a86f46f4a4d2f": "Svarar {name}",
+  "e58c5d7f64cf9542": "Svara {name}",
+  "58796398a662498a": "Svara",
+  "97e33748c177bbb4": "Svara {name} i tråden",
+  "1128ba70b2c59c51": [
+    "Svarade ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "1afac27d8e35bb95": "Slutade dela med {name}",
   "4bab0b65fb678f6a": "Delad med {name}",
   "d94eb3883bdcc496": "Deras kopia fryses, markerad Frånkopplad från värden.",

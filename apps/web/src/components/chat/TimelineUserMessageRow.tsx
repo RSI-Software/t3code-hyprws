@@ -60,7 +60,10 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { GuestMessageName, guestBubbleClassName } from "./guestMessageStyle";
-import { CollaboratorSentByHostFork } from "../collaborator/CollaboratorMessageOutcome.fork"; // fork-hook: colleague-collab/sent-by-host-import
+import {
+  CollaboratorReplyQuoteFork,
+  CollaboratorSentByHostFork,
+} from "../collaborator/CollaboratorMessageOutcome.fork"; // fork-hook: colleague-collab/sent-by-host-import
 import { HostMessageNameFork } from "../collaborator/CollaboratorAuthor.fork"; // fork-hook: colleague-collab/host-author-import
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
@@ -921,6 +924,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         environmentId={ctx.activeThreadEnvironmentId}
         attribution={userMessage.attribution}
       />
+      <CollaboratorReplyQuoteFork context={row.message.context} />
       {/* fork-hook-end */}
       {/* The row's heading already names the guest for screen readers. */}
       {userMessage.guestName !== undefined ? (

@@ -6596,6 +6596,22 @@
   "0da38806c68e1f16": "Could not share with {name}",
   "d85dfc66abf19ee9": "Colleagues, no link needed:",
   "13c57da4b01e00a2": "{name} sees it in their sidebar now. No link needed.",
+  "1769c79bc7874e0d": "Only text goes in a reply",
+  "0e4bda2d2988268b": "{name}'s message is no longer waiting",
+  "6287dd07811b8a57": "Remove the attachments to send this reply.",
+  "464a49aad5d86598": "Could not send the reply",
+  "1b8a86f46f4a4d2f": "Replying to {name}",
+  "e58c5d7f64cf9542": "Reply to {name}",
+  "58796398a662498a": "Reply",
+  "97e33748c177bbb4": "Answer {name} in the thread",
+  "1128ba70b2c59c51": [
+    "Replied to ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "1afac27d8e35bb95": "Stopped sharing with {name}",
   "4bab0b65fb678f6a": "Shared with {name}",
   "d94eb3883bdcc496": "Their copy freezes, marked Disconnected from host.",
