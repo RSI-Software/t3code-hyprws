@@ -18,6 +18,7 @@ import {
   type CollaboratorUnshareThreadInputFork,
   EnvironmentAuthenticatedPrincipal,
   type EnvironmentAuthorizationError,
+  type OrchestrationV2DispatchCommandError,
   OrchestrationV2ThreadShell,
   type RpcScopeAuthorization,
   ThreadId,
@@ -172,7 +173,7 @@ export class CollaboratorSharesFork extends Context.Service<
       handlers: CollaboratorHandlersFork<A, E, R, SE, SR, TE, TR, LA, LE, LR, OE, OR>,
     ) => CollaboratorHandlersFork<
       A,
-      E | EnvironmentAuthorizationError,
+      E | EnvironmentAuthorizationError | OrchestrationV2DispatchCommandError,
       R,
       SE,
       SR,

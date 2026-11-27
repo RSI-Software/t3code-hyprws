@@ -100,7 +100,7 @@ export const hostAttribution = (
         `It answers ${replyTo.name}, not anything you asked, so it is between people, even when it turns down or puts off what ${replyTo.name} asked for, unless it also asks you to do something`;
   const { own, text: prompt } = attributed(
     `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below${reply}. `,
-    `${host ?? "the owner"} and ${others.join(" and ")}`,
+    [host ?? "the owner", ...others].join(" and "),
     text,
     forced,
   );
