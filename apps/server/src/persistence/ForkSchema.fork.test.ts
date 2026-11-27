@@ -108,23 +108,34 @@ layer("ForkSchema repair", (it) => {
 });
 
 layer("ForkSchema columns", (it) => {
-  it.effect("adds the interrupt pin to a request table created without it", () =>
+  it.effect("adds fork columns to rows saved before them, left null", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
       yield* sql`ALTER TABLE auth_external_mcp_requests DROP COLUMN pinned_target`;
+      yield* sql`ALTER TABLE fork_collaborator_messages DROP COLUMN force_reply`;
       assert.isTrue(yield* hasPendingMigrations());
       yield* sql`
         INSERT INTO auth_external_mcp_requests
           (session_id, operation, client_request_id, request_hash, result_json, created_at)
         VALUES ('s', 'interrupt', 'k', 'h', NULL, '2026-10-05T00:00:00.000Z')
       `;
+      yield* sql`
+        INSERT INTO fork_collaborator_messages
+          (id, thread_id, subject, collaborator_name, text, submitted_at)
+        VALUES ('m', 't', 's', 'Sam', 'hi', '2026-11-20T00:00:00.000Z')
+      `;
       yield* runMigrations();
       assert.isFalse(yield* hasPendingMigrations());
-      const rows = yield* sql<{ readonly pinned: string | null }>`
+      const pins = yield* sql<{ readonly pinned: string | null }>`
         SELECT pinned_target AS "pinned" FROM auth_external_mcp_requests
       `;
-      assert.deepStrictEqual(rows, [{ pinned: null }]);
+      assert.deepStrictEqual(pins, [{ pinned: null }]);
+      // A collaborator request saved before "Ask the agent" loads as a normal one.
+      const requests = yield* sql<{ readonly text: string; readonly force: number | null }>`
+        SELECT text, force_reply AS "force" FROM fork_collaborator_messages
+      `;
+      assert.deepStrictEqual(requests, [{ text: "hi", force: null }]);
     }),
   );
 });
