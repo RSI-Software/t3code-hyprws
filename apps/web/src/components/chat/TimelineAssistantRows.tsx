@@ -10,6 +10,7 @@ import { GitForkIcon, ReplyIcon } from "lucide-react";
 import { captureAssistantMessageOpening } from "~/lib/assistantTextSelection";
 import { responseContextRecord } from "~/lib/composerContextRecords";
 import { Button } from "../ui/button";
+import { isQuietTurnFork, QuietTurnRowFork } from "../collaborator/QuietTurnRow.fork"; // fork-hook: colleague-collab/quiet-turn-row-import
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { McpAppFrame } from "./McpAppFrame";
@@ -36,6 +37,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
   const text = liveText ?? row.message.text;
   const messageText =
     text || (row.message.streaming || row.suppressEmptyResponse ? "" : gt("(empty response)"));
+  if (isQuietTurnFork(row)) return <QuietTurnRowFork />; // fork-hook: colleague-collab/quiet-turn-row
 
   return (
     <>
