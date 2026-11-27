@@ -317,6 +317,7 @@ export const OrchestrationMessageContext = Schema.Struct({
   version: Schema.Literal(1),
   guest: Schema.optional(GuestMessageAttribution),
   collaboratorFork: Schema.optional(CollaboratorAttributionFork), // fork-hook: colleague-collab/message-context-attribution
+  forceReplyFork: Schema.optional(Schema.Literal(true)), // fork-hook: colleague-collab/message-context-force-reply
   records: Schema.Array(Schema.Unknown)
     .check(
       Schema.isMaxLength(COMPOSER_CONTEXT_MAX_RECORDS),

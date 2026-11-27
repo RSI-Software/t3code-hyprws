@@ -7,10 +7,12 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   createEnvironmentRpcCommand,
   isAtomCommandInterrupted,
+  selectEnvironmentQueryData,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type CollaboratorMessageFork,
+  type CollaboratorTypingStateFork,
   type CollaboratorTypistFork,
   type EnvironmentId,
   isCollaboratorGrantFork,
@@ -20,6 +22,7 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import type { AsyncResult } from "effect/reactivity";
 import { msg, useGT, useMessages } from "gt-react";
 import { ArrowUpIcon, Clock3Icon, HourglassIcon, UnplugIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
@@ -29,7 +32,7 @@ import { connectionAtomRuntime } from "~/connection/runtime";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
 import { useQuietThreadShell, useServerConfigs } from "~/state/entities";
-import { useEnvironmentQuery } from "~/state/query";
+import { useEnvironmentQuery, useEnvironmentQuerySelector } from "~/state/query";
 import { environmentSession } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
@@ -56,6 +59,9 @@ const resolveMessageCommand = createEnvironmentRpcCommand(connectionAtomRuntime,
 });
 
 const NO_MESSAGES: ReadonlyArray<CollaboratorMessageFork> = [];
+// Only the shared flag, so a collaborator's typing does not re-render the chat view.
+const selectShared = <E,>(result: AsyncResult.AsyncResult<CollaboratorTypingStateFork, E>) =>
+  selectEnvironmentQueryData(result)?.shared === true;
 
 /** The waiting messages this session may see; none from a server without collaborators. */
 function useWaitingMessages(environmentId: EnvironmentId | null) {
@@ -138,6 +144,17 @@ export function useCollaboratorChatFork(
   const submit = useAtomCommand(submitMessageCommand);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const access = thread?.collaboratorFork;
+  const configs = useServerConfigs();
+  const served =
+    thread != null &&
+    access !== "frozen" &&
+    configs.get(thread.environmentId)?.environment.capabilities.collaboratorsFork === true;
+  const shared = useEnvironmentQuerySelector(
+    served
+      ? typingSubscription({ environmentId: thread.environmentId, input: { threadId: thread.id } })
+      : null,
+    selectShared,
+  );
 
   const submitForApproval = (event?: { preventDefault: () => void }) => {
     event?.preventDefault();
@@ -190,7 +207,8 @@ export function useCollaboratorChatFork(
           bannerItems: [localizedBanner(APPROVAL_BANNER, messages), ...bannerItems],
         };
       }
-      return {};
+      // Offered to the host and to collaborators who send directly; approval sends text only.
+      return shared ? { sendMenuFork: { askAgent: true } } : {};
     },
     footer: (footer: ReactNode) =>
       thread == null || waiting.length === 0
