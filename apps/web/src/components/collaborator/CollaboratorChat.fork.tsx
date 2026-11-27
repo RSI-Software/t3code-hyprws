@@ -240,7 +240,7 @@ export function useCollaboratorChatFork(
       const offline = outbox.queues
         ? { onSend: queueOffline, environmentUnavailable: null }
         : { onSend: submitForApproval };
-      if (outbox.queues && access === "send") return offline;
+      if (outbox.queues && access === "send") return { ...offline, bannerItems };
       if (access === "approve") {
         // The server refuses an approve collaborator's interrupt, so no Stop button.
         return {
