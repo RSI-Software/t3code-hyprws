@@ -17,6 +17,7 @@ import { msg } from "gt-react";
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { serverEnvironment } from "~/state/server";
 import { environmentSession } from "~/state/session";
+import { environmentSnapshotAtom } from "~/state/shell";
 
 export const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   label: "environment-data:collaborator:thread-shares",
@@ -51,12 +52,21 @@ const useHostSessionFork = (environmentId: EnvironmentId) =>
     (session) => session !== null && !isCollaboratorGrantFork(session.permissions),
   );
 
-/** A collaborator's session on the host's environment; false for the host, and while it loads. */
-export const useCollaboratorSessionFork = (environmentId: EnvironmentId) =>
-  useAtomValue(
-    environmentSession.sessionStateValueAtom(environmentId),
-    (session) => session !== null && isCollaboratorGrantFork(session.permissions),
+/**
+ * A collaborator's session on the host's environment; false for the host, and while it loads.
+ * With no session, as while the host is offline, a copy of shared threads still marks one.
+ */
+export const useCollaboratorSessionFork = (environmentId: EnvironmentId) => {
+  const session = useAtomValue(environmentSession.sessionStateValueAtom(environmentId), (value) =>
+    value === null ? null : isCollaboratorGrantFork(value.permissions),
   );
+  const sharedCopy = useAtomValue(
+    environmentSnapshotAtom(environmentId),
+    (snapshot) =>
+      snapshot?.threads.some((thread) => thread.collaboratorFork !== undefined) ?? false,
+  );
+  return session ?? sharedCopy;
+};
 
 /** Thread details rows that act on the host's machine; the server refuses them to a collaborator. */
 export const hostOnlyDetailsFork = (collaborator: boolean) =>

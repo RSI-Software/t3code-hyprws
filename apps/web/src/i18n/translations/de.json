@@ -5081,6 +5081,8 @@
   "8ad813abcdd1a8fa": "{environment} wartet darauf, dieses Gerät zu genehmigen",
   "04c7052ba330de71": "{environment} verbindet sich neu",
   "a674223df8562cce": "{environment} ist offline",
+  "01cfa43ef5af317b": "Du liest deine Kopie dieses Threads.",
+  "f3e6e0c1d100010c": "Du liest deine Kopie, zuletzt synchronisiert {time}.",
   "206281759a765d0a": "Jetzt erneut versuchen",
   "e0cfab9ded209e81": "Neu verbinden",
   "23d1c5c2f53088fa": "Server {environment} konnte nicht aktualisiert werden",
