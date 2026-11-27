@@ -1,8 +1,8 @@
 // Fork-only (colleague-collab): a thread a colleague shared with me says so on its sidebar card.
-// The sharer is the saved colleague whose environment the thread lives on.
+// The sharer is the saved colleague whose environment the thread lives on; a team thread says so instead.
 import { selectEnvironmentQueryData } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { T, Var } from "gt-react";
+import { T, useGT, Var } from "gt-react";
 import { UsersIcon } from "lucide-react";
 
 import { useServerConfigs } from "~/state/entities";
@@ -26,8 +26,11 @@ export function useSharerNamesFork() {
   );
 }
 
-/** One read for the whole list. A shared thread's card names its sharer in place of the machine:
- * the saved colleague on its environment, or null for a one-time guest copy. */
+/** Who shared a card's thread: the saved colleague on its environment, or null for a one-time
+ * guest copy. A team thread was never shared by hand; its access is `read`. */
+export type SharedCardFork = { readonly name: string | null; readonly team: boolean };
+
+/** One read for the whole list. A shared thread's card names its sharer in place of the machine. */
 export function useSharedCardPropsFork() {
   const nameByEnvironment = useSharerNamesFork();
   return (thread: {
@@ -37,7 +40,10 @@ export function useSharedCardPropsFork() {
     thread.collaboratorFork === undefined
       ? {}
       : {
-          sharedByFork: nameByEnvironment.get(thread.environmentId) ?? null,
+          sharedByFork: {
+            name: nameByEnvironment.get(thread.environmentId) ?? null,
+            team: thread.collaboratorFork === "read",
+          } satisfies SharedCardFork,
           environmentLabel: null,
         };
 }
@@ -45,12 +51,22 @@ export function useSharedCardPropsFork() {
 /** The card's accessible name stays the title; this describes it, so focus also says who shared it. */
 export const sharedByIdFork = (threadKey: string) => `sidebar-shared-by-${threadKey}`;
 
-export function SharedByFork({ id, name }: { readonly id: string; readonly name: string | null }) {
+export function SharedByFork({
+  id,
+  share,
+}: {
+  readonly id: string;
+  readonly share: SharedCardFork;
+}) {
+  const gt = useGT();
+  const { name, team } = share;
   return (
     <>
       <UsersIcon aria-hidden className="size-3.5 shrink-0 text-primary" />
       <span id={id} className="min-w-0 truncate font-medium text-primary">
-        {name === null ? (
+        {team ? (
+          gt("Team project")
+        ) : name === null ? (
           <T>Shared with you</T>
         ) : (
           <T>
