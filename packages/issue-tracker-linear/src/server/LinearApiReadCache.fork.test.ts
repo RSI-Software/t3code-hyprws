@@ -43,7 +43,9 @@ function fakeLinear() {
   const host = Layer.succeed(
     IssueTrackerHost.IssueTrackerHost,
     IssueTrackerHost.IssueTrackerHost.of({
-      credentials: { get: () => Effect.sync(() => Option.some(state.token)) },
+      credentials: {
+        get: () => Effect.sync(() => Option.some({ token: state.token, fields: {} })),
+      },
     }),
   );
   const api = Effect.service(LinearApi.LinearApi).pipe(
