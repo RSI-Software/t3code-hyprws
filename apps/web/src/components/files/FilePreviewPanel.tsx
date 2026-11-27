@@ -1953,7 +1953,12 @@ function FilePreviewPanelContent({
                     threadRef={threadRef}
                     contents={file.data.contents}
                     workspaceMutationId={workspaceMutationId}
-                    readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                    readOnly={
+                      file.data.truncated ||
+                      file.data.readOnly === true ||
+                      isHostFile ||
+                      !canWriteFiles
+                    }
                     onPendingChange={onPendingChange}
                   />
                 </RichMarkdownPreviewBoundary>
