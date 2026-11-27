@@ -14,6 +14,7 @@ import {
 } from "@t3tools/contracts";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
+import { issueEnvironment } from "~/state/issues";
 import { issueTrackerEnvironment } from "~/state/issueTrackers";
 import { pullRequestEnvironment, useSharedPullRequestSummary } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
@@ -169,9 +170,16 @@ export function useReferenceSummaryFork(
   enabled: boolean,
 ): { readonly summary: ReferenceSummaryFork | null; readonly revalidate: () => void } {
   const issueRead = read?.kind === "issue" ? read : null;
-  const issue = useEnvironmentQuery(
-    enabled && issueRead !== null ? issueSummary(issueRead.target) : null,
+  // Linear's hourly quota is shared with every agent, so its chips read a batched summary. Other
+  // trackers keep the detail the issue panel refreshes after an edit.
+  const linear = issueRead?.target.input.tracker === LINEAR_TRACKER;
+  const summaryRead = useEnvironmentQuery(
+    enabled && issueRead !== null && linear ? issueSummary(issueRead.target) : null,
   );
+  const detailRead = useEnvironmentQuery(
+    enabled && issueRead !== null && !linear ? issueEnvironment.detail(issueRead.target) : null,
+  );
+  const issue = linear ? summaryRead : detailRead;
   const pullRequestTarget =
     read?.kind === "pull-request"
       ? read.target

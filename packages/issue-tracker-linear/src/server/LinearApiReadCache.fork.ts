@@ -80,7 +80,7 @@ export const make = Effect.fn("LinearApiReadCache.make")(function* (
       return Effect.request(SummaryRequest({ token, identifier }), summaryResolver).pipe(
         Effect.filterOrElse(
           (issue) => issue !== null,
-          () => api.getIssue(identifier, 0),
+          () => api.getIssue(identifier, 1),
         ),
       );
     },
