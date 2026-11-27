@@ -45,6 +45,7 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { DismissedMessageFork, useWaitingListLabelFork } from "./CollaboratorMessageOutcome.fork";
 import { collaboratorMessages } from "./useCollaboratorRequests.fork";
+import { useColleagueOfflineBannerFork } from "./colleagueCopy.fork";
 import { CollaboratorTypingFork, HOST_KEY, typingSubscription } from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 
@@ -155,6 +156,10 @@ export function useCollaboratorChatFork(
       : null,
     selectShared,
   );
+  const hostOffline = useColleagueOfflineBannerFork(
+    access === undefined ? null : (thread?.environmentId ?? null),
+    access === undefined ? null : (thread?.id ?? null),
+  );
 
   const submitForApproval = (event?: { preventDefault: () => void }) => {
     event?.preventDefault();
@@ -191,7 +196,8 @@ export function useCollaboratorChatFork(
   return {
     typing:
       thread == null ? null : <CollaboratorTypingFork thread={thread} draftTarget={draftTarget} />,
-    composer: (bannerItems: ReadonlyArray<ComposerBannerStackItem>) => {
+    composer: (items: ReadonlyArray<ComposerBannerStackItem>) => {
+      const bannerItems = hostOffline(items);
       if (access === "frozen") {
         return {
           canOperateThread: false,
@@ -208,7 +214,8 @@ export function useCollaboratorChatFork(
         };
       }
       // Offered to the host and to collaborators who send directly; approval sends text only.
-      return shared ? { sendMenuFork: { askAgent: true } } : {};
+      const sendMenu = shared ? { sendMenuFork: { askAgent: true } } : {};
+      return access === undefined ? sendMenu : { ...sendMenu, bannerItems };
     },
     footer: (footer: ReactNode) =>
       thread == null || waiting.length === 0

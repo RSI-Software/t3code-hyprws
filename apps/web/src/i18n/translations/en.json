@@ -5096,6 +5096,8 @@
   "8ad813abcdd1a8fa": "{environment} is waiting to approve this device",
   "04c7052ba330de71": "{environment} is reconnecting",
   "a674223df8562cce": "{environment} is offline",
+  "01cfa43ef5af317b": "You are reading your copy of this thread.",
+  "f3e6e0c1d100010c": "You are reading your copy, last synced {time}.",
   "206281759a765d0a": "Retry now",
   "e0cfab9ded209e81": "Reconnect",
   "7444c068d7f0d536": "Retry",
