@@ -7,7 +7,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ThreadSearch from "../orchestration-v2/ThreadSearch.ts";
-import { listColleagueThreadsFork, readColleagueThreadFork } from "./ColleagueThreadReads.fork.ts";
+import * as ColleagueThreadReads from "./ColleagueThreadReads.fork.ts";
 import {
   AGENT_REPLY,
   database,
@@ -49,17 +49,16 @@ database((it) => {
       const dispatchesBefore = hostDispatches.length;
       yield* withService(
         Effect.gen(function* () {
+          const reads = yield* ColleagueThreadReads.ColleagueThreadReadsFork;
           const ids = (result: {
             readonly threads: ReadonlyArray<{ readonly threadId: string }>;
           }) => result.threads.map(({ threadId }) => threadId);
-          assert.deepStrictEqual(ids(yield* listColleagueThreadsFork("colleague:alex", {})), [
-            shared,
-          ]);
-          const found = yield* listColleagueThreadsFork("colleague:alex", { query: "timeout" });
+          assert.deepStrictEqual(ids(yield* reads.list("colleague:alex", {})), [shared]);
+          const found = yield* reads.list("colleague:alex", { query: "timeout" });
           assert.deepStrictEqual(ids(found), [shared]);
           assert.strictEqual(found.threads[0]?.match?.snippet, "login timeout");
 
-          const read = yield* readColleagueThreadFork("colleague:alex", { threadId: shared });
+          const read = yield* reads.read("colleague:alex", { threadId: shared });
           // The link opens in the colleague's app, which has this environment attached.
           assert.include(read.thread.link, "t3-thread://v2/env-host/shared");
           assert.deepStrictEqual(
@@ -68,20 +67,21 @@ database((it) => {
           );
 
           // A thread outside the team projects, and a one-time guest, are refused plainly.
-          const refused = yield* Effect.flip(
-            readColleagueThreadFork("colleague:alex", { threadId: other }),
-          );
+          const refused = yield* Effect.flip(reads.read("colleague:alex", { threadId: other }));
           assert.strictEqual(
             refused.message,
             "That thread is not in a team project here, and nobody shared it with you.",
           );
-          assert.deepStrictEqual(ids(yield* listColleagueThreadsFork("colleague:pat", {})), []);
+          assert.deepStrictEqual(ids(yield* reads.list("colleague:pat", {})), []);
           assert.strictEqual(
-            (yield* Effect.flip(readColleagueThreadFork("colleague:pat", { threadId: shared })))
-              ._tag,
+            (yield* Effect.flip(reads.read("colleague:pat", { threadId: shared })))._tag,
             "ColleagueThreadUnreadableErrorFork",
           );
-        }).pipe(Effect.provide(Layer.merge(search, environment))),
+        }).pipe(
+          Effect.provide(
+            ColleagueThreadReads.layer.pipe(Layer.provide(Layer.merge(search, environment))),
+          ),
+        ),
       );
       // Reads start no turn and send nothing on the host.
       assert.strictEqual(hostDispatches.length, dispatchesBefore);

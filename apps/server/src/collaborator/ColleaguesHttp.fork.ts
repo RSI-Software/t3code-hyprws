@@ -16,12 +16,7 @@ import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import {
-  type ColleagueThreadReadErrorFork,
-  type ColleagueThreadUnreadableErrorFork,
-  listColleagueThreadsFork,
-  readColleagueThreadFork,
-} from "./ColleagueThreadReads.fork.ts";
+import * as ColleagueThreadReads from "./ColleagueThreadReads.fork.ts";
 import * as Colleagues from "./Colleagues.fork.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -70,13 +65,18 @@ const route = <A>(
   );
 
 /** A read for the calling colleague's subject; `canRead` inside decides every thread. */
-const readRoute = <I, A, R>(
+const readRoute = <I, A>(
   path: `/${string}`,
   input: Schema.Codec<I, unknown>,
   answer: (
+    reads: ColleagueThreadReads.ColleagueThreadReadsFork["Service"],
     subject: string,
     input: I,
-  ) => Effect.Effect<A, ColleagueThreadUnreadableErrorFork | ColleagueThreadReadErrorFork, R>,
+  ) => Effect.Effect<
+    A,
+    | ColleagueThreadReads.ColleagueThreadUnreadableErrorFork
+    | ColleagueThreadReads.ColleagueThreadReadErrorFork
+  >,
 ) =>
   HttpRouter.add(
     "POST",
@@ -84,6 +84,7 @@ const readRoute = <I, A, R>(
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const auth = yield* EnvironmentAuth.EnvironmentAuth;
+      const reads = yield* ColleagueThreadReads.ColleagueThreadReadsFork;
       const session = yield* auth.authenticateHttpRequest(request).pipe(Effect.option);
       if (session._tag === "None") return json({ error: "Authentication required." }, 401);
       if (!session.value.scopes.includes(AuthOrchestrationReadScope)) {
@@ -94,7 +95,7 @@ const readRoute = <I, A, R>(
         Effect.option,
       );
       if (body._tag === "None") return json({ error: "Unknown request shape." }, 400);
-      return yield* answer(session.value.subject, body.value).pipe(
+      return yield* answer(reads, session.value.subject, body.value).pipe(
         Effect.map((result) => json(result)),
         Effect.catchTags({
           ColleagueThreadUnreadableErrorFork: (error) =>
@@ -111,6 +112,10 @@ export const routeLayerFork = Layer.mergeAll(
     colleagues.issueClientPairing(session),
   ),
   route(COLLEAGUE_FORGET_ROUTE_FORK, (colleagues, session) => colleagues.forget(session.subject)),
-  readRoute(COLLEAGUE_THREADS_ROUTE_FORK, ColleagueThreadsInputFork, listColleagueThreadsFork),
-  readRoute(COLLEAGUE_THREAD_ROUTE_FORK, ColleagueThreadInputFork, readColleagueThreadFork),
+  readRoute(COLLEAGUE_THREADS_ROUTE_FORK, ColleagueThreadsInputFork, (reads, subject, input) =>
+    reads.list(subject, input),
+  ),
+  readRoute(COLLEAGUE_THREAD_ROUTE_FORK, ColleagueThreadInputFork, (reads, subject, input) =>
+    reads.read(subject, input),
+  ),
 );

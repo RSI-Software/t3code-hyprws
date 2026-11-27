@@ -12,7 +12,9 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -20,7 +22,7 @@ import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { listItemFromShellFork, timelineItemFork } from "../mcp/OrchestratorMcpService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadSearch from "../orchestration-v2/ThreadSearch.ts";
-import { CollaboratorSharesFork } from "./CollaboratorShares.fork.ts";
+import * as CollaboratorShares from "./CollaboratorShares.fork.ts";
 
 const LIST_LIMIT = 50;
 const READ_LIMIT = 30;
@@ -39,124 +41,183 @@ export class ColleagueThreadUnreadableErrorFork extends Schema.TaggedError<Colle
 
 export class ColleagueThreadReadErrorFork extends Schema.TaggedError<ColleagueThreadReadErrorFork>()(
   "ColleagueThreadReadErrorFork",
-  { cause: Schema.Defect() },
+  {
+    stage: Schema.Literals(["list", "search", "snapshot", "shell", "timeline", "messages"]),
+    projectId: Schema.optional(Schema.String),
+    threadId: Schema.optional(Schema.String),
+    cause: Schema.Defect(),
+  },
 ) {
   override get message() {
-    return "Could not read threads here.";
+    return `Could not read threads here: the ${this.stage} read failed.`;
   }
 }
 
-const failed = (cause: unknown) => new ColleagueThreadReadErrorFork({ cause });
+export class ColleagueThreadReadsFork extends Context.Service<
+  ColleagueThreadReadsFork,
+  {
+    /** The threads `subject` may read, newest first, or the ones a keyword search finds there. */
+    readonly list: (
+      subject: string,
+      input: ColleagueThreadsInputFork,
+    ) => Effect.Effect<ColleagueThreadsResultFork, ColleagueThreadReadErrorFork>;
+    /** One thread `subject` may read: its newest messages, or the page before `beforePosition`. */
+    readonly read: (
+      subject: string,
+      input: ColleagueThreadInputFork,
+    ) => Effect.Effect<
+      ColleagueThreadResultFork,
+      ColleagueThreadUnreadableErrorFork | ColleagueThreadReadErrorFork
+    >;
+  }
+>()("t3/collaborator/ColleagueThreadReads.fork/ColleagueThreadReadsFork") {}
 
-const context = Effect.gen(function* () {
-  const shares = yield* CollaboratorSharesFork;
+const make = Effect.gen(function* () {
+  const shares = yield* CollaboratorShares.CollaboratorSharesFork;
   const threads = yield* ThreadManagement.ThreadManagementService;
-  const { environmentId } = yield* (yield* ServerEnvironment.ServerEnvironment).getDescriptor;
-  // Links name this environment, which the colleague's app has attached.
-  const scope: McpInvocationScope = {
-    environmentId,
-    capabilities: new Set(),
-    issuedAt: 0,
-    requestNamespace: "colleague",
-    thread: undefined,
-    client: undefined,
-  };
-  const nowMs = yield* Clock.currentTimeMillis;
-  const item = (shell: OrchestrationV2ThreadShell): ColleagueThreadFork =>
-    listItemFromShellFork(scope, shell, nowMs);
-  return { shares, threads, item };
-});
+  const search = yield* ThreadSearch.ThreadSearch;
+  const environment = yield* ServerEnvironment.ServerEnvironment;
 
-/** The readable threads, newest first, or the ones a keyword search finds among them. */
-export const listColleagueThreadsFork = Effect.fn("ColleagueThreadReadsFork.list")(function* (
-  subject: string,
-  input: ColleagueThreadsInputFork,
-) {
-  const { shares, threads, item } = yield* context;
-  const entries = yield* threads
-    .listProjectThreads({ includeSubagents: false })
-    .pipe(Effect.mapError(failed));
-  const readable = yield* Effect.filter(entries, (entry) => shares.canRead(subject, entry.id), {
-    concurrency: CHECK_CONCURRENCY,
+  // Links name this environment, which the colleague's app has attached.
+  const toItem = Effect.gen(function* () {
+    const { environmentId } = yield* environment.getDescriptor;
+    const scope: McpInvocationScope = {
+      environmentId,
+      capabilities: new Set(),
+      issuedAt: 0,
+      requestNamespace: "colleague",
+      thread: undefined,
+      client: undefined,
+    };
+    const nowMs = yield* Clock.currentTimeMillis;
+    return (shell: OrchestrationV2ThreadShell): ColleagueThreadFork =>
+      listItemFromShellFork(scope, shell, nowMs);
   });
-  const matches = new Map<ThreadId, ColleagueThreadFork["match"]>();
-  if (input.query === undefined) {
-    for (const { id } of readable.slice(0, LIST_LIMIT)) matches.set(id, undefined);
-  } else {
-    const search = yield* ThreadSearch.ThreadSearch;
-    const ids = new Set(readable.map(({ id }) => id));
-    // Per project, so threads it may not read never crowd out the ones it may.
-    for (const projectId of new Set(readable.map((entry) => entry.projectId))) {
-      const found = yield* search
-        .searchThreads({ query: input.query, projectId, limit: LIST_LIMIT })
-        .pipe(Effect.mapError(failed));
-      for (const hit of found.matches) {
-        if (!ids.has(hit.threadId) || matches.has(hit.threadId)) continue;
-        matches.set(hit.threadId, {
-          source: hit.source,
-          ...(hit.snippet === undefined ? {} : { snippet: hit.snippet }),
-        });
+
+  const list: ColleagueThreadReadsFork["Service"]["list"] = Effect.fn(
+    "ColleagueThreadReadsFork.list",
+  )(function* (subject, input) {
+    const entries = yield* threads
+      .listProjectThreads({ includeSubagents: false })
+      .pipe(Effect.mapError((cause) => new ColleagueThreadReadErrorFork({ stage: "list", cause })));
+    const readable = yield* Effect.filter(entries, (entry) => shares.canRead(subject, entry.id), {
+      concurrency: CHECK_CONCURRENCY,
+    });
+    const matches = new Map<ThreadId, ColleagueThreadFork["match"]>();
+    if (input.query === undefined) {
+      for (const { id } of readable.slice(0, LIST_LIMIT)) matches.set(id, undefined);
+    } else {
+      const ids = new Set(readable.map(({ id }) => id));
+      // Per project, so threads it may not read never crowd out the ones it may.
+      for (const projectId of new Set(readable.map((entry) => entry.projectId))) {
+        const found = yield* search
+          .searchThreads({ query: input.query, projectId, limit: LIST_LIMIT })
+          .pipe(
+            Effect.mapError(
+              (cause) => new ColleagueThreadReadErrorFork({ stage: "search", projectId, cause }),
+            ),
+          );
+        for (const hit of found.matches) {
+          if (!ids.has(hit.threadId) || matches.has(hit.threadId)) continue;
+          matches.set(hit.threadId, {
+            source: hit.source,
+            ...(hit.snippet === undefined ? {} : { snippet: hit.snippet }),
+          });
+        }
       }
     }
-  }
-  const picked = [...matches.keys()].slice(0, LIST_LIMIT);
-  const snapshot =
-    picked.length === 0
-      ? { threads: [] }
-      : yield* threads
-          .getShellSnapshot({ location: "active", threadIds: picked })
-          .pipe(Effect.mapError(failed));
-  const shells = new Map(snapshot.threads.map((shell) => [shell.id, shell]));
-  return {
-    threads: picked.flatMap((id) => {
-      const shell = shells.get(id);
-      if (shell === undefined) return [];
-      const match = matches.get(id);
-      return [{ ...item(shell), ...(match === undefined ? {} : { match }) }];
-    }),
-  } satisfies ColleagueThreadsResultFork;
+    const picked = [...matches.keys()].slice(0, LIST_LIMIT);
+    const snapshot =
+      picked.length === 0
+        ? { threads: [] }
+        : yield* threads
+            .getShellSnapshot({ location: "active", threadIds: picked })
+            .pipe(
+              Effect.mapError(
+                (cause) => new ColleagueThreadReadErrorFork({ stage: "snapshot", cause }),
+              ),
+            );
+    const shells = new Map(snapshot.threads.map((shell) => [shell.id, shell]));
+    const item = yield* toItem;
+    return {
+      threads: picked.flatMap((id) => {
+        const shell = shells.get(id);
+        if (shell === undefined) return [];
+        const match = matches.get(id);
+        return [{ ...item(shell), ...(match === undefined ? {} : { match }) }];
+      }),
+    };
+  });
+
+  const read: ColleagueThreadReadsFork["Service"]["read"] = Effect.fn(
+    "ColleagueThreadReadsFork.read",
+  )(function* (subject, input) {
+    const { threadId } = input;
+    if (!(yield* shares.canRead(subject, threadId))) {
+      return yield* new ColleagueThreadUnreadableErrorFork({ threadId });
+    }
+    const shell = yield* threads
+      .getThreadShell(threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new ColleagueThreadReadErrorFork({ stage: "shell", threadId, cause }),
+        ),
+      );
+    if (shell === null || shell.deletedAt !== null) {
+      return yield* new ColleagueThreadUnreadableErrorFork({ threadId });
+    }
+    const timeline = yield* threads
+      .getTimelinePage(threadId, {
+        beforePosition: input.beforePosition ?? Number.POSITIVE_INFINITY,
+        limit: READ_LIMIT,
+        view: "messages",
+        ...(input.itemId === undefined ? {} : { itemId: input.itemId }),
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) => new ColleagueThreadReadErrorFork({ stage: "timeline", threadId, cause }),
+        ),
+      );
+    const messageIds = new Map<ThreadId, Array<MessageId>>();
+    for (const { item: turnItem, sourceThreadId } of timeline.items) {
+      if (turnItem.type !== "user_message" && turnItem.type !== "assistant_message") continue;
+      messageIds.set(sourceThreadId, [
+        ...(messageIds.get(sourceThreadId) ?? []),
+        turnItem.messageId,
+      ]);
+    }
+    const messagesByThreadId = new Map(
+      yield* Effect.forEach([...messageIds], ([sourceThreadId, ids]) =>
+        threads.getThreadRecords(sourceThreadId, ["messages"], { messageIds: ids }).pipe(
+          Effect.map((records) => [sourceThreadId, records.messages] as const),
+          Effect.mapError(
+            (cause) =>
+              new ColleagueThreadReadErrorFork({
+                stage: "messages",
+                threadId: sourceThreadId,
+                cause,
+              }),
+          ),
+        ),
+      ),
+    );
+    const items = timeline.items.map((row) =>
+      timelineItemFork({
+        row,
+        maxChars: MAX_CHARS_PER_ITEM,
+        messagesByThreadId,
+        ...(input.itemId === undefined ? {} : { textOffset: input.textOffset ?? 0 }),
+      }),
+    );
+    const item = yield* toItem;
+    return {
+      thread: item(shell),
+      items,
+      earlierPosition: timeline.hasEarlier ? (items[0]?.position ?? null) : null,
+    };
+  });
+
+  return ColleagueThreadReadsFork.of({ list, read });
 });
 
-/** One readable thread's newest messages, or the page before `beforePosition`. */
-export const readColleagueThreadFork = Effect.fn("ColleagueThreadReadsFork.read")(function* (
-  subject: string,
-  input: ColleagueThreadInputFork,
-) {
-  const { shares, threads, item } = yield* context;
-  const { threadId } = input;
-  if (!(yield* shares.canRead(subject, threadId))) {
-    return yield* new ColleagueThreadUnreadableErrorFork({ threadId });
-  }
-  const shell = yield* threads.getThreadShell(threadId).pipe(Effect.mapError(failed));
-  if (shell === null || shell.deletedAt !== null) {
-    return yield* new ColleagueThreadUnreadableErrorFork({ threadId });
-  }
-  const timeline = yield* threads
-    .getTimelinePage(threadId, {
-      beforePosition: input.beforePosition ?? Number.POSITIVE_INFINITY,
-      limit: READ_LIMIT,
-      view: "messages",
-    })
-    .pipe(Effect.mapError(failed));
-  const messageIds = new Map<ThreadId, Array<MessageId>>();
-  for (const { item: turnItem, sourceThreadId } of timeline.items) {
-    if (turnItem.type !== "user_message" && turnItem.type !== "assistant_message") continue;
-    messageIds.set(sourceThreadId, [...(messageIds.get(sourceThreadId) ?? []), turnItem.messageId]);
-  }
-  const messagesByThreadId = new Map(
-    yield* Effect.forEach([...messageIds], ([sourceThreadId, ids]) =>
-      threads.getThreadRecords(sourceThreadId, ["messages"], { messageIds: ids }).pipe(
-        Effect.map((records) => [sourceThreadId, records.messages] as const),
-        Effect.mapError(failed),
-      ),
-    ),
-  );
-  const items = timeline.items.map((row) =>
-    timelineItemFork({ row, maxChars: MAX_CHARS_PER_ITEM, messagesByThreadId }),
-  );
-  return {
-    thread: item(shell),
-    items,
-    earlierPosition: timeline.hasEarlier ? (items[0]?.position ?? null) : null,
-  } satisfies ColleagueThreadResultFork;
-});
+export const layer = Layer.effect(ColleagueThreadReadsFork, make);

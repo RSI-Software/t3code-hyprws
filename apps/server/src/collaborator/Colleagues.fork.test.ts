@@ -36,6 +36,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadSearch from "../orchestration-v2/ThreadSearch.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
@@ -223,6 +224,7 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
           environment,
           config,
           threads,
+          Layer.mock(ThreadSearch.ThreadSearch)({}),
           Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({
             latestApplicationSequence: Effect.succeed(0),
             streamApplicationEvents: () => Stream.never,
@@ -413,6 +415,28 @@ it.effect("an unreachable colleague is still removed here, and says so", () =>
       assert.deepStrictEqual(yield* host.colleagues.remove("colleague:sam"), { endedThere: false });
       assert.deepStrictEqual(yield* host.colleagues.list, []);
       assert.notInclude(subjectsOf(host), "colleague:sam");
+    }),
+  ),
+);
+
+it.effect("an agent reads a colleague it names, refused plainly where their server says no", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* acceptedInvite;
+      const threadId = ThreadId.make("host-private");
+
+      const unknown = yield* Effect.flip(sam.colleagues.threadOf({ colleague: "Pat", threadId }));
+      assert.strictEqual(unknown.message, 'No saved colleague is named "Pat". Saved: Jo.');
+      // This harness serves no thread reads, so the host answers 404: a thread it will not show.
+      const refused = yield* Effect.flip(sam.colleagues.threadOf({ colleague: "jo", threadId }));
+      assert.strictEqual(refused._tag, "ColleagueThreadRefusedErrorFork");
+
+      network.delete(host.origin);
+      const { colleagues } = yield* sam.colleagues.threadsOf({});
+      assert.deepStrictEqual(
+        colleagues.map(({ name, threads, error }) => [name, threads, error !== undefined]),
+        [["Jo", undefined, true]],
+      );
     }),
   ),
 );

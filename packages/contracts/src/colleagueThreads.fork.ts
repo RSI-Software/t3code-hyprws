@@ -3,7 +3,7 @@
 // schemas these build on load without a cycle.
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, ThreadId, TrimmedNonEmptyString, TurnItemId } from "./baseSchemas.ts";
 import {
   OrchestratorMcpThreadListItem,
   OrchestratorMcpThreadTimelineItem,
@@ -40,6 +40,9 @@ export const ColleagueThreadInputFork = Schema.Struct({
   threadId: ThreadId,
   /** Older messages: the last page's `earlierPosition`. */
   beforePosition: Schema.optional(NonNegativeInt),
+  /** Cut-off text: the item, then `textOffset` from its `nextTextOffset`. */
+  itemId: Schema.optional(TurnItemId),
+  textOffset: Schema.optional(NonNegativeInt),
 });
 export type ColleagueThreadInputFork = typeof ColleagueThreadInputFork.Type;
 
@@ -51,3 +54,31 @@ export const ColleagueThreadResultFork = Schema.Struct({
   earlierPosition: Schema.NullOr(NonNegativeInt),
 });
 export type ColleagueThreadResultFork = typeof ColleagueThreadResultFork.Type;
+
+/** The same reads on this side, naming the saved colleague whose server answers them. */
+const ColleagueName = TrimmedNonEmptyString.annotate({ description: "A saved colleague's name." });
+
+export const ColleaguesThreadsInputFork = Schema.Struct({
+  /** One colleague; all saved ones when absent. */
+  colleague: Schema.optional(ColleagueName),
+  ...ColleagueThreadsInputFork.fields,
+});
+export type ColleaguesThreadsInputFork = typeof ColleaguesThreadsInputFork.Type;
+
+export const ColleaguesThreadsResultFork = Schema.Struct({
+  colleagues: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      threads: Schema.optional(Schema.Array(ColleagueThreadFork)),
+      /** Why their threads could not be read, such as their machine being offline. */
+      error: Schema.optional(Schema.String),
+    }),
+  ),
+});
+export type ColleaguesThreadsResultFork = typeof ColleaguesThreadsResultFork.Type;
+
+export const ColleagueThreadOfInputFork = Schema.Struct({
+  colleague: ColleagueName,
+  ...ColleagueThreadInputFork.fields,
+});
+export type ColleagueThreadOfInputFork = typeof ColleagueThreadOfInputFork.Type;
