@@ -6172,6 +6172,7 @@
   "a6615c82020deb59": "Conectar",
   "05780a7d2cfae2ef": "Conecte-se a um ambiente primeiro.",
   "1fb4b6adec9303c7": "O T3 Connect não está disponível nesta versão.",
+  "8ca015df3704e556": "O T3 Connect está desativado nesta versão. Apps na nuvem como Claude e Poke não conseguem acessar {url}. Use um app neste computador ou uma rota https como o Tailscale HTTPS.",
   "5f46e2ad137db6ca": "O que o app pode fazer?",
   "a0105a8d01f5a369": "O que {app} pode fazer?",
   "bdca1a253b468137": "Executa comandos e edita arquivos sem perguntar",

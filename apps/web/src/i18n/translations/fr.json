@@ -6173,6 +6173,7 @@
   "a6615c82020deb59": "Connexion",
   "05780a7d2cfae2ef": "Connectez-vous d’abord à un environnement.",
   "1fb4b6adec9303c7": "T3 Connect n’est pas disponible dans cette version.",
+  "8ca015df3704e556": "T3 Connect est désactivé dans cette version. Les apps cloud comme Claude et Poke ne peuvent pas atteindre {url}. Utilisez une app sur cet ordinateur ou une route https comme Tailscale HTTPS.",
   "5f46e2ad137db6ca": "Que peut faire l’app ?",
   "a0105a8d01f5a369": "Que peut faire {app} ?",
   "bdca1a253b468137": "Exécute des commandes et modifie des fichiers sans demander",

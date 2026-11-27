@@ -64,6 +64,7 @@ import { toastManager } from "../ui/toast";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardSteps } from "../ui/wizard";
 import { afterFailedCheck, resolveMcpGate } from "./mcpGate";
 import { MCP_APPS, type McpApp, mcpHandoffAction, OTHER_MCP_APP_STEPS } from "./mcpApps";
+import { ownAddressGate, ownAddressMcp, ownMcpUrl, OwnAddressNote } from "./ownAddressMcp";
 
 const requestAtom = Atom.make<{ readonly environmentId: EnvironmentId | null } | null>(null).pipe(
   Atom.keepAlive,
@@ -90,7 +91,7 @@ function UseInAnotherAppDialog({ requested }: { readonly requested: EnvironmentI
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : close())}>
       <WizardPopup>
-        {environment !== null && hasCloudPublicConfig() ? (
+        {environment !== null && (hasCloudPublicConfig() || ownMcpUrl(environment) !== null) ? (
           <Wizard key={environment.environmentId} environment={environment} title={title} />
         ) : (
           <>
@@ -129,7 +130,7 @@ function Wizard({
 }) {
   const gt = useGT();
   const m = useMessages();
-  const gate = useGate(environment);
+  const gate = useMcpGate(environment);
   const levels = useGrantableLevels(environment);
   const [step, setStep] = useState<Step>(0);
   const [choice, setChoice] = useState<Choice | null>(null);
@@ -138,7 +139,7 @@ function Wizard({
   const open = gate.gate.kind === "open";
   // The level is picked on the sign-in page, so the wizard neither asks for it nor needs a code.
   const hostedApproval =
-    environment.serverConfig?.environment.capabilities.mcpHostedApproval === true;
+    environment.serverConfig?.environment.capabilities.mcpHostedApproval === true && !ownAddressMcp;
   const steps = hostedApproval ? HOSTED_APPROVAL_STEPS : STEPS;
   const shownStep = hostedApproval && step === 2 ? 1 : step;
   const next = () => setStep(step === 0 ? (hostedApproval ? 2 : 1) : 2);
@@ -162,7 +163,10 @@ function Wizard({
         {gate.gate.kind !== "open" ? (
           <GateScreen environment={environment} gate={gate} />
         ) : step === 0 ? (
-          <AppStep choice={choice} onChoose={setChoice} />
+          <>
+            <AppStep choice={choice} onChoose={setChoice} />
+            <OwnAddressNote environment={environment} />
+          </>
         ) : step === 1 ? (
           <section className="space-y-3">
             <h3 className="text-sm font-medium">{levelsHeading}</h3>
@@ -384,6 +388,9 @@ function useGate(environment: EnvironmentPresentation) {
 }
 
 type Gate = ReturnType<typeof useGate>;
+const useMcpGate: (environment: EnvironmentPresentation) => Gate = ownAddressMcp
+  ? ownAddressGate
+  : useGate;
 
 function GateScreen({
   environment,

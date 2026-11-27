@@ -6173,6 +6173,7 @@
   "a6615c82020deb59": "Anslut",
   "05780a7d2cfae2ef": "Anslut till en miljö först.",
   "1fb4b6adec9303c7": "T3 Connect är inte tillgängligt i den här versionen.",
+  "8ca015df3704e556": "T3 Connect är avstängt i den här versionen. Molnappar som Claude och Poke kan inte nå {url}. Använd en app på den här datorn eller en https-väg som Tailscale HTTPS.",
   "5f46e2ad137db6ca": "Vad får appen göra?",
   "a0105a8d01f5a369": "Vad kan {app} göra?",
   "bdca1a253b468137": "Kör kommandon och redigerar filer utan att fråga",
