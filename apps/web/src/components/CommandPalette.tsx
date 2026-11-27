@@ -62,6 +62,7 @@ import {
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { buildShowArtifactsActionItemFork } from "./threadArtifacts/threadArtifactsPalette.fork"; // fork-hook: thread-artifacts/command-palette-show-artifacts-import
 import { useForkThreadActionItemFork } from "./threadForkPalette.fork"; // fork-hook: thread-fork/command-palette-fork-thread-import
+import { colleagueForkPaletteItemFork } from "./collaborator/ColleagueFork.fork"; // fork-hook: colleague-collab/palette-fork-import
 import { buildOpenThreadWindowActionItemFork } from "./threadWindowPalette.fork"; // fork-hook: multi-window/palette-open-thread-window-import
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
 import {
@@ -1859,6 +1860,8 @@ function OpenCommandPaletteDialog(props: {
   const showArtifactsItem = buildShowArtifactsActionItemFork(activeThread); // fork-hook: thread-artifacts/command-palette-show-artifacts
   if (showArtifactsItem) actionItems.push(showArtifactsItem); // fork-hook: thread-artifacts/command-palette-show-artifacts-push
   if (forkThreadItem) actionItems.push(forkThreadItem); // fork-hook: thread-fork/command-palette-fork-thread-push
+  const colleagueForkItem = colleagueForkPaletteItemFork(activeThread); // fork-hook: colleague-collab/palette-fork
+  if (colleagueForkItem) actionItems.push(colleagueForkItem); // fork-hook: colleague-collab/palette-fork
   const projectChooserActionItem = buildProjectChooserActionItemFork(projectChooserLabel); // fork-hook: workspaces/chooser-palette
   if (projectChooserActionItem) actionItems.push(projectChooserActionItem); // fork-hook: workspaces/chooser-palette
 

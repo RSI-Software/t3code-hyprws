@@ -11,6 +11,7 @@ const COPY: Readonly<Record<string, string>> = {
   CollaboratorMessageMissingErrorFork: msg("That message was already sent or dismissed."),
   CollaboratorMessageBusyErrorFork: msg("Wait for the host to answer your earlier messages."),
   CollaboratorMessageDeliveryErrorFork: msg("Could not deliver the message."),
+  ColleagueForkThreadErrorFork: msg("Could not fork the thread to this machine."),
 };
 
 /** Collaborator errors by their copy here; any other by its marked text, else its message. */

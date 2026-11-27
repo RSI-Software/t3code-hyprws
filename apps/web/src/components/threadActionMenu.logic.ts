@@ -10,6 +10,7 @@ import type { ForkableThreadProviderState } from "./threadActionMenu.logic.fork"
 import { forkThreadMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-items-import
 import { openInNewWindowMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { collaboratorShareMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: colleague-collab/menu-items-import
+import { colleagueForkMenuItemsFork } from "./threadActionMenu.logic.fork"; // fork-hook: colleague-collab/fork-menu-items-import
 import type { ColleagueShareMenuIdFork } from "./threadActionMenu.logic.fork"; // fork-hook: colleague-collab/colleague-menu-id-import
 import type { ColleagueShareTargetFork } from "./collaborator/colleagueShare.logic.fork"; // fork-hook: colleague-collab/colleague-menu-state-import
 
@@ -26,6 +27,7 @@ export type ThreadActionMenuId =
   | "fork" // fork-hook: thread-fork/menu-id
   | "open-in-new-window" // fork-hook: multi-window/dispatch-thread-menu-id
   | "share-collaborator" // fork-hook: colleague-collab/menu-id
+  | "fork-to-my-machine" // fork-hook: colleague-collab/fork-menu-id
   | ColleagueShareMenuIdFork // fork-hook: colleague-collab/colleague-menu-id
   | "settle"
   | "unsettle"
@@ -127,6 +129,7 @@ export interface ThreadActionMenuState {
   readonly openInNewWindow?: boolean; // fork-hook: multi-window/dispatch-thread-menu-state
   readonly canShareWithCollaboratorFork?: boolean; // fork-hook: colleague-collab/menu-share-state
   readonly colleaguesFork?: ReadonlyArray<ColleagueShareTargetFork>; // fork-hook: colleague-collab/colleague-menu-state
+  readonly colleagueForkFork?: boolean; // fork-hook: colleague-collab/fork-menu-state
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
@@ -163,6 +166,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-branch",
     "copy-thread",
     "copy-thread-id",
+    "fork-to-my-machine", // fork-hook: colleague-collab/fork-menu-no-operate
   ].includes(action);
 }
 
@@ -203,6 +207,7 @@ export function buildThreadActionMenuItems(
     ...openInNewWindowMenuItems(state), // fork-hook: multi-window/dispatch-thread-menu-items
     ...resetOrderMenuItems(state), // fork-hook: thread-ordering/reset-order-items
     ...forkThreadMenuItems(state), // fork-hook: thread-fork/menu-items
+    ...colleagueForkMenuItemsFork(state, resolve), // fork-hook: colleague-collab/fork-menu-items
     ...(state.supports.settlement
       ? [
           state.isSettled

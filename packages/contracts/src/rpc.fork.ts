@@ -147,6 +147,8 @@ import {
   ColleagueConnectInputFork,
   ColleagueErrorFork,
   ColleagueFork,
+  ColleagueForkThreadErrorFork,
+  ColleagueForkThreadInputFork,
   ColleagueGrantFork,
   ColleagueInviteInputFork,
   ColleagueQueuedMessageFork,
@@ -179,6 +181,7 @@ export const collaboratorRpcFork = {
     colleagueSubscribeOutboxFork: "colleague.subscribeOutboxFork",
     colleagueQueueMessageFork: "colleague.queueMessageFork",
     colleagueUnqueueMessageFork: "colleague.unqueueMessageFork",
+    colleagueForkThreadFork: "colleague.forkThreadFork",
   } as const,
   rpcs: [
     Rpc.make("collaborator.shareThreadFork", {
@@ -285,6 +288,11 @@ export const collaboratorRpcFork = {
     Rpc.make("colleague.unqueueMessageFork", {
       payload: ColleagueUnqueueMessageInputFork,
       error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    // Forks a colleague's thread, from this client's copy of it, into a project on this server.
+    Rpc.make("colleague.forkThreadFork", {
+      payload: ColleagueForkThreadInputFork,
+      error: Schema.Union([ColleagueForkThreadErrorFork, EnvironmentAuthorizationError]),
     }),
   ] as const,
 };
