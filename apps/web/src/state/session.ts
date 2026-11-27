@@ -16,6 +16,10 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentAtomList, environmentIdsKey } from "./environmentAtomList";
+import {
+  readColleagueInboxVetoFork,
+  useColleagueInboxVetoFork,
+} from "../components/collaborator/colleagueInbox.fork"; // fork-hook: colleague-collab/inbox-veto-import
 
 export const environmentSession = createEnvironmentSessionAtoms(connectionAtomRuntime);
 export const environmentSessionStatesAtom = environmentAtomList(
@@ -29,13 +33,15 @@ export function useEnvironmentScope(
   environmentId: EnvironmentId | null,
   scope: AuthEnvironmentScope,
 ): boolean {
+  const vetoedFork = useColleagueInboxVetoFork(environmentId, scope); // fork-hook: colleague-collab/inbox-veto
   // Select the grant: every revalidation emits a new result, and most consumers are list rows.
-  return useAtomValue(
+  const granted = useAtomValue(
     environmentId === null
       ? EMPTY_SESSION_STATE_ATOM
       : environmentSession.sessionStateAtom(environmentId),
     (result) => sessionHasScope(result, scope),
-  );
+  ); // fork-hook: colleague-collab/inbox-veto
+  return granted && !vetoedFork; // fork-hook: colleague-collab/inbox-veto
 }
 
 export function useEnvironmentCanConfigureRelay(environmentId: EnvironmentId | null): boolean {
@@ -95,6 +101,7 @@ export function readEnvironmentScope(
   environmentId: EnvironmentId,
   scope: AuthEnvironmentScope,
 ): boolean {
+  if (readColleagueInboxVetoFork(environmentId, scope)) return false; // fork-hook: colleague-collab/inbox-veto
   return sessionHasScope(
     appAtomRegistry.get(environmentSession.sessionStateAtom(environmentId)),
     scope,
@@ -106,18 +113,21 @@ export function useEnvironmentScopeDenied(
   environmentId: EnvironmentId | null,
   scope: AuthEnvironmentScope,
 ): boolean {
-  return useAtomValue(
+  const vetoedFork = useColleagueInboxVetoFork(environmentId, scope); // fork-hook: colleague-collab/inbox-veto
+  const denied = useAtomValue(
     environmentId === null
       ? EMPTY_SESSION_STATE_ATOM
       : environmentSession.sessionStateAtom(environmentId),
     (result) => sessionDeniesScope(result, scope),
-  );
+  ); // fork-hook: colleague-collab/inbox-veto
+  return denied || vetoedFork; // fork-hook: colleague-collab/inbox-veto
 }
 
 export function readEnvironmentScopeDenied(
   environmentId: EnvironmentId,
   scope: AuthEnvironmentScope,
 ): boolean {
+  if (readColleagueInboxVetoFork(environmentId, scope)) return true; // fork-hook: colleague-collab/inbox-veto
   return sessionDeniesScope(
     appAtomRegistry.get(environmentSession.sessionStateAtom(environmentId)),
     scope,
