@@ -44,18 +44,21 @@ export const sharedThreadsInSyncFork = (
     .map(({ threadId }) => threadId);
 
 /**
- * Saves the host's current thread over HTTP as this device's copy. A copy already at or past that
- * point, such as an open thread's own, is kept.
+ * Saves the host's current thread over HTTP as this device's copy, unless `wanted` turned false
+ * meanwhile, as when the host left this app. A copy at or past that point, such as an open
+ * thread's own, is kept.
  */
 export const copySharedThreadFork = Effect.fn("ColleagueCopy.copyThread")(function* (
   environmentId: EnvironmentId,
   prepared: PreparedConnection,
   threadId: ThreadId,
+  wanted: Effect.Effect<boolean>,
 ) {
   const loader = yield* ThreadSnapshotLoader;
   const cache = yield* Persistence.EnvironmentCacheStore;
   const loaded = yield* loader.load(prepared, threadId);
   if (loaded._tag !== "present") return loaded._tag;
+  if (!(yield* wanted)) return "missing" as const;
   const held = yield* cache
     .loadThread(environmentId, threadId)
     .pipe(Effect.orElseSucceed(() => Option.none()));

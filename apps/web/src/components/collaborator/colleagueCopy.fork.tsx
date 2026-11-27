@@ -33,14 +33,20 @@ interface CopyInput {
 const copyCommand = createRuntimeCommand(connectionAtomRuntime, {
   label: "colleague-copy:thread",
   concurrency: { mode: "serial", key: (input: CopyInput) => input.environmentId },
-  execute: (input: CopyInput, registry) =>
-    Option.match(
-      registry.get(environmentSession.preparedConnectionValueAtom(input.environmentId)),
-      {
-        onNone: () => Effect.succeed("unavailable" as const),
-        onSome: (prepared) => copySharedThreadFork(input.environmentId, prepared, input.threadId),
-      },
-    ),
+  execute: (input: CopyInput, registry) => {
+    const prepared = () =>
+      registry.get(environmentSession.preparedConnectionValueAtom(input.environmentId));
+    return Option.match(prepared(), {
+      onNone: () => Effect.succeed("unavailable" as const),
+      onSome: (connection) =>
+        copySharedThreadFork(
+          input.environmentId,
+          connection,
+          input.threadId,
+          Effect.sync(() => Option.isSome(prepared())),
+        ),
+    });
+  },
 });
 
 const RETRY_MS = 15_000;
@@ -74,6 +80,7 @@ function CopyColleague(props: { readonly environmentId: EnvironmentId }) {
   const [copies] = useState(() => ({
     asked: new Map<ThreadId, string>(),
     held: new Map<ThreadId, string>(),
+    retries: new Set<ReturnType<typeof setTimeout>>(),
   }));
   const [, setRetries] = useState(0);
   const latestThreads = useRef(snapshot?.threads ?? []);
@@ -96,7 +103,11 @@ function CopyColleague(props: { readonly environmentId: EnvironmentId }) {
           markSynced(environmentId, [threadId]);
         } else if (outcome === "unavailable" && copies.asked.get(threadId) === version) {
           copies.asked.delete(threadId);
-          setTimeout(() => setRetries((count) => count + 1), RETRY_MS);
+          const retry = setTimeout(() => {
+            copies.retries.delete(retry);
+            setRetries((count) => count + 1);
+          }, RETRY_MS);
+          copies.retries.add(retry);
         }
       });
     }
@@ -113,6 +124,15 @@ function CopyColleague(props: { readonly environmentId: EnvironmentId }) {
       mark();
     };
   }, [copies, environmentId, live, shared]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a host leaving this app stops its pending retries.
+  useEffect(
+    () => () => {
+      for (const retry of copies.retries) clearTimeout(retry);
+      copies.retries.clear();
+    },
+    [copies],
+  );
   return null;
 }
 

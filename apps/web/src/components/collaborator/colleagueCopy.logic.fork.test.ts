@@ -110,7 +110,12 @@ const copyAll = (
       },
     });
     for (const _ of fetches) {
-      yield* copySharedThreadFork(TARGET.environmentId, PREPARED, THREAD_ID).pipe(
+      yield* copySharedThreadFork(
+        TARGET.environmentId,
+        PREPARED,
+        THREAD_ID,
+        Effect.succeed(true),
+      ).pipe(
         Effect.provideService(Persistence.EnvironmentCacheStore, cache),
         Effect.provideService(ThreadSnapshotLoader, loader),
       );
