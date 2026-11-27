@@ -27,6 +27,7 @@ New to T3 Code? Start with the **[User Guide & Index](./user/README.md)** for ho
 
 - [Browser bookmarks](./fork/user/browser.md)
 - [Workspace files](./fork/user/workspace-files.md)
+- [Outside agents in the hyprws build](./fork/user/outside-agents.md)
 - [Edit Markdown visually](./fork/user/markdown-editing.md)
 - [Rich Markdown showcase](./fork/user/markdown-showcase.md)
 

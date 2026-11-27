@@ -263,6 +263,8 @@ https://github.com/user-attachments/assets/12339d3e-ba6b-4670-880f-7766472114ad
 - **Outside agents** create and steer threads over MCP
 - **Limited** to selected projects; revocable
 
+See the **[guide](docs/fork/user/outside-agents.md)**.
+
 **A client on another machine starts a T3 thread**
 
 https://github.com/user-attachments/assets/c10b2b05-a493-4ada-b7b2-c52420ed8611
