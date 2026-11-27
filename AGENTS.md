@@ -35,6 +35,7 @@ Windows keep all-projects available and share Electron, backend, auth, providers
 Fork server and contract changes must stay usable from the stock upstream app, which simply lacks fork features.
 
 **Dev data:** default to a fresh `.t3` (`--no-seed`) with fixture projects on scratch repos, plus copied settings and secrets except `cloud-*`.
+Worktree dev servers give Claude agents **only your sign-in**, no MCP servers: see [Development](docs/operations/00_development.md#running-dev-servers).
 Use real projects and threads only when the task needs them, such as reproducing or debugging a real-data issue; this overrides Test data below.
 GitHub captures, in issues and PRs, always come from fixture data.
 Pick each test thread's model before sending; never inherit the default.
