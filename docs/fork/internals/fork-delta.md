@@ -822,7 +822,7 @@ Ducking stays fork scope until upstream lowers speaker volume while recording.
 - Shares and stops **reach their sidebar live**
 - The agent sees **who wrote each message**
 - Per share, **the host can approve** each message
-- A saved colleague **reads every team project thread**
+- A saved colleague **reads every team project thread**; requests there need approval
 
 ### Shape
 
@@ -833,7 +833,7 @@ Its session **never expires on time**: a browser session gets a century, a deskt
 The link token is **single-use**, so a browser already paired opens the thread without spending it.
 `fork_colleague_shares` holds **one row per subject and thread**, with its `access`.
 `CollaboratorSharesFork.wrapHandlers` **narrows dispatch**, shell, and thread subscriptions in `ws.ts`.
-Shell items carry **`collaboratorFork`**: `send`, `approve`, `frozen`, or `read`.
+Shell items carry **`collaboratorFork`**: `send`, `approve`, `frozen`, or `read`, which only an **older host** sends for a team thread; the client keeps it **read-only**.
 `approve` **refuses dispatch**; messages wait in `fork_collaborator_messages` until the host sends.
 A **reply** dispatches the host's text with the message quoted as what it answers, so the agent judges the line as said to that person.
 A waiting message **rides upstream's guest-request state** on the host's card, derived client-side from the host's message stream. A requested thread the shells leave out (older settled) is read **by its thread family**, as an open thread's route reads it.
@@ -857,12 +857,12 @@ Each row records the grant this server issued, so **saving again revokes** the o
 An environment saved under one subject **refuses a save** under another, so no collaborator evicts another colleague.
 A colleague **lapses**, removed here as above, once the grant this server issued or the collaborator session that saved them is revoked; `SessionStore` removals trigger the check, and pair-client runs it again.
 A **saved colleague reads every thread** of a team project, with no share rows: `canRead` is a live hand share, or a `fork_colleagues` subject and a marked project.
-A hand share **wins over team access**; a team thread is `read`, so every write, draft, and waiting message is refused, and the client shows **no composer**.
+A hand share **wins over team access**; a team thread is `approve`: a direct write or draft is refused, and a request waits for the host under the name in `fork_colleagues`.
 The archive RPC lists the **same threads as the shell**, archived; their rows carry no unarchive or delete.
 Project events, thread moves, and saving or forgetting a colleague **recheck team access at once**.
 Every team shell item, detail frame, and command output frame **rechecks the committed rows** before it leaves; command output ends at the first frame without access, hand shares included.
 A failed watcher lists none until it reads fresh marks.
-A shell item with `collaboratorFork` gets a **shared card** in the sidebar, naming the saved colleague on its `environmentId`; the list reads colleagues once, never per card.
+A shell item with `collaboratorFork` gets a **shared card** in the sidebar, naming the saved colleague on its `environmentId`, or **"Team project"** when its project carries `teamFork`; the list reads colleagues once, never per card.
 The collaborator's app **copies each shared thread** into its own thread cache, one bounded HTTP read per change and only between runs, so it **opens offline** like any cached thread.
 **Fork to my machine** reads the host's **whole history** while it answers, else that copy, and sends the messages to `colleague.forkThreadFork` on **its own server**.
 That server writes them as run-less **`v1_import` history**, so upstream's legacy-import handoff gives the first run's **fresh session** that context; `historyOrigin` stays upstream's.
@@ -872,6 +872,9 @@ Images and files **pass through the client**: it fetches each from the host's **
 A send to a saved colleague's thread while **their environment is not connected** waits in `fork_colleague_outbox` on **the sender's own server**.
 The sender's app delivers it **on reconnect**, oldest first per thread, through **the share's normal path**; the host **dedupes resends** by the queued id, and delivery **needs the sender's app open**.
 An agent reads a colleague's threads with **`t3_colleague_threads`** and **`t3_colleague_thread_read`**: this server posts to theirs with the stored grant, and their server answers through **`canRead`** alone, so it **reads what their app shows** and writes nothing.
+The sidebar's **inbox switch** shows mine or **a saved colleague's**: every thread my grant reads on their server.
+While I browse theirs, `colleagueInboxAtom` **withholds operate** on their environment through `session.ts`, so their threads open **read-only** and my inbox's thread shortcuts stand down.
+A thread they shared **still sends**: `send` directly, `approve` as a request; `readSendPermittedFork` lifts the veto at the two send checks, and their server checks its own.
 
 ### Retirement condition
 
@@ -918,6 +921,8 @@ The domain **retires onto guest links** once a tagged upstream release lets a gu
 | `apps/server/src/wsRpcHandlers.fork.ts`, `apps/server/src/wsRpcHandlers.fork-test-harness.ts`, `packages/contracts/src/rpc.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts`                                                                                                                                                                                                                           | Fork files shared with other domains                                                                                                        |
 | `apps/server/src/mcp/McpHttpServer.ts`, `evals/mcp-tool-use/run.ts`                                                                                                                                                                                                                                                                                                                                                     | Colleague thread tools: registration and evals                                                                                              |
 | `apps/server/src/collaborator/**`, `apps/server/src/auth/forwardedAddress.fork.ts`, `apps/web/src/components/collaborator/**`, `packages/contracts/src/collaborator.fork.ts`, `packages/contracts/src/colleagueThreads.fork.ts`, `apps/server/src/mcp/toolkits/colleague/**`, `packages/contracts/src/teamProject.fork.ts`, `packages/client-runtime/src/userMessage.fork.ts`, `docs/fork/user/collaborator-sharing.md` | Fork-only; a conflict means upstream took the path                                                                                          |
+| `apps/web/src/components/chat/ChatComposer.tsx`, `apps/web/src/components/chat/useComposerSend.ts`                                                                                                                                                                                                                                                                                                                      | A shared thread's send skips the inbox veto                                                                                                 |
+| `apps/web/src/state/session.ts`                                                                                                                                                                                                                                                                                                                                                                                         | Inbox veto on operate                                                                                                                       |
 
 ## citation-annotations
 

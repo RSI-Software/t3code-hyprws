@@ -27,22 +27,26 @@ export function useSharerNamesFork() {
 }
 
 /** Who shared a card's thread: the saved colleague on its environment, or null for a one-time
- * guest copy. A team thread was never shared by hand; its access is `read`. */
+ * guest copy. A thread in their team project says so instead, from the project's mark. */
 export type SharedCardFork = { readonly name: string | null; readonly team: boolean };
 
 /** One read for the whole list. A shared thread's card names its sharer in place of the machine. */
 export function useSharedCardPropsFork() {
   const nameByEnvironment = useSharerNamesFork();
-  return (thread: {
-    readonly environmentId: EnvironmentId;
-    readonly collaboratorFork?: string | undefined;
-  }) =>
+  return (
+    thread: {
+      readonly environmentId: EnvironmentId;
+      readonly collaboratorFork?: string | undefined;
+    },
+    project: { readonly teamFork?: boolean | undefined } | undefined,
+  ) =>
     thread.collaboratorFork === undefined
       ? {}
       : {
           sharedByFork: {
             name: nameByEnvironment.get(thread.environmentId) ?? null,
-            team: thread.collaboratorFork === "read",
+            // A "Can send" hand share keeps its sharer: the team grant gives only `approve`.
+            team: project?.teamFork === true && thread.collaboratorFork !== "send",
           } satisfies SharedCardFork,
           environmentLabel: null,
         };

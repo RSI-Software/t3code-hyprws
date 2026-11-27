@@ -6,6 +6,7 @@ import {
   createEnvironmentRpcQueryAtomFamily,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  AuthOrchestrationOperateScope,
   type CollaboratorAccessFork,
   type EnvironmentId,
   isCollaboratorGrantFork,
@@ -16,7 +17,7 @@ import { msg } from "gt-react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { serverEnvironment } from "~/state/server";
-import { environmentSession } from "~/state/session";
+import { environmentSession, readEnvironmentScope } from "~/state/session";
 import { environmentSnapshotAtom } from "~/state/shell";
 
 export const threadSharesQuery = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
@@ -49,6 +50,15 @@ export const collaboratorRowControlsFork = (thread: { readonly collaboratorFork?
 /** A collaborator's archived row reads only: unarchiving and deleting stay the host's. */
 export const archivedRowControlsFork = (thread: { readonly collaboratorFork?: string }) =>
   thread.collaboratorFork === undefined ? {} : { control: null, onContextMenu: undefined };
+
+/** A collaborator's message is checked by the host's server, so browsing their inbox never blocks it. */
+export const readSendPermittedFork = (
+  environmentId: EnvironmentId,
+  thread: { readonly collaboratorFork?: string } | undefined,
+) =>
+  thread?.collaboratorFork === "send" ||
+  thread?.collaboratorFork === "approve" ||
+  readEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
 
 const useHostSessionFork = (environmentId: EnvironmentId) =>
   useAtomValue(

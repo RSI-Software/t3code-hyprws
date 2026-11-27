@@ -1,7 +1,7 @@
 // Fork-only (colleague-collab): adapts one session's RPC handlers to the threads shared with it.
 // A collaborator session reaches a closed RPC set and a closed command set, attributed to them;
 // the host's messages name the host to the agent. Share state stays in `CollaboratorShares.fork.ts`.
-// A saved colleague also reads every team project thread (`TeamThreads.fork.ts`), never writing.
+// A saved colleague's requests on a team project thread (`TeamThreads.fork.ts`) wait for the host.
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
@@ -99,14 +99,14 @@ interface ShellVisible {
 
 /**
  * The thread with its access in this view, or none: a hand share keeps its access, a team
- * thread only reads. The collaborator's client reads its access from the thread itself.
+ * thread's messages wait for the host. The collaborator's client reads its access from the thread.
  */
 const readableIn =
   ({ share, team }: ShellView) =>
   <T extends OrchestrationV2ThreadShell>(thread: T) => {
     const access =
       share?.threadIds.get(thread.id) ??
-      (team.has(thread.projectId) ? ("read" as const) : undefined);
+      (team.has(thread.projectId) ? ("approve" as const) : undefined);
     return access === undefined ? [] : [{ ...thread, collaboratorFork: access }];
   };
 
@@ -122,6 +122,8 @@ const filterShellItem = (
   const projectReadable = (id: string) =>
     projects.has(id) && (team.has(id) || shareProjects.has(id));
   const readable = readableIn(view);
+  const handShared = (id: string) =>
+    share?.threadIds.has(id) === true || share?.frozen.has(id) === true;
   switch (item.kind) {
     case "synchronized":
       return item;
@@ -155,7 +157,7 @@ const filterShellItem = (
       for (const id of team) projects.add(id);
       for (const thread of [...threads, ...archivedThreads]) {
         projects.add(thread.projectId);
-        if (thread.collaboratorFork !== "read") shareProjects.add(thread.projectId);
+        if (handShared(thread.id)) shareProjects.add(thread.projectId);
       }
       return {
         ...item,
@@ -175,7 +177,7 @@ const filterShellItem = (
       const [thread] = readable(item.thread);
       if (thread !== undefined) {
         visible.threads.add(thread.id);
-        if (thread.collaboratorFork !== "read") shareProjects.add(thread.projectId);
+        if (handShared(thread.id)) shareProjects.add(thread.projectId);
         return { ...item, thread };
       }
       // A team thread moved to another project leaves the view.
@@ -326,11 +328,6 @@ const notCollaboratorRpc = new EnvironmentAuthorizationError({
   requiredScope: AuthOrchestrationReadScope,
 });
 
-const readOnly = new EnvironmentAuthorizationError({
-  message: "Team project threads are read-only for colleagues.",
-  requiredScope: AuthOrchestrationOperateScope,
-});
-
 const needsApproval = new EnvironmentAuthorizationError({
   message: "The host approves your messages before they run. Send them from the composer.",
   requiredScope: AuthOrchestrationOperateScope,
@@ -380,10 +377,13 @@ const COLLABORATOR_OPEN_RPCS: ReadonlySet<string> = new Set([
   // Accepting an invite saves the host as a colleague; `ColleaguesFork.save` refuses non-sharers.
   WS_METHODS.colleagueSaveFork,
 ]);
-// Writing and presence need a live hand share; the reads also serve a team thread.
-const SHARE_ONLY_RPCS: ReadonlySet<string> = new Set([SUBMIT, RESOLVE, SET_TYPING, TYPING]);
+// Sharing a draft needs a live hand share; requests and reads also serve a team thread.
+const SHARE_ONLY_RPCS: ReadonlySet<string> = new Set([SET_TYPING]);
 const COLLABORATOR_THREAD_RPCS: ReadonlySet<string> = new Set([
   ...SHARE_ONLY_RPCS,
+  SUBMIT,
+  RESOLVE,
+  TYPING,
   ORCHESTRATION_V2_WS_METHODS.getTurnDiff,
   ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff,
   ORCHESTRATION_V2_WS_METHODS.getTurnItem,
@@ -507,6 +507,9 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
     return isShared(subject, threadId) || (yield* teamThreads.readable(subject, threadId));
   });
 
+  // A share or team mark changing hides or reveals waiting requests with no message changing.
+  const accessTouched = Stream.zipLatest(changes, teamThreads.changes);
+
   const NO_TEAM: ReadonlySet<string> = new Set();
   /** The team projects a subject reads, now and on every touch; none for a one-time guest. */
   const teamMarks = (subject: string) =>
@@ -570,29 +573,43 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
             // The host's work is what still waits; a dismissed message is its author's to clear.
             messages.visible(
               (message) =>
-                message.outcome === undefined && isShared(message.subject, message.threadId),
+                message.outcome === undefined
+                  ? canRead(message.subject, message.threadId)
+                  : Effect.succeed(false),
+              accessTouched,
             ),
           [SUBMIT]: () => Effect.fail(notCollaborator),
           [RESOLVE]: (input) => messages.resolve(input, null),
         }
       : collaboratorMessageHandlers(subject);
 
+  // A collaborator with `send` access dispatches like the host; this path is for `approve`,
+  // and for a team thread, never shared by hand, from a saved colleague.
+  const submitRequest = Effect.fn("CollaboratorSharesFork.submitRequest")(function* (
+    subject: string,
+    input: CollaboratorSubmitMessageInputFork,
+  ) {
+    const share = current().get(subject);
+    const access = share?.threadIds.get(input.threadId);
+    const name =
+      access === undefined
+        ? yield* teamThreads.colleagueName(subject, input.threadId)
+        : access === "approve"
+          ? share?.name
+          : undefined;
+    if (name === undefined) return yield* notShared(AuthOrchestrationOperateScope);
+    yield* messages.submit({ subject, name, ...input });
+  });
+
   const collaboratorMessageHandlers = (subject: string): CollaboratorMessageHandlersFork => ({
     [MESSAGES]: () =>
       messages.visible(
-        (message) => message.subject === subject && isShared(subject, message.threadId),
+        (message) =>
+          message.subject === subject ? canRead(subject, message.threadId) : Effect.succeed(false),
+        accessTouched,
       ),
     // Checked inside `exclusive`, so an unshare in flight finishes first.
-    [SUBMIT]: (input) =>
-      messages.exclusive(
-        Effect.suspend((): Effect.Effect<void, MessageError> => {
-          const share = current().get(subject);
-          // A collaborator with `send` access dispatches like the host; this path is for `approve`.
-          return share?.threadIds.get(input.threadId) === "approve"
-            ? messages.submit({ subject, name: share.name, ...input })
-            : Effect.fail(notShared(AuthOrchestrationOperateScope));
-        }),
-      ),
+    [SUBMIT]: (input) => messages.exclusive(submitRequest(subject, input)),
     // A collaborator can withdraw or clear a message, never send it past the host.
     [RESOLVE]: (input) =>
       input.decision === "dismiss"
@@ -688,7 +705,8 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
 
   /**
    * The host's line as the agent reads it; an edit keeps the waiting message a reply answers,
-   * even once nobody shares the thread. Undefined sends the line as typed.
+   * even once nobody shares the thread, and names its writer, who may read only through a team.
+   * Undefined sends the line as typed.
    */
   const hostLine = Effect.fn("CollaboratorSharesFork.hostLine")(function* (
     command: Extract<
@@ -698,8 +716,9 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
   ) {
     const replyTo =
       command.type === "queued-run.edit" ? (yield* queuedAttribution(command))?.replyTo : undefined;
-    const others = sharedNames(command.threadId);
-    if (others.length === 0 && replyTo === undefined) return undefined;
+    const shared = sharedNames(command.threadId);
+    const others = replyTo === undefined ? shared : [...new Set([...shared, replyTo.name])];
+    if (others.length === 0) return undefined;
     const host = yield* hostName;
     const attribution = hostAttribution(host, others, command.text, forcedReply(command), replyTo);
     const attributed: OrchestrationV2Command = {
@@ -742,7 +761,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         if (share === undefined || access === undefined) {
           return canRead(subject, commandThreadId(command)).pipe(
             Effect.flatMap((read) =>
-              Effect.fail(read ? readOnly : notShared(AuthOrchestrationOperateScope)),
+              Effect.fail(read ? needsApproval : notShared(AuthOrchestrationOperateScope)),
             ),
           );
         }

@@ -50,9 +50,10 @@ vi.mock(import("./collaborator/colleagues.fork"), async (original) => ({
     ),
 }));
 
-function project(environmentId: string): Project {
+function project(environmentId: string, teamFork?: true): Project {
   return {
-    id: ProjectId.make(`project-${environmentId}`),
+    ...(teamFork && { teamFork }),
+    id: ProjectId.make(`project-${environmentId}${teamFork ? "-team" : ""}`),
     environmentId: EnvironmentId.make(environmentId),
     title: `project-${environmentId}`,
     workspaceRoot: `/projects/${environmentId}`,
@@ -65,19 +66,30 @@ function project(environmentId: string): Project {
 }
 
 async function renderSidebar() {
-  const projects = ["mine", "alex", "guest"].map(project);
-  const thread = (environmentId: string, title: string, collaboratorFork?: "send" | "read") =>
+  const projects = [...["mine", "alex", "guest"].map((id) => project(id)), project("alex", true)];
+  const thread = (environmentId: string, title: string, collaboratorFork?: "send" | "approve") =>
     makeThreadFixture({
       environmentId: EnvironmentId.make(environmentId),
       projectId: ProjectId.make(`project-${environmentId}`),
-      id: ThreadId.make(`thread-${environmentId}${collaboratorFork === "read" ? "-team" : ""}`),
+      id: ThreadId.make(`thread-${environmentId}`),
       title,
       ...(collaboratorFork && { collaboratorFork }),
     });
+  // A team thread and a hand share both take requests; only the project tells them apart.
+  const teamThread = {
+    ...thread("alex", "Alex's team thread", "approve"),
+    projectId: ProjectId.make("project-alex-team"),
+    id: ThreadId.make("thread-alex-team"),
+  };
   const threads = [
     thread("mine", "My thread"),
-    thread("alex", "Alex's thread", "send"),
-    thread("alex", "Alex's team thread", "read"),
+    thread("alex", "Alex's thread", "approve"),
+    teamThread,
+    {
+      ...thread("alex", "Alex's send share in a team project", "send"),
+      projectId: ProjectId.make("project-alex-team"),
+      id: ThreadId.make("thread-alex-team-send"),
+    },
     thread("guest", "Guest link thread", "send"),
   ];
   const routeThreadRef = { environmentId: threads[0]!.environmentId, threadId: threads[0]!.id };
@@ -113,6 +125,9 @@ it("names who shared a thread on its card, and leaves my own cards alone", async
   await expect.element(card("Alex's thread")).toHaveAccessibleDescription("Shared by Alex");
   await expect.element(card("Guest link thread")).toHaveAccessibleDescription("Shared with you");
   await expect.element(card("Alex's team thread")).toHaveAccessibleDescription("Team project");
+  await expect
+    .element(card("Alex's send share in a team project"))
+    .toHaveAccessibleDescription("Shared by Alex");
   await expect.element(card("My thread")).not.toHaveAttribute("aria-describedby");
   await expect.element(card("My thread")).not.toHaveTextContent("Shared");
 });

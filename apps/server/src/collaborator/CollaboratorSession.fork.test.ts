@@ -441,6 +441,16 @@ database("CollaboratorSessionFork", (it) => {
           wrapped["orchestration.dispatchCommand"](message(shared), undefined as never),
         );
         assert.isTrue(Exit.isFailure(direct));
+        // A share naming no access, as a saved colleague's is, needs approval too.
+        const ana = { ...handlers };
+        Object.assign(ana, service.wrapHandlers("colleague:ana", ana));
+        assert.isTrue(
+          Exit.isFailure(
+            yield* Effect.exit(
+              ana["orchestration.dispatchCommand"](message(shared), undefined as never),
+            ),
+          ),
+        );
         yield* sam["collaborator.submitMessageFork"]({ threadId: shared, text: "first" });
         // Cited messages run long; one waits as long as the host could send it.
         const long = yield* decodeSubmitMessage({
@@ -663,7 +673,7 @@ database("CollaboratorSessionFork", (it) => {
     ),
   );
 
-  it.effect("a saved colleague reads every team project thread, and writes none", () =>
+  it.effect("a saved colleague reads every team project thread, and asks the host to send", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       projectEvents.queue = yield* Queue.unbounded<object, Error>();
@@ -704,14 +714,14 @@ database("CollaboratorSessionFork", (it) => {
           );
           assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
 
-          // Marking opens the project's threads, read-only; the unmarked project stays hidden.
+          // Marking opens the project's threads for approval; the unmarked project stays hidden.
           yield* marked(true);
           const afterMark = yield* Queue.take(items);
           assert.deepStrictEqual(visibleThreads(afterMark), [other]);
           assert.deepStrictEqual(visibleProjects(afterMark), [otherProject]);
           assert.strictEqual(
             afterMark.kind === "snapshot" ? afterMark.snapshot.threads[0]?.collaboratorFork : null,
-            "read",
+            "approve",
           );
           // A thread started after marking arrives live.
           const later = { ...threadShell(other), id: ThreadId.make("later") };
@@ -723,7 +733,7 @@ database("CollaboratorSessionFork", (it) => {
           // A one-time guest with no saved colleague row reads no team thread.
           assert.isFalse(yield* service.canRead("colleague:pat", other));
 
-          // Read-only on the server: every write to a team thread is refused.
+          // No write reaches a team thread directly; a request waits for the host, with Alex's name.
           const dispatch = alex["orchestration.dispatchCommand"];
           for (const type of ["message.dispatch", "run.interrupt", "thread.archive"]) {
             const refused: { readonly message: string } = yield* Effect.flip(
@@ -731,14 +741,69 @@ database("CollaboratorSessionFork", (it) => {
             );
             assert.strictEqual(
               refused.message,
-              "Team project threads are read-only for colleagues.",
+              "The host approves your messages before they run. Send them from the composer.",
             );
           }
-          const submit =
-            service.messageHandlers("colleague:alex")["collaborator.submitMessageFork"];
-          assert.isTrue(
-            Exit.isFailure(yield* Effect.exit(submit({ threadId: other, text: "hi" }))),
+          const asks = service.messageHandlers("colleague:alex");
+          const host = service.messageHandlers(null);
+          const waiting = (handlers: typeof host) =>
+            handlers["collaborator.subscribeMessagesFork"]().pipe(
+              Stream.runHead,
+              Effect.map(Option.getOrThrow),
+            );
+          yield* asks["collaborator.submitMessageFork"]({ threadId: other, text: "hi" });
+          const [request] = yield* waiting(host);
+          assert.deepStrictEqual([request?.name, request?.text], ["Alex", "hi"]);
+          assert.strictEqual((yield* waiting(asks)).length, 1);
+          // Unmarking hides the request from the host, and marking again brings it back.
+          const hostView = yield* Queue.unbounded<number>();
+          const watching = yield* host["collaborator.subscribeMessagesFork"]().pipe(
+            Stream.runForEach((list) => Queue.offer(hostView, list.length)),
+            Effect.forkChild,
           );
+          assert.strictEqual(yield* Queue.take(hostView), 1);
+          yield* marked(false);
+          assert.strictEqual(yield* Queue.take(hostView), 0);
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
+          yield* marked(true);
+          assert.strictEqual(yield* Queue.take(hostView), 1);
+          assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), [other]);
+          yield* Fiber.interrupt(watching);
+          hostDispatches.length = 0;
+          yield* host["collaborator.resolveMessageFork"]({
+            threadId: other,
+            messageId: request!.id,
+            decision: "send",
+          });
+          assert.deepStrictEqual(sentAuthor(hostDispatches[0]!), {
+            name: "Alex",
+            text: "hi",
+            sentByHost: true,
+          });
+          // A reply on a team thread names Alex to the agent, though no hand share lists them.
+          yield* asks["collaborator.submitMessageFork"]({ threadId: other, text: "lunch?" });
+          const [ask] = yield* waiting(host);
+          yield* host["collaborator.resolveMessageFork"]({
+            threadId: other,
+            messageId: ask!.id,
+            decision: "reply",
+            text: "After this.",
+          });
+          assert.include(sentText(hostDispatches.at(-1)!), `shared: ${HOST} and Alex read it`);
+          // Editing a queued reply there keeps what it answers, with no hand share either.
+          const owner = service.wrapHandlers("owner", handlers);
+          const replyEdit = yield* owner["orchestration.dispatchCommand"](
+            {
+              ...(message(other, "queued-run.edit", "Later.") as object),
+              runId: "run-reply",
+            } as never,
+            undefined as never,
+          );
+          assert.include(sentText(replyEdit), `in reply to this message Sam wrote to the owner`);
+          assert.include(sentText(replyEdit), `shared: ${HOST} and Sam read it`);
+          // A one-time guest asks nothing on a team thread.
+          const pat = service.messageHandlers("colleague:pat")["collaborator.submitMessageFork"];
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(pat({ threadId: other, text: "hi" }))));
           const check = (method: string, payload: unknown) =>
             Effect.service(RpcScopeAuthorization).pipe(
               service.guardRpc("colleague:alex"),
@@ -755,7 +820,7 @@ database("CollaboratorSessionFork", (it) => {
           assert.isFalse(
             yield* check(ORCHESTRATION_V2_WS_METHODS.getTurnItem, { threadId: shared }),
           );
-          assert.isFalse(
+          assert.isTrue(
             yield* check(WS_METHODS.collaboratorSubmitMessageFork, { threadId: other }),
           );
           assert.isFalse(
@@ -886,11 +951,11 @@ database("CollaboratorSessionFork", (it) => {
           );
           assert.isTrue(yield* allowed);
 
-          // The hand share keeps its access, the team thread only reads, the third stays hidden.
+          // The hand share keeps its access, the team thread takes requests, the third stays hidden.
           assert.deepStrictEqual(yield* archived("colleague:alex"), {
             threads: [
               [shared, "approve"],
-              [other, "read"],
+              [other, "approve"],
             ],
             projects: [sharedProject, otherProject],
           });

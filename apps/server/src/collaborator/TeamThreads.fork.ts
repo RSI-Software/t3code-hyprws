@@ -1,6 +1,6 @@
 // Fork-only (colleague-collab): a saved colleague reads every thread of a team project, with no
 // share rows. Access is derived from `fork_colleagues` and `fork_team_projects`; `CollaboratorSession`
-// joins it with hand shares into one read check, and refuses every write.
+// joins it with hand shares into one read check; a write goes through the host's approval.
 import { type ApplicationStoredEvent, type ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -90,6 +90,18 @@ export const makeTeamThreads = Effect.gen(function* () {
     return projectId !== undefined && (yield* marksOf(subject)).has(projectId);
   });
 
+  /** The saved colleague's name while they read the thread through a team project. */
+  const colleagueName = Effect.fn("TeamThreads.colleagueName")(
+    function* (subject: string, threadId: string) {
+      if (!(yield* readable(subject, threadId))) return undefined;
+      const rows = yield* sql<{ readonly name: string }>`
+        SELECT name FROM fork_colleagues WHERE subject = ${subject}
+      `;
+      return rows[0]?.name;
+    },
+    Effect.orElseSucceed((): string | undefined => undefined),
+  );
+
   return {
     /** Team project ids, now and on every event that may change access; not deduplicated. */
     changes: SubscriptionRef.changes(team),
@@ -100,5 +112,6 @@ export const makeTeamThreads = Effect.gen(function* () {
     ),
     marksOf,
     readable,
+    colleagueName,
   };
 });
