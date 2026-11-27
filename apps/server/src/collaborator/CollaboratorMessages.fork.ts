@@ -95,9 +95,10 @@ export const hostAttribution = (
   const reply =
     replyTo === undefined
       ? ""
-      : ` in reply to this message ${replyTo.name} wrote to the owner, which you were not sent: ` +
+      : ` to ${replyTo.name}, in reply to this message ${replyTo.name} wrote to the owner, which you were not sent: ` +
         `"${replyTo.text.length > REPLY_QUOTE_MAX ? `${replyTo.text.slice(0, REPLY_QUOTE_MAX)}…` : replyTo.text}". ` +
-        `It answers ${replyTo.name}, not anything you asked, so it is between people, even when it turns down or puts off what ${replyTo.name} asked for, unless it also asks you to do something`;
+        `It answers ${replyTo.name}, not anything you asked, so it is between people, even when it turns down or puts off what ${replyTo.name} asked for, unless it also asks you to do something. ` +
+        `It is addressed to ${replyTo.name}, so "you" in it means ${replyTo.name}, not you: whatever it asks of "you" or hands out is ${replyTo.name}'s or the owner's work, not yours; only what it asks of the agent is yours`;
   const { own, text: prompt } = attributed(
     `[${host === undefined ? "The owner of this thread" : `${host}, the owner of this thread,`} wrote the message below${reply}. `,
     [host ?? "the owner", ...others].join(" and "),
