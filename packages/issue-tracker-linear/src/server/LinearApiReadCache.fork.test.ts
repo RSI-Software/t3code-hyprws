@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -8,6 +9,11 @@ import { HttpClient, HttpClientResponse } from "effect/http";
 import * as IssueTrackerHost from "@t3tools/source-control-core/server/IssueTrackerHost";
 
 import * as LinearApi from "./LinearApi.ts";
+
+/** The account a read runs as; unset reads the fake's stored token. */
+const Account = Context.Reference<string | null>("test/LinearAccount", {
+  defaultValue: () => null,
+});
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -75,7 +81,10 @@ function fakeLinear() {
   const host = Layer.succeed(
     IssueTrackerHost.IssueTrackerHost,
     IssueTrackerHost.IssueTrackerHost.of({
-      credentials: { get: () => Effect.sync(() => Option.some(state.token)) },
+      credentials: {
+        get: () =>
+          Effect.map(Effect.service(Account), (account) => Option.some(account ?? state.token)),
+      },
     }),
   );
   const api = Effect.service(LinearApi.LinearApi).pipe(
@@ -124,11 +133,31 @@ describe("LinearApiReadCache", () => {
       );
       expect(titles).toEqual(["Title of ENG-1", "Title of ENG-2", null]);
       yield* read("ENG-1");
-      expect(sent).toEqual(["T3Issues lin_api_one"]);
+      // ENG-404 may be archived, which the listing leaves out; it reads on its own.
+      expect(sent).toEqual(["T3Issues lin_api_one", "T3Issue lin_api_one"]);
 
       yield* api.updateIssue("ENG-1", { title: "renamed" });
       yield* settled(read("ENG-1"));
       expect(sent.filter((op) => op.startsWith("T3Issues "))).toHaveLength(2);
+    }),
+  );
+
+  it.effect("batches each account's chips under its own credential", () =>
+    Effect.gen(function* () {
+      const { api: make, sent } = fakeLinear();
+      const api = yield* make;
+      const fiber = yield* Effect.forkChild(
+        Effect.all(
+          [
+            api.getIssueSummaryFork("ENG-1").pipe(Effect.provideService(Account, "lin_api_a")),
+            api.getIssueSummaryFork("ENG-2").pipe(Effect.provideService(Account, "lin_api_b")),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      );
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(fiber);
+      expect(sent.toSorted()).toEqual(["T3Issues lin_api_a", "T3Issues lin_api_b"]);
     }),
   );
 

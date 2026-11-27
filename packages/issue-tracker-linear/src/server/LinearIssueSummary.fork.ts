@@ -5,7 +5,7 @@ import type {
   TrackerIssueSummary,
 } from "@t3tools/source-control-core/server/IssueTracker";
 
-import { LinearApi, type LinearIssue } from "./LinearApi.ts";
+import * as LinearApi from "./LinearApi.ts";
 
 /** A chat chip's read: the issue's title and state, batched with every other chip's. */
 export const linearIssueSummaryFork = Effect.fn("LinearIssueSummaryFork.make")(function* (helpers: {
@@ -14,9 +14,9 @@ export const linearIssueSummaryFork = Effect.fn("LinearIssueSummaryFork.make")(f
     key: string,
   ) => Effect.Effect<string, IssueTrackerError>;
   readonly notFound: (operation: string) => IssueTrackerError;
-  readonly toSummary: (issue: LinearIssue) => TrackerIssueSummary;
+  readonly toSummary: (issue: LinearApi.LinearIssue) => TrackerIssueSummary;
 }) {
-  const linear = yield* LinearApi;
+  const linear = yield* LinearApi.LinearApi;
   return Effect.fn("LinearIssueTracker.getIssueSummaryFork")(function* (input: IssueTarget) {
     const identifier = yield* helpers.requireIdentifier("getIssue", input.key);
     const issue = yield* linear.getIssueSummaryFork(identifier);

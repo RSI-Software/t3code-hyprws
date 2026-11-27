@@ -25,6 +25,7 @@ const SUMMARY_BATCH_WINDOW = "20 millis";
 const SUMMARY_BATCH_SIZE = 100;
 
 interface SummaryRequest extends Request.Request<LinearIssue | null, IssueTrackerError> {
+  readonly token: string;
   readonly identifier: string;
 }
 const SummaryRequest = Request.of<SummaryRequest>();
@@ -47,29 +48,42 @@ export const make = Effect.fn("LinearApiReadCache.make")(function* (
     },
     { capacity: 500, timeToLive },
   );
-  const summaryResolver = RequestResolver.make<SummaryRequest>((entries) =>
-    api
-      .listIssues({
-        filter: { id: { in: entries.map((entry) => entry.request.identifier) } },
-        first: entries.length,
-        orderBy: "updatedAt",
-      })
-      .pipe(
-        Effect.map(({ nodes }) => {
-          const byIdentifier = new Map(nodes.map((node) => [node.identifier.toUpperCase(), node]));
-          for (const entry of entries) {
-            const issue = byIdentifier.get(entry.request.identifier.toUpperCase()) ?? null;
-            entry.completeUnsafe(Exit.succeed(issue));
-          }
-        }),
-      ),
-  ).pipe(
+  // One batch per account: a batch reads with the credential of the caller that opened it.
+  const summaryResolver = RequestResolver.makeGrouped<SummaryRequest, string>({
+    key: (entry) => entry.request.token,
+    resolver: (entries) =>
+      api
+        .listIssues({
+          filter: { id: { in: entries.map((entry) => entry.request.identifier) } },
+          first: entries.length,
+          orderBy: "updatedAt",
+        })
+        .pipe(
+          Effect.map(({ nodes }) => {
+            const byIdentifier = new Map(
+              nodes.map((node) => [node.identifier.toUpperCase(), node]),
+            );
+            for (const entry of entries) {
+              const issue = byIdentifier.get(entry.request.identifier.toUpperCase()) ?? null;
+              entry.completeUnsafe(Exit.succeed(issue));
+            }
+          }),
+        ),
+  }).pipe(
     RequestResolver.setDelay(SUMMARY_BATCH_WINDOW),
     RequestResolver.batchN(SUMMARY_BATCH_SIZE),
   );
+  // The listing leaves out archived issues and old keys of moved ones; those read one by one.
   const summaries = yield* Cache.makeWith(
-    (key: string) =>
-      Effect.request(SummaryRequest({ identifier: key.split("\u0000")[2] ?? "" }), summaryResolver),
+    (key: string) => {
+      const [, token = "", identifier = ""] = key.split("\u0000");
+      return Effect.request(SummaryRequest({ token, identifier }), summaryResolver).pipe(
+        Effect.filterOrElse(
+          (issue) => issue !== null,
+          () => api.getIssue(identifier, 0),
+        ),
+      );
+    },
     { capacity: 1000, timeToLive },
   );
   // A read already in flight when a write lands keys the old generation, so it cannot refill.
