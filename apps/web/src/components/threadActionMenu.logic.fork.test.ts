@@ -4,7 +4,10 @@
 import { ProviderDriverKind, ProviderInstanceId, RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ThreadActionMenuState } from "./threadActionMenu.logic.ts";
+import {
+  buildThreadActionMenuItems,
+  type ThreadActionMenuState,
+} from "./threadActionMenu.logic.ts";
 import {
   collaboratorShareMenuItems,
   forkThreadMenuItems,
@@ -121,5 +124,35 @@ describe("collaboratorShareMenuItems", () => {
       collaboratorShareMenuItems({ canShareWithCollaboratorFork: true }).map((item) => item.id),
     ).toEqual(["share-collaborator"]);
     expect(collaboratorShareMenuItems({ canShareWithCollaboratorFork: false })).toEqual([]);
+  });
+});
+
+describe("colleagueForkMenuItemsFork", () => {
+  it("stays enabled while the colleague's host is offline, since the fork runs here", () => {
+    const items = buildThreadActionMenuItems({
+      canOperate: false,
+      colleagueForkFork: true,
+      branch: null,
+      projectFilter: null,
+      isPinned: false,
+      isSettled: false,
+      autoSettleEnabled: true,
+      isSnoozed: false,
+      canSnoozeNow: true,
+      isRegeneratingTitle: false,
+      isRunning: false,
+      hasCompletedRun: true,
+      supports: {
+        settlement: true,
+        autoSettleOptOut: true,
+        snooze: true,
+        pinning: true,
+        titleRegeneration: true,
+      },
+      snoozePresets: [],
+    });
+    const forkHere = items.find((item) => item.id === "fork-to-my-machine");
+    expect(forkHere).toBeDefined();
+    expect(forkHere?.disabled).not.toBe(true);
   });
 });

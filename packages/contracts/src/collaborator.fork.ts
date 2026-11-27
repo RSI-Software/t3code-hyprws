@@ -11,10 +11,13 @@ import {
   EnvironmentId,
   IsoDateTime,
   NonNegativeInt,
+  ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
+import { ModelSelection } from "./modelSelection.ts";
+import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 
 /** The whole grant a collaborator link pairs; the server narrows it further to shared threads. */
 export const COLLABORATOR_SCOPES = [AuthOrchestrationReadScope, AuthOrchestrationOperateScope];
@@ -528,6 +531,53 @@ export const ColleagueErrorFork = Schema.Union([
   ColleagueUnknownShapeErrorFork,
 ]);
 export type ColleagueErrorFork = typeof ColleagueErrorFork.Type;
+
+/** A colleague's thread on their environment, which a thread forked from it links back to. */
+export const ColleagueThreadOriginFork = Schema.Struct({
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+});
+export type ColleagueThreadOriginFork = typeof ColleagueThreadOriginFork.Type;
+
+/** One message of a colleague's thread, as this device read it. */
+export const ColleagueThreadMessageFork = Schema.Struct({
+  role: Schema.Literals(["user", "assistant"]),
+  text: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ColleagueThreadMessageFork = typeof ColleagueThreadMessageFork.Type;
+
+/** Forks a colleague's thread into a project here: a new thread holding its messages. */
+export const ColleagueForkThreadInputFork = Schema.Struct({
+  /** The new thread's id, which the client mints. */
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  origin: ColleagueThreadOriginFork,
+  hostName: TrimmedNonEmptyString,
+  originTitle: TrimmedNonEmptyString,
+  /** Empty when this device holds no copy: the new thread then only links to the original. */
+  messages: Schema.Array(ColleagueThreadMessageFork).check(Schema.isMaxLength(10_000)),
+  /** The copy lacks the thread's oldest messages. */
+  partial: Schema.Boolean,
+});
+export type ColleagueForkThreadInputFork = typeof ColleagueForkThreadInputFork.Type;
+
+export class ColleagueForkThreadErrorFork extends Schema.TaggedError<ColleagueForkThreadErrorFork>()(
+  "ColleagueForkThreadErrorFork",
+  {
+    stage: Schema.Literals(["create-thread", "write-history"]),
+    threadId: ThreadId,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Could not fork the thread to this machine.";
+  }
+}
 
 /** Server-to-server routes a colleague's server calls with its grant here. */
 export const COLLEAGUE_PAIR_CLIENT_ROUTE_FORK = "/api/fork/colleague/pair-client";

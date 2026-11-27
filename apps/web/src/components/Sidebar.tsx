@@ -107,6 +107,10 @@ import {
   loadColleagueShareTargetsFork,
   useColleagueListsWarmFork,
 } from "./collaborator/colleagueShare.fork"; // fork-hook: colleague-collab/sidebar-colleague-menu-import
+import {
+  canForkColleagueThreadFork,
+  openColleagueForkDialogFork,
+} from "./collaborator/colleagueForkDialogState.fork"; // fork-hook: colleague-collab/sidebar-fork-menu-import
 import { collaboratorRowControlsFork } from "./collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/sidebar-row-controls-import
 import { useSharedCardPropsFork } from "./collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
 import {
@@ -3110,6 +3114,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
               canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
               colleaguesFork, // fork-hook: colleague-collab/sidebar-colleague-menu-state
+              colleagueForkFork: canForkColleagueThreadFork(thread), // fork-hook: colleague-collab/sidebar-fork-menu-state
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -3265,6 +3270,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "share-collaborator": // fork-hook: colleague-collab/sidebar-dispatch
             return openCollaboratorShareDialog(threadRef); // fork-hook: colleague-collab/sidebar-dispatch
+          case "fork-to-my-machine": // fork-hook: colleague-collab/sidebar-fork-menu-dispatch
+            return openColleagueForkDialogFork(threadRef); // fork-hook: colleague-collab/sidebar-fork-menu-dispatch
           case "regenerate-title": {
             if (isRegeneratingTitle) return;
             const toast = titleRegenerationToast([

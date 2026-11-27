@@ -122,6 +122,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.colleagueShareThreadFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.colleagueQueueMessageFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.colleagueUnqueueMessageFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/rpc-client-guard
+  [WS_METHODS.colleagueForkThreadFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: AuthOrchestrationOperateScope, // fork-hook: upstream-fixes/pr-attachment-rpc-client-guard
   [WS_METHODS.pullRequestsUploadAttachment]: AuthOrchestrationOperateScope, // fork-hook: upstream-fixes/pr-attachment-rpc-client-guard
 } as const;

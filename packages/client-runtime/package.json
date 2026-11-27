@@ -427,6 +427,10 @@
       "types": "./src/state/threads.ts",
       "default": "./src/state/threads.ts"
     },
+    "./state/colleague-thread-read": {
+      "types": "./src/state/colleagueThreadRead.fork.ts",
+      "default": "./src/state/colleagueThreadRead.fork.ts"
+    },
     "./state/thread-activity-announcement": {
       "types": "./src/state/threadActivityAnnouncement.ts",
       "default": "./src/state/threadActivityAnnouncement.ts"
