@@ -86,13 +86,41 @@ const queuedAttributions: Record<string, object | undefined> = {
   "run-host": undefined,
   "run-reply": { name: "Jordan Lee", host: true, replyTo: { name: "Sam", text: "pair at 3?" } },
 };
+// Every thread's timeline: one agent reply.
+export const AGENT_REPLY = "Raised the login timeout to 30 s.";
 const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
   getThreadShell: (threadId) => Effect.succeed(threadShell(ThreadId.make(threadId))),
+  listProjectThreads: () =>
+    Effect.succeed([shared, other].map((id) => ({ id, projectId: projectOf[id] })) as never),
+  getShellSnapshot: (options) =>
+    Effect.succeed({ threads: (options?.threadIds ?? []).map(threadShell) } as never),
+  getTimelinePage: (threadId) =>
+    Effect.succeed({
+      items: [
+        {
+          position: 0,
+          visibility: "local",
+          sourceThreadId: threadId,
+          sourceItemId: "item-reply",
+          item: {
+            type: "assistant_message",
+            messageId: "message-reply",
+            runId: "run-reply",
+            title: null,
+            text: AGENT_REPLY,
+            status: "completed",
+            updatedAt: now,
+          },
+        },
+      ],
+      hasEarlier: false,
+    } as never),
   getThreadRecords: (_threadId, _fields, filter) =>
     Effect.succeed({
       runs: (filter?.runIds ?? [])
         .filter((id) => id in queuedAttributions)
         .map((id) => ({ id, userMessageId: `message-${id}` })),
+      messages: (filter?.messageIds ?? []).map((id) => ({ id, createdBy: "agent" })),
     } as never),
   getMessagesById: (_threadId, messageIds) =>
     Effect.succeed(

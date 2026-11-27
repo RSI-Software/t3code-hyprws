@@ -104,6 +104,8 @@ import { ArtifactsToolkitHandlersLiveFork } from "./toolkits/artifacts/handlers.
 import { ArtifactsToolkitFork } from "./toolkits/artifacts/tools.fork.ts"; // fork-hook: thread-artifacts/mcp-artifacts-toolkit-import
 import { ThreadGroupsToolkitHandlersLiveFork } from "./toolkits/threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-thread-groups-toolkit-import
 import { ThreadGroupsToolkitFork } from "./toolkits/threadGroups/tools.fork.ts"; // fork-hook: thread-ordering/mcp-thread-groups-toolkit-import
+import { ColleagueToolkitHandlersLiveFork } from "./toolkits/colleague/handlers.fork.ts"; // fork-hook: colleague-collab/mcp-colleague-toolkit-import
+import { ColleagueToolkitFork } from "./toolkits/colleague/tools.fork.ts"; // fork-hook: colleague-collab/mcp-colleague-toolkit-import
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -1607,6 +1609,7 @@ export const layerTools = Layer.mergeAll(
   layerIssuesToolkit,
   toolkitRegistration(ArtifactsToolkitFork, ArtifactsToolkitHandlersLiveFork), // fork-hook: thread-artifacts/mcp-artifacts-toolkit
   toolkitRegistration(ThreadGroupsToolkitFork, ThreadGroupsToolkitHandlersLiveFork), // fork-hook: thread-ordering/mcp-thread-groups-toolkit
+  toolkitRegistration(ColleagueToolkitFork, ColleagueToolkitHandlersLiveFork), // fork-hook: colleague-collab/mcp-colleague-toolkit
   layerDeviceToolkit,
   layerHtmlToolkit,
   layerMessageToolkit,
