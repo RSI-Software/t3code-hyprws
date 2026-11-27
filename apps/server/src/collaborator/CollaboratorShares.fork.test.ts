@@ -342,6 +342,18 @@ database("CollaboratorSharesFork", (it) => {
         const edited = yield* ownerDispatch(message(shared, "queued-run.edit", stale));
         assert.strictEqual(sentText(edited), sentText(ownerSent));
         assert.deepStrictEqual(sentAuthor(edited), { name: HOST, text: "hi", host: true });
+        // A forced line never nests, and editing it without the flag judges it again.
+        const forced = yield* ownerDispatch(
+          message(shared, "message.dispatch", "hi", {
+            version: 1,
+            records: [],
+            forceReplyFork: true,
+          }),
+        );
+        assert.include(sentText(forced), "this message is for you: answer it");
+        assert.notInclude(sentText(forced), "When the message is not for you");
+        const unforced = yield* ownerDispatch(message(shared, "queued-run.edit", sentText(forced)));
+        assert.strictEqual(sentText(unforced), sentText(ownerSent));
         // A native command reaches the provider as typed.
         const compact = yield* ownerDispatch(message(shared, "message.dispatch", "/compact"));
         assert.strictEqual(sentText(compact), "/compact");
@@ -377,6 +389,19 @@ database("CollaboratorSharesFork", (it) => {
         const sent = yield* dispatch(message(shared), undefined as never);
         assert.strictEqual(sentText(sent), attributed);
         assert.deepStrictEqual(sentAuthor(sent), { name: "Sam", text: "hi" });
+        // "Ask the agent" swaps the judging rule for a forced answer, same author and words.
+        const forced = yield* dispatch(
+          message(shared, "message.dispatch", "hi", {
+            version: 1,
+            records: [],
+            forceReplyFork: true,
+          }),
+          undefined as never,
+        );
+        assert.include(sentText(forced), "this message is for you: answer it");
+        assert.notInclude(sentText(forced), "When the message is not for you");
+        assert.isTrue(sentText(forced).endsWith("]\n\nhi"));
+        assert.deepStrictEqual(sentAuthor(forced), { name: "Sam", text: "hi" });
         const refused = yield* Effect.exit(dispatch(message(other), undefined as never));
         assert.isTrue(Exit.isFailure(refused));
         for (const type of [
