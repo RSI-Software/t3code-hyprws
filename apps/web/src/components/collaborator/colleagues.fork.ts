@@ -32,6 +32,7 @@ import { waitForAtomValue } from "~/state/waitForAtomValue";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { createColleagueAttacherFork } from "./colleagueAttach.fork";
 import { ColleagueCopiesSyncFork } from "./colleagueCopy.fork";
+import { closeColleagueInboxFork } from "./colleagueInbox.fork";
 import { createColleagueReconcilerFork, type KnownColleagueFork } from "./colleagueReconcile.fork";
 
 const colleaguesFamily = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
@@ -225,12 +226,14 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
       current: data,
       known,
       remove: async (environmentId) => (await removeEnvironment(environmentId))._tag === "Success",
-      forgotten: (colleague) =>
+      forgotten: (colleague) => {
+        closeColleagueInboxFork(colleague.environmentId);
         toastManager.add({
           type: "info",
           title: gt("{name} is no longer a colleague", { name: colleague.name }),
           description: gt("Threads shared between you are gone from this app."),
-        }),
+        });
+      },
     });
   });
   return null;

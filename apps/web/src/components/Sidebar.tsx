@@ -109,6 +109,11 @@ import {
 } from "./collaborator/colleagueShare.fork"; // fork-hook: colleague-collab/sidebar-colleague-menu-import
 import { collaboratorRowControlsFork } from "./collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/sidebar-row-controls-import
 import { useSharedCardPropsFork } from "./collaborator/SharedThreadCard.fork"; // fork-hook: colleague-collab/shared-card-import
+import {
+  ColleagueInboxSwitchFork,
+  ColleagueSidebarFork,
+  useColleagueInboxFork,
+} from "./collaborator/ColleagueInbox.fork"; // fork-hook: colleague-collab/inbox-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -1133,6 +1138,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
   const windowFilter = useWindowProjectFilter(projectGroups); // fork-hook: workspaces/filter
   useColleagueListsWarmFork(); // fork-hook: colleague-collab/sidebar-colleague-warm
+  const colleagueInboxFork = useColleagueInboxFork(); // fork-hook: colleague-collab/inbox
   const projectChooser = useSidebarProjectChooserFork({
     filter: windowFilter.filter,
     setFilter: windowFilter.setFilter,
@@ -3439,9 +3445,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       ? shortcutLabelForCommand(keybindings, "chat.newLocal")
       : undefined);
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+  if (colleagueInboxFork.browsing)
+    return (
+      <ColleagueSidebarFork inbox={colleagueInboxFork} colleague={colleagueInboxFork.browsing} />
+    ); // fork-hook: colleague-collab/inbox-replaces-mine
   return (
     <SidebarFolderDrop>
       <SidebarChromeHeader isElectron={isElectron} />
+      {/* fork-hook: colleague-collab/inbox-switch */}
+      <ColleagueInboxSwitchFork inbox={colleagueInboxFork} />
+      {/* fork-hook-end */}
       <SidebarContent
         ref={sidebarContentRef}
         className="min-h-full"

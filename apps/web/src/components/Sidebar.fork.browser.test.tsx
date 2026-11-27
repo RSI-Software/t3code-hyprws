@@ -54,7 +54,7 @@ function project(environmentId: string): Project {
   };
 }
 
-it("names who shared a thread on its card, and leaves my own cards alone", async () => {
+async function renderSidebar() {
   const projects = ["mine", "alex", "guest"].map(project);
   const thread = (environmentId: string, title: string, collaboratorFork?: "send") =>
     makeThreadFixture({
@@ -82,7 +82,7 @@ it("names who shared a thread on its card, and leaves my own cards alone", async
     routeDraftId: null,
     routeThreadRef,
   });
-  await using screen = await render(
+  const screen = await render(
     <SidebarProvider>
       <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
     </SidebarProvider>,
@@ -90,9 +90,38 @@ it("names who shared a thread on its card, and leaves my own cards alone", async
   );
   const card = (title: string) =>
     screen.getByTestId("sidebar-row-card").filter({ hasText: title }).first();
+  return Object.assign(screen, { card });
+}
+
+it("names who shared a thread on its card, and leaves my own cards alone", async () => {
+  await using screen = await renderSidebar();
+  const { card } = screen;
 
   await expect.element(card("Alex's thread")).toHaveAccessibleDescription("Shared by Alex");
   await expect.element(card("Guest link thread")).toHaveAccessibleDescription("Shared with you");
   await expect.element(card("My thread")).not.toHaveAttribute("aria-describedby");
   await expect.element(card("My thread")).not.toHaveTextContent("Shared");
+});
+
+it("switches the sidebar to a colleague's inbox, showing only their threads, and back", async () => {
+  await using screen = await renderSidebar();
+  const { card } = screen;
+  const inboxSwitch = screen.getByRole("combobox", { name: "Switch inbox" });
+
+  await inboxSwitch.click();
+  await screen.getByRole("option", { name: "Alex" }).click();
+  const alexInbox = screen.getByRole("list", { name: "Alex's inbox" });
+  await expect.element(alexInbox.getByRole("button", { name: /Alex's thread/ })).toBeVisible();
+  await expect.element(alexInbox).not.toHaveTextContent("My thread");
+  await expect.element(alexInbox).not.toHaveTextContent("Guest link thread");
+  await expect.element(card("My thread")).not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("combobox", { name: "Search threads" }))
+    .not.toBeInTheDocument();
+
+  await inboxSwitch.click();
+  await screen.getByRole("option", { name: "My inbox" }).click();
+  await expect.element(alexInbox).not.toBeInTheDocument();
+  await expect.element(card("My thread")).toBeVisible();
+  await expect.element(card("Alex's thread")).toHaveAccessibleDescription("Shared by Alex");
 });
