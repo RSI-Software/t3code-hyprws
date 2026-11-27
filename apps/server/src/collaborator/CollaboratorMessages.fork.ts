@@ -6,6 +6,7 @@ import {
   CollaboratorMessageDeliveryErrorFork,
   type CollaboratorMessageFork,
   CollaboratorMessageMissingErrorFork,
+  collaboratorMessageCommandId,
   CommandId,
   type CollaboratorResolveMessageInputFork,
   GUEST_PENDING_MESSAGE_LIMIT,
@@ -16,11 +17,13 @@ import {
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { QUIET_MARKER } from "./quietTurn.fork.ts";
 
@@ -116,6 +119,7 @@ const fromRow = (row: MessageRow): CollaboratorMessageFork => ({
 export const makeCollaboratorMessages = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   const random = yield* SecureRandom.SecureRandom;
   // One change at a time: two tabs cannot both send one message, and a submit cannot slip
   // between an unshare's purge and its freeze.
@@ -133,10 +137,25 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     readonly name: string;
     readonly threadId: ThreadId;
     readonly text: string;
+    readonly id?: string | undefined;
   }) {
     const undelivered = (cause: unknown) =>
       new CollaboratorMessageDeliveryErrorFork({ threadId: input.threadId, cause });
-    const waiting = (yield* SubscriptionRef.get(ref)).filter(
+    const messages = yield* SubscriptionRef.get(ref);
+    // A flush from their queue may repeat after a lost reply: it already waits here, or it went
+    // out under the id both delivery paths share.
+    if (messages.some(({ id, subject }) => id === input.id && subject === input.subject)) return;
+    if (input.id !== undefined) {
+      const sent = yield* receipts
+        .getByCommandId(CommandId.make(collaboratorMessageCommandId(input.id)))
+        .pipe(Effect.mapError(undelivered));
+      if (Option.exists(sent, (r) => r.status === "accepted" && r.threadId === input.threadId)) {
+        return;
+      }
+      // A rejected id replays its rejection forever; the sender edits it to try again.
+      if (Option.isSome(sent)) return yield* undelivered(sent.value.error);
+    }
+    const waiting = messages.filter(
       (message) =>
         message.subject === input.subject &&
         message.threadId === input.threadId &&
@@ -145,7 +164,7 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
     if (waiting.length >= GUEST_PENDING_MESSAGE_LIMIT) {
       return yield* new CollaboratorMessageBusyErrorFork({ threadId: input.threadId });
     }
-    const id = yield* random.uuidV4().pipe(Effect.mapError(undelivered));
+    const id = input.id ?? (yield* random.uuidV4().pipe(Effect.mapError(undelivered)));
     const submittedAt = DateTime.formatIso(yield* DateTime.now);
     yield* sql`
     INSERT INTO fork_collaborator_messages
@@ -184,9 +203,9 @@ export const makeCollaboratorMessages = Effect.gen(function* () {
       yield* threads
         .dispatch({
           type: "message.dispatch",
-          commandId: CommandId.make(`collaborator-message:${message.id}`),
+          commandId: CommandId.make(collaboratorMessageCommandId(message.id)),
           threadId: message.threadId,
-          messageId: MessageId.make(`collaborator-message:${message.id}`),
+          messageId: MessageId.make(collaboratorMessageCommandId(message.id)),
           text: attribution.text,
           context,
           attachments: [],
