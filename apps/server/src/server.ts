@@ -173,6 +173,7 @@ import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.
 import { checkoutMoveServiceLiveFork } from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/server-checkout-move-import
 import * as ThreadGroupsFork from "./orchestration-v2/ThreadGroupsService.fork.ts"; // fork-hook: thread-ordering/server-thread-groups-import
 import * as ColleaguesFork from "./collaborator/Colleagues.fork.ts"; // fork-hook: colleague-collab/server-shares-import
+import * as ColleagueThreadFork from "./collaborator/ColleagueThreadFork.fork.ts"; // fork-hook: colleague-collab/server-thread-fork-import
 import { routeLayerFork as colleagueRoutesFork } from "./collaborator/ColleaguesHttp.fork.ts"; // fork-hook: colleague-collab/server-routes-import
 import { checkoutHeadFollowLiveFork } from "./git/CheckoutHeadFollow.fork.ts"; // fork-hook: zmux-estate/server-checkout-head-follow-import
 import { settledLaneSessionReactorLiveFork } from "./zmux/SettledLaneSessions.fork.ts"; // fork-hook: zmux-estate/server-settled-lane-sessions-import
@@ -829,6 +830,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   checkoutMoveServiceLiveFork, // fork-hook: zmux-estate/server-checkout-move-service
   ThreadGroupsFork.layer, // fork-hook: thread-ordering/server-thread-groups-service
   ColleaguesFork.layer, // fork-hook: colleague-collab/server-shares-service
+  ColleagueThreadFork.layer, // fork-hook: colleague-collab/server-thread-fork-service
   checkoutHeadFollowLiveFork, // fork-hook: zmux-estate/server-checkout-head-follow
   settledLaneSessionReactorLiveFork.pipe(Layer.provide(ZmuxSessionBinderLayerLive)), // fork-hook: zmux-estate/server-settled-lane-sessions-reactor
 ).pipe(

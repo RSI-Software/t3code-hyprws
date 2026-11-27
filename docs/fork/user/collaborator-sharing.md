@@ -63,4 +63,6 @@ To **cut all access**, revoke their session in **Settings → Connections**; a s
 
 Your collaborator must **reach your server** from their network.
 While yours is offline, their app **still opens your shared threads** from its own copy, saying **when it last synced**; the copy catches up once you are back.
+They can **Fork to my machine** from the thread menu: it copies the thread into **their own project**, even while yours is offline, and links back to yours.
+It copies the **messages only**: images and files stay on your machine.
 The link uses your Cloudflare Tunnel hostname or public T3 Code address when you have one; otherwise a local address that **works only on your network**, and the dialog warns you.
