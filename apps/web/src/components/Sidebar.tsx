@@ -98,12 +98,10 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { desktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
-import {
-  canShareWithCollaboratorFork,
-  openCollaboratorShareDialog,
-} from "./collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
+import { openCollaboratorShareDialog } from "./collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/sidebar-dispatch-import
 import {
   dispatchColleagueShareFork,
+  collaboratorShareOfferedFork,
   loadColleagueShareTargetsFork,
   useColleagueListsWarmFork,
 } from "./collaborator/colleagueShare.fork"; // fork-hook: colleague-collab/sidebar-colleague-menu-import
@@ -3112,7 +3110,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 ...forkThreadStateTailFork(thread, new Date().toISOString()), // fork-hook: thread-fork/sidebar-state
               ),
               openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
-              canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
+              canShareWithCollaboratorFork: collaboratorShareOfferedFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
               colleaguesFork, // fork-hook: colleague-collab/sidebar-colleague-menu-state
               colleagueForkFork: canForkColleagueThreadFork(thread), // fork-hook: colleague-collab/sidebar-fork-menu-state
               supports: {

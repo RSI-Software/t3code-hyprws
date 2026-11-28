@@ -9,10 +9,12 @@ import {
   useProjectGroupUpdate,
   useProjectPin,
 } from "../../hooks/useProjectGroupUpdate";
+import { useServerConfigs } from "../../state/entities";
 import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "../CommandPalette.logic";
 import { SettingsRow } from "../settings/settingsLayout";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { collaboratorsServedFork } from "./collaboratorShareDialogState.fork";
 
 type TeamMember = Pick<
   SidebarProjectGroupMember,
@@ -24,12 +26,21 @@ type TeamGroup = { readonly memberProjects: ReadonlyArray<TeamMember> };
 const isTeamProject = (members: ReadonlyArray<TeamMember>) =>
   members.some((member) => member.teamFork === true);
 
+/** A stock server drops the mark, so the controls show only where a checkout's server keeps it. */
+const useTeamServedFork = () => {
+  const configs = useServerConfigs();
+  return (members: ReadonlyArray<TeamMember>) =>
+    members.some((member) => collaboratorsServedFork(configs, member.environmentId));
+};
+
 export function TeamProjectSettingsRowFork(props: {
   readonly members: ReadonlyArray<TeamMember>;
   readonly disabled: boolean;
   readonly organize: (input: ProjectGroupUpdate, failureTitle: string) => Promise<void>;
 }) {
   const gt = useGT();
+  const served = useTeamServedFork();
+  if (!served(props.members)) return null;
   return (
     <SettingsRow
       title={gt("Team")}
@@ -70,11 +81,12 @@ export function useTeamProjectPaletteFork() {
   const gt = useGT();
   const { canPinProjectGroup } = useProjectPin();
   const { updateProjectGroup } = useProjectGroupUpdate();
+  const served = useTeamServedFork();
   return (
     items: { readonly push: (item: CommandPaletteActionItem) => number },
     group: (TeamGroup & { readonly displayName: string; readonly pinned: boolean }) | null,
   ) => {
-    if (group === null || !canPinProjectGroup(group)) return;
+    if (group === null || !canPinProjectGroup(group) || !served(group.memberProjects)) return;
     const team = isTeamProject(group.memberProjects);
     items.push({
       kind: "action",

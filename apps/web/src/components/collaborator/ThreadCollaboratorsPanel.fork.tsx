@@ -8,6 +8,7 @@ import { UserIcon, UserPlusIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentQuerySelector } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
@@ -19,7 +20,10 @@ import {
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ACCESS, setAccessCommand, threadSharesQuery } from "./collaboratorAccess.fork";
-import { openCollaboratorShareDialog } from "./collaboratorShareDialogState.fork";
+import {
+  collaboratorsServedFork,
+  openCollaboratorShareDialog,
+} from "./collaboratorShareDialogState.fork";
 
 interface ThreadCollaboratorsPanelProps {
   readonly environmentId: EnvironmentId;
@@ -30,9 +34,10 @@ export function ThreadCollaboratorsPanelFork({
   show,
   ...props
 }: ThreadCollaboratorsPanelProps & { readonly show: boolean }) {
-  // Only a host can share; a collaborator's own copy shows nothing here.
+  // Only a host can share; a collaborator's own copy, or a stock server, shows nothing here.
   const canShare = useAtomValue(setAccessCommand.permissionAtom(props.environmentId));
-  return show && canShare ? (
+  const served = collaboratorsServedFork(useServerConfigs(), props.environmentId);
+  return show && canShare && served ? (
     <ThreadCollaboratorsList key={`${props.environmentId}:${props.threadId}`} {...props} />
   ) : null;
 }

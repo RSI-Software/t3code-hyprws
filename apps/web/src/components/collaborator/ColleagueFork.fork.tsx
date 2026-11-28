@@ -14,7 +14,6 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   type EnvironmentId,
   type OrchestrationV2TurnItem,
@@ -25,12 +24,10 @@ import {
 } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
-import { GitForkIcon } from "lucide-react";
-import { msg, useGT } from "gt-react";
+import { useGT } from "gt-react";
 import { useEffect, useState } from "react";
 
 import { connectionAtomRuntime } from "~/connection/runtime";
-import { m } from "~/i18n/messages";
 import { newThreadId } from "~/lib/utils";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useProjects, useThreadShell } from "~/state/entities";
@@ -39,7 +36,6 @@ import { environmentSession } from "~/state/session";
 import { forkTitleFork, waitForChildShellFork } from "~/state/threadFork.fork";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams } from "~/threadRoutes";
-import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "../CommandPalette.logic";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -53,29 +49,9 @@ import {
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { copyColleagueAttachmentFork } from "./colleagueForkAttachments.fork";
-import {
-  canForkColleagueThreadFork,
-  colleagueForkDialogThreadAtom,
-  openColleagueForkDialogFork,
-} from "./colleagueForkDialogState.fork";
+import { colleagueForkDialogThreadAtom } from "./colleagueForkDialogState.fork";
 import { matchingProjectFork } from "./colleagueFork.logic.fork";
 import { useSharerNamesFork } from "./SharedThreadCard.fork";
-
-/** The command palette's "Fork to my machine…" for the active thread, as its menus offer it. */
-export function colleagueForkPaletteItemFork(
-  activeThread: EnvironmentThreadShell | null | undefined,
-): CommandPaletteActionItem | null {
-  if (activeThread == null || !canForkColleagueThreadFork(activeThread)) return null;
-  const threadRef = { environmentId: activeThread.environmentId, threadId: activeThread.id };
-  return {
-    kind: "action",
-    value: "action:fork-to-my-machine",
-    searchTerms: ["fork", "copy", "machine", "colleague", "offline", "thread"],
-    title: m(msg("Fork to my machine…")),
-    icon: <GitForkIcon className={ITEM_ICON_CLASS} />,
-    run: async () => openColleagueForkDialogFork(threadRef),
-  };
-}
 
 interface ReadInput {
   readonly environmentId: EnvironmentId;
