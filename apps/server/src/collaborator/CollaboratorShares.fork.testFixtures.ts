@@ -82,8 +82,14 @@ export const threadShell = (id: ThreadId): OrchestrationV2ThreadShell => ({
 export const hostDispatches: Array<OrchestrationV2Command> = [];
 // Queued runs by id, with the attribution the server stored on each message; none is the host.
 const queuedAttributions: Record<string, object | undefined> = {
-  "run-sam": { name: "Sam" },
-  "run-pat": { name: "Pat" },
+  "run-sam": { name: "Sam", subject: "colleague:sam" },
+  // Sam's own line under their machine's label.
+  "run-sam-machine": { name: "Sam's laptop", subject: "colleague:sam" },
+  // Another person called Sam.
+  "run-sam-namesake": { name: "Sam", subject: "colleague:sam-2" },
+  // Written before lines stored their author.
+  "run-sam-legacy": { name: "Sam" },
+  "run-pat": { name: "Pat", subject: "colleague:pat" },
   "run-host": undefined,
   "run-reply": { name: "Jordan Lee", host: true, replyTo: { name: "Sam", text: "pair at 3?" } },
   // Its message read fails.

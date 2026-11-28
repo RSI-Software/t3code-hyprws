@@ -653,6 +653,8 @@ export function useCollaboratorCitationsFork(threadRef: ScopedThreadRef | null) 
     hostName: asCollaborator ? HOST_KEY : null,
     /** A collaborator's own name, which their sent messages carry; null for the host. */
     you: typing?.you ?? null,
+    /** A collaborator's own subject, which their queued lines carry; null for the host. */
+    yourSubject: typing?.yourSubject ?? null,
     /** Everyone in the order they joined the thread, the host first, which orders their hues. */
     people: [HOST_KEY, ...(typing?.people ?? [])],
     peers: typists.flatMap(({ subject, device, name, draft }) =>

@@ -70,7 +70,11 @@ const attributed = (intro: string, people: string, text: string, forced: boolean
 };
 
 /** What the agent reads from a collaborator, and the context that shows their own words. */
-export const collaboratorAttribution = (name: string, text: string, forced = false) => {
+export const collaboratorAttribution = (
+  { name, subject }: { readonly name: string; readonly subject: string },
+  text: string,
+  forced = false,
+) => {
   // Naming the host here made Haiku read collaborators' doubts as addressed to them.
   const { own, text: prompt } = attributed(
     `[${name}, a collaborator the owner shared this thread with, wrote the message below. `,
@@ -78,7 +82,7 @@ export const collaboratorAttribution = (name: string, text: string, forced = fal
     text,
     forced,
   );
-  return { text: prompt, context: { collaboratorFork: { name, text: own } } };
+  return { text: prompt, context: { collaboratorFork: { name, subject, text: own } } };
 };
 
 /**
@@ -239,7 +243,7 @@ export const makeCollaboratorMessages = Effect.fn("makeCollaboratorMessages")(fu
                 }),
               ),
             )
-          : collaboratorAttribution(message.name, message.text, forced);
+          : collaboratorAttribution(message, message.text, forced);
       const context: OrchestrationMessageContext = {
         version: 1,
         records: [],

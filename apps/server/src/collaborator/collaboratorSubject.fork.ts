@@ -19,7 +19,7 @@ export const isCollaboratorHttpRefusedFork = (subject: string, url: string) =>
   isCollaboratorSubject(subject) &&
   !COLLABORATOR_HTTP_PATHS.some((path) => path.test(new URL(url, "http://host").pathname));
 
-// Case and punctuation fold on purpose, so "Sam" and "sam " reach the same paired collaborator.
+// A readable subject from a name; case and punctuation fold, so "Sam" and "sam " read alike.
 export const collaboratorSubject = (name: string) =>
   `${COLLABORATOR_SUBJECT_PREFIX}${name
     .normalize("NFKC")
