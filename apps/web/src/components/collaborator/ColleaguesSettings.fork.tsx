@@ -91,7 +91,8 @@ function InviteColleagueRow(props: { readonly environmentId: EnvironmentId }) {
       title={gt("Invite colleague")}
       description={gt("A link that saves you as each other's colleagues. It shares no thread.")}
       control={
-        state.status === "closed" ? (
+        // After a link is made, the same button starts the next invite.
+        state.status === "closed" || state.status === "created" ? (
           <Button size="sm" variant="outline" onClick={() => setState({ status: "open" })}>
             {gt("Invite colleague")}
           </Button>
