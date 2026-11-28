@@ -235,6 +235,7 @@ describe("forking a colleague's thread", () => {
         row("[Alex, a collaborator…]\n\nShip it?", 1, "user_message", {
           name: "Alex",
           text: "Ship it?",
+          subject: "colleague:alex",
         }),
         row("[Jordan, the owner…]\n\nNot yet", 2, "user_message", {
           name: "Jordan",
@@ -248,6 +249,16 @@ describe("forking a colleague's thread", () => {
           replyTo: { name: "Alex", text: "When?" },
         }),
         row("Before sharing", 4, "user_message"),
+        // Another Alex, and a line from before lines were signed: neither is the forker's.
+        row("[Alex, a collaborator…]\n\nMe too", 5, "user_message", {
+          name: "Alex",
+          text: "Me too",
+          subject: "colleague:alex-2",
+        }),
+        row("[Alex, a collaborator…]\n\nEarlier", 6, "user_message", {
+          name: "Alex",
+          text: "Earlier",
+        }),
       ];
       const thread = {
         ...snapshot([], false),
@@ -257,7 +268,7 @@ describe("forking a colleague's thread", () => {
         const { messages } = yield* read(source);
         const copy = (you: string | null) =>
           colleagueForkMessagesFork(messages, () => Effect.succeed(null), { host: "Jordan", you });
-        const lines = (yield* copy("Alex")).messages.map(({ text, author, replyTo }) => [
+        const lines = (yield* copy("colleague:alex")).messages.map(({ text, author, replyTo }) => [
           text,
           author,
           replyTo?.name,
@@ -267,6 +278,8 @@ describe("forking a colleague's thread", () => {
           ["Not yet", "Jordan", undefined],
           ["Friday", "Jordan", "Alex"],
           ["Before sharing", "Jordan", undefined],
+          ["Me too", "Alex", undefined],
+          ["Earlier", "Alex", undefined],
         ]);
         // Not knowing who forks, every line keeps its author's name.
         expect((yield* copy(null)).messages[0]?.author).toBe("Alex");

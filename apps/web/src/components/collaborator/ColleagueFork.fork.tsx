@@ -123,7 +123,7 @@ function ColleagueForkDialog({
   const sharer = useSharerNamesFork().get(threadRef.environmentId);
   const machine = useEnvironment(threadRef.environmentId)?.label;
   const host = sharer ?? machine ?? gt("the host");
-  const you = thread?.collaboratorNameFork ?? null;
+  const you = thread?.collaboratorSubjectFork ?? null;
   const primary = usePrimaryEnvironmentId();
   const projects = useProjects();
   const local = projects.filter(

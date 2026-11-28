@@ -34,6 +34,8 @@ export interface ColleagueReadMessageFork {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   /** A user message's author, as the shared thread named them; absent for the host's own. */
   readonly author?: string;
+  /** The signed-in author's subject; absent on the host's and older lines. */
+  readonly subject?: string;
   readonly replyTo?: ColleagueThreadMessageFork["replyTo"];
 }
 
@@ -64,7 +66,7 @@ const colleagueThreadMessagesFork = (
     const shown = resolveUserMessagePresentation({ ...item, id: item.messageId, role: "user" });
     const text = shown.text.trim() === "" ? "" : shown.text;
     if (text === "" && item.attachments.length === 0) return [];
-    const replyTo = item.context?.collaboratorFork?.replyTo;
+    const { replyTo, subject } = item.context?.collaboratorFork ?? {};
     return [
       {
         role: "user",
@@ -74,6 +76,7 @@ const colleagueThreadMessagesFork = (
         ...(shown.guestName === undefined || shown.guestName.trim() === ""
           ? {}
           : { author: shown.guestName }),
+        ...(subject === undefined ? {} : { subject }),
         ...(replyTo === undefined ? {} : { replyTo }),
       },
     ];
@@ -81,10 +84,9 @@ const colleagueThreadMessagesFork = (
 };
 
 /**
- * The messages a fork sends: each with the copies `copy` made of its attachments on this server.
- * An attachment `copy` fails on, or yields null for, is named in its message and in
- * `missingAttachments` instead. Each user message names its author, `people.host` for the host's
- * own, except the lines of `people.you`, the person forking.
+ * The messages a fork sends, with the copies `copy` made of their attachments; a failed copy is
+ * named in its message and in `missingAttachments`. User lines name their author, `people.host`
+ * for the host's own, except lines signed by `people.you`, the forker's subject.
  */
 export const colleagueForkMessagesFork = Effect.fn("ColleagueFork.copyAttachments")(function* <
   E,
@@ -103,6 +105,8 @@ export const colleagueForkMessagesFork = Effect.fn("ColleagueFork.copyAttachment
     { concurrency: 3 },
   );
   const missingAttachments: Array<string> = [];
+  const yours = (message: ColleagueReadMessageFork) =>
+    message.subject !== undefined && message.subject === people.you;
   const forked = messages.flatMap((message, index): ReadonlyArray<ColleagueThreadMessageFork> => {
     const copied = copies[index]!.filter((attachment) => attachment !== null);
     const missing = message.attachments
@@ -113,14 +117,15 @@ export const colleagueForkMessagesFork = Effect.fn("ColleagueFork.copyAttachment
       .filter((part) => part !== "")
       .join("\n\n");
     if (text === "" && copied.length === 0) return [];
-    const author = message.role === "user" ? (message.author ?? people.host) : undefined;
+    const author =
+      message.role !== "user" || yours(message) ? undefined : (message.author ?? people.host);
     return [
       {
         role: message.role,
         text,
         createdAt: message.createdAt,
         ...(copied.length === 0 ? {} : { attachments: copied }),
-        ...(author === undefined || author === people.you ? {} : { author }),
+        ...(author === undefined ? {} : { author }),
         ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
       },
     ];
