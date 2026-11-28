@@ -358,6 +358,19 @@ database("CollaboratorSessionFork", (it) => {
             type,
           );
         }
+        // A message may not complete a plan, or name a sender, on a thread not shared to them.
+        for (const fields of [
+          { sourcePlanRef: { threadId: other, planId: "plan" } },
+          { senderThreadId: other },
+        ]) {
+          const named = { ...(message(shared) as object), ...fields } as never;
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(dispatch(named, undefined as never))));
+        }
+        const ownPlan = {
+          ...(message(shared) as object),
+          sourcePlanRef: { threadId: shared, planId: "plan" },
+        } as never as OrchestrationV2Command;
+        assert.strictEqual((yield* dispatch(ownPlan, undefined as never)).type, "message.dispatch");
         for (const type of [
           "thread.archive",
           "thread.settle",
