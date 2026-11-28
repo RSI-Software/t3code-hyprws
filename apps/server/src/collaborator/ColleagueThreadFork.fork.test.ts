@@ -257,23 +257,41 @@ it.live("a forked thread's first message starts a fresh session holding the copi
         input([
           { role: "user", text: "Remember the code word PELICAN.", createdAt: at(1) },
           { role: "assistant", text: "Noted: PELICAN.", createdAt: at(2) },
+          {
+            role: "user",
+            text: "Friday",
+            createdAt: at(3),
+            author: "Jordan",
+            replyTo: { name: "Alex", text: "When?" },
+          },
         ]),
       );
       // A retried fork writes nothing twice.
-      yield* fork(input([{ role: "user", text: "A late copy", createdAt: at(3) }]));
+      yield* fork(input([{ role: "user", text: "A late copy", createdAt: at(4) }]));
       const forked = yield* projection();
       assert.equal(forked.thread.historyOrigin, "v1_import");
       assert.deepEqual(
         forked.visibleTurnItems.map(({ item }) =>
           item.type === "system_notice" ? item.colleagueOriginFork?.threadId : item.type,
         ),
-        [ThreadId.make("thread:alex"), "user_message", "assistant_message"],
+        [ThreadId.make("thread:alex"), "user_message", "assistant_message", "user_message"],
       );
+      const [, own, , reply] = forked.visibleTurnItems.map(({ item }) => item);
+      assert.isUndefined(own?.type === "user_message" ? own.context : null);
+      assert.deepEqual(reply?.type === "user_message" ? reply.context?.collaboratorFork : null, {
+        name: "Jordan",
+        text: "Friday",
+        replyTo: { name: "Alex", text: "When?" },
+      });
 
       const [first] = yield* send("What was the code word?");
       assert.equal(first?.nativeThreadId, `native:${threadId}`);
       assert.include(first?.text ?? "", "Remember the code word PELICAN.");
       assert.include(first?.text ?? "", "Noted: PELICAN.");
+      assert.include(
+        first?.text ?? "",
+        `[Jordan wrote the message below, in reply to this message from Alex: "When?".]`,
+      );
       assert.isTrue((first?.text ?? "").endsWith("What was the code word?"));
     }),
   ),
