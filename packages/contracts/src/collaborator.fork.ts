@@ -42,6 +42,8 @@ export type CollaboratorAccessFork = typeof CollaboratorAccessFork.Type;
 export const CollaboratorShareThreadInputFork = Schema.Struct({
   threadId: ThreadId,
   collaboratorName: CollaboratorNameFork,
+  /** Someone shared with before, for another link; absent is a new person, whatever the name. */
+  subject: Schema.optional(Schema.String),
   /** Applies to this thread only; absent keeps a re-share's access, else `approve`. */
   access: Schema.optional(CollaboratorAccessFork),
   /** The origin the sharing client reached the server on; the link's base when public. */
@@ -56,7 +58,7 @@ export const CollaboratorShareThreadResultFork = Schema.Struct({
   localOnly: Schema.Boolean,
   /** The collaborator already had a share, so their paired app shows this thread without the link. */
   knownCollaborator: Schema.Boolean,
-  /** The name the share went to: a known collaborator's saved spelling, else the name as typed. */
+  /** The name the share went to: a picked collaborator's saved spelling, else the name as typed. */
   collaboratorName: Schema.String,
 });
 export type CollaboratorShareThreadResultFork = typeof CollaboratorShareThreadResultFork.Type;
@@ -185,6 +187,8 @@ export const CollaboratorTypingStateFork = Schema.Struct({
   typists: Schema.Array(CollaboratorTypistFork),
   /** A collaborator's own name, so their client knows which sent messages are theirs. */
   you: Schema.optional(Schema.String),
+  /** A collaborator's own subject, so their client offers edits only on lines they wrote. */
+  yourSubject: Schema.optional(Schema.String),
   /** Everyone the thread is shared with, in the order they joined, so every client colours them alike. */
   people: Schema.optional(Schema.Array(Schema.String)),
 });
@@ -205,6 +209,8 @@ export const CollaboratorAttributionFork = Schema.Struct({
   name: Schema.String,
   /** The collaborator's own words; the message text carries the attributed form the agent reads. */
   text: Schema.String,
+  /** The signed-in author, who alone may change the line; absent on the host's and older lines. */
+  subject: Schema.optional(Schema.String),
   /** Set when the message waited for approval and the host sent it. */
   sentByHost: Schema.optional(Schema.Literal(true)),
   /** The host's own message in a shared thread: named for the agent, shown as the host's. */

@@ -45,7 +45,7 @@ import {
   makeCollaboratorMessages,
 } from "./CollaboratorMessages.fork.ts";
 import { makeCollaboratorTyping } from "./CollaboratorTyping.fork.ts";
-import { collaboratorSubject, isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
+import { isCollaboratorSubject } from "./collaboratorSubject.fork.ts";
 import { makeTeamThreads } from "./TeamThreads.fork.ts";
 
 // Every host session types as one typist, so a host never sees their own other device.
@@ -281,10 +281,10 @@ const forcedReply = (command: { readonly context?: OrchestrationMessageContext |
 
 /** Names the collaborator in the text the agent reads; their own words ride the context. */
 const attributed = <Command extends Extract<OrchestrationV2Command, { readonly text: string }>>(
-  name: string,
+  author: { readonly name: string; readonly subject: string },
   command: Command,
 ): Command => {
-  const attribution = collaboratorAttribution(name, command.text, forcedReply(command));
+  const attribution = collaboratorAttribution(author, command.text, forcedReply(command));
   return {
     ...command,
     text: attribution.text,
@@ -769,13 +769,14 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         if (command.type === "queued-run.edit" || command.type === "queued-run.cancel") {
           return queuedAttribution(command).pipe(
             Effect.flatMap((author) =>
-              author !== undefined && collaboratorSubject(author.name) === subject
-                ? Effect.void
-                : Effect.fail(hostOnly),
+              // A line with no subject predates it; its author is unknown, so it stays the host's.
+              author?.subject === subject ? Effect.void : Effect.fail(hostOnly),
             ),
             Effect.andThen(() =>
               dispatch(
-                command.type === "queued-run.edit" ? attributed(share.name, command) : command,
+                command.type === "queued-run.edit"
+                  ? attributed({ name: share.name, subject }, command)
+                  : command,
                 options,
               ),
             ),
@@ -783,7 +784,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         }
         if (!COLLABORATOR_COMMANDS.has(command.type)) return Effect.fail(hostOnly);
         if (command.type !== "message.dispatch") return dispatch(command, options);
-        return dispatch(attributed(share.name, command), options);
+        return dispatch(attributed({ name: share.name, subject }, command), options);
       },
       [SHELL]: (input, options) => shell(subject, input, (fresh) => subscribeShell(fresh, options)),
       // The archive lists the archived threads the shell would show, and only their projects.

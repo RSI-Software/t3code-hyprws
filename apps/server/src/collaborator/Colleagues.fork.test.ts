@@ -282,7 +282,7 @@ const servers = Effect.gen(function* () {
   calls.length = 0;
   const host = yield* makeServer("host", 3801);
   const sam = yield* makeServer("sam", 3802);
-  yield* host.shares.share({ threadId: ThreadId.make("host-thread"), collaboratorName: "Sam" });
+  yield* host.shares.shareWith({ threadId: "host-thread", subject: samApp.subject, name: "Sam" });
   // Sam's app paired with the link: a collaborator session on the host.
   host.sessions.set("sam-app", { sessionId: "sam-app", subject: "colleague:sam" });
   return { host, sam };
@@ -441,7 +441,7 @@ it.effect("an agent reads a colleague it names, refused plainly where their serv
 
       // Jo revoked Sam, and a second Jo refuses: both are tried, and the revoke is the reason.
       const kim = yield* makeServer("kim", 3803);
-      yield* kim.shares.share({ threadId: ThreadId.make("kim-thread"), collaboratorName: "Sam" });
+      yield* kim.shares.shareWith({ threadId: "kim-thread", subject: samApp.subject, name: "Sam" });
       kim.sessions.set("sam-app", { sessionId: "sam-app", subject: "colleague:sam" });
       yield* accept(kim, sam);
       host.sessions.clear();
@@ -490,12 +490,13 @@ it.effect("a new colleague never takes over a one-time guest's shares under thei
   Effect.scoped(
     Effect.gen(function* () {
       const { host, sam } = yield* servers;
-      // Before accepting, Sam shared by link with a guest also called Jo, and with one holding
-      // the suffixed subject a new colleague would fall back to.
-      yield* sam.shares.share({ threadId: ThreadId.make("sam-guest"), collaboratorName: "Jo" });
-      yield* sam.shares.share({
-        threadId: ThreadId.make("sam-guest-2"),
-        collaboratorName: "Jo env-host",
+      // Before accepting, Sam shared by an older link, whose subject came from the name, with a
+      // guest also called Jo, and with one holding the suffixed subject a new colleague falls back to.
+      yield* sam.shares.shareWith({ threadId: "sam-guest", subject: "colleague:jo", name: "Jo" });
+      yield* sam.shares.shareWith({
+        threadId: "sam-guest-2",
+        subject: "colleague:jo-env-host",
+        name: "Jo env-host",
       });
 
       const hostOnSam = yield* accept(host, sam);
@@ -528,7 +529,11 @@ it.effect("a collaborator cannot save over another colleague's environment", () 
   Effect.scoped(
     Effect.gen(function* () {
       const { host, sam } = yield* acceptedInvite;
-      yield* host.shares.share({ threadId: ThreadId.make("eve-thread"), collaboratorName: "Eve" });
+      yield* host.shares.shareWith({
+        threadId: "eve-thread",
+        subject: "colleague:eve",
+        name: "Eve",
+      });
       host.sessions.set("eve-app", { sessionId: "eve-app", subject: "colleague:eve" });
 
       const evicted = yield* Effect.flip(

@@ -20,8 +20,11 @@ import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { HostMessageNameFork } from "./CollaboratorAuthor.fork";
 import { useCollaboratorCitationsFork } from "./CollaboratorChat.fork";
+import { queuedLineOwnedFork } from "./collaboratorQueue.logic.fork";
 
-type PresentedMessage = Parameters<typeof resolveUserMessagePresentation>[0];
+type PresentedMessage = Parameters<typeof resolveUserMessagePresentation>[0] & {
+  readonly context?: Parameters<typeof queuedLineOwnedFork>[0];
+};
 
 interface QueuedItem<Message, Thumbnail> {
   readonly key: string;
@@ -64,8 +67,8 @@ export function useCollaboratorQueueFork(environmentId: EnvironmentId, threadId:
   const access = useQuietThreadShell(threadRef)?.collaboratorFork;
   const asCollaborator = access !== undefined;
   // The server refuses queue changes without send access, own messages included.
-  const { you } = useCollaboratorCitationsFork(asCollaborator ? threadRef : null);
-  const owner = access === "send" ? you : null;
+  const { yourSubject } = useCollaboratorCitationsFork(asCollaborator ? threadRef : null);
+  const owner = access === "send" ? yourSubject : null;
   return asCollaborator
     ? <Message extends PresentedMessage, Thumbnail, Props extends QueueProps>(
         items: ReadonlyArray<QueuedItem<Message, Thumbnail>>,
@@ -126,10 +129,10 @@ function CollaboratorQueuedRuns<
                   replaceComposerContextReferences(text, (reference) => reference.label),
                 ),
               ).trim();
-          // The server attributes a collaborator's message and lets them change only their own.
+          // The server stores who wrote a line and lets only them change it, namesakes refused.
           const ownRun =
             editor !== null &&
-            presentation?.guestName === editor &&
+            queuedLineOwnedFork(item.message?.context, editor) &&
             item.runId !== null &&
             item.messageId !== null
               ? {
