@@ -3437,6 +3437,7 @@ export default function ChatView(props: ChatViewProps) {
           attention={attentionNow}
           work={workNow}
           syncPhase={shownThreadSyncPhase}
+          {...collaboratorFork.syncPhase} // fork-hook: colleague-collab/chat-no-copy
           goal={goalNow}
         />
         {threadStatusLine}

@@ -3351,6 +3351,8 @@
   "1bc93c81782cf0ae": "Collaborators",
   "8a40d0d4f68a2b3e": "Disconnected from host",
   "70fc3747357fc081": "The host stopped sharing this thread. You can still read and copy it.",
+  "a4887c505af326f3": "No copy on this device",
+  "7df2424d903fd9de": "The host stopped sharing this thread. A copy is kept only on devices that opened it before.",
   "2f31bb48fbe9ed26": "This thread is in a team project. You can read and copy it.",
   "74b50731755c0053": "The host sends your messages",
   "6a68f453b8545e6d": "Each message waits for the host to send it to the agent.",
