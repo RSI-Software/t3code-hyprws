@@ -123,6 +123,9 @@ const networkClient = HttpClient.make((request) => {
   calls.push(`${url.origin} ${url.pathname}`);
   const server = network.get(url.origin);
   if (server === undefined) return json(request, new Response(null, { status: 404 }));
+  if (url.pathname === "/.well-known/t3/environment") {
+    return json(request, Response.json({ environmentId: server.environmentId }));
+  }
   const token = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const session = server.sessions.get(token);
   if (session === undefined) return json(request, new Response(null, { status: 401 }));
@@ -413,6 +416,25 @@ it.effect("an accepted invite saves each side as the other's colleague, fenced p
         sam.colleagues.issueClientPairing(asColleague("colleague:eve")),
       );
       assert.isTrue(Exit.isFailure(stranger));
+    }),
+  ),
+);
+
+it.effect("a save says whether the saving colleague's address answers the host", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam, invite } = yield* servers;
+      const samGrant = yield* sam.colleagues.invite({
+        environmentId: host.environmentId,
+        name: "Jo",
+      });
+      network.delete(sam.origin);
+      const unreachable = yield* host.colleagues.save(samApp, { grant: samGrant, invite });
+      assert.isFalse(unreachable.returnReachable);
+
+      network.set(sam.origin, sam);
+      const reachable = yield* host.colleagues.save(samApp, { grant: samGrant });
+      assert.isTrue(reachable.returnReachable);
     }),
   ),
 );
