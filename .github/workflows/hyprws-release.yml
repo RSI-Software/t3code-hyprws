@@ -314,6 +314,7 @@ jobs:
     name: Build Linux x64
     outputs:
       expected_assets: ${{ steps.assets.outputs.expected_assets }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
     needs: preflight
     if: |
       !failure() && !cancelled() && needs.preflight.result == 'success' &&
@@ -431,6 +432,7 @@ jobs:
           echo "expected_assets=$(jq -cn --args '$ARGS.positional' "${assets[@]}")" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
+        id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-linux-x64
@@ -446,6 +448,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      actions: write
       contents: write
     steps:
       - name: Download desktop artifacts
@@ -545,3 +548,11 @@ jobs:
             echo "Deleting old nightly release and tag: $tag"
             gh release delete "$tag" --cleanup-tag --yes
           done <<< "$stale_tags"
+
+      # The Release now holds the bytes, so the ~500 MB handoff goes at once rather than after
+      # its day: org artifact storage bills per GB-hour, and every landing publishes one.
+      - name: Delete build handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+        run: gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
