@@ -36,12 +36,10 @@ import {
   useThreadForkDispatchFork,
 } from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
-import {
-  canShareWithCollaboratorFork,
-  openCollaboratorShareDialog,
-} from "../components/collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/menu-dispatch-import
+import { openCollaboratorShareDialog } from "../components/collaborator/collaboratorShareDialogState.fork"; // fork-hook: colleague-collab/menu-dispatch-import
 import {
   dispatchColleagueShareFork,
+  collaboratorShareOfferedFork,
   readColleagueShareTargetsFork,
   useColleagueShareTargetsWarmFork,
 } from "../components/collaborator/colleagueShare.fork"; // fork-hook: colleague-collab/colleague-menu-import
@@ -182,7 +180,7 @@ export function useThreadActionMenu(input: {
         ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
       ), // fork-hook: thread-fork/header-menu-state
       openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
-      canShareWithCollaboratorFork: canShareWithCollaboratorFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
+      canShareWithCollaboratorFork: collaboratorShareOfferedFork(threadRef.environmentId), // fork-hook: colleague-collab/menu-share-state
       colleaguesFork, // fork-hook: colleague-collab/colleague-menu-state
       colleagueForkFork: canForkColleagueThreadFork(thread), // fork-hook: colleague-collab/fork-menu-state
       supports,
