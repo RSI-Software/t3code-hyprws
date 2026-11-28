@@ -4,7 +4,6 @@ import { useRef, type ComponentProps } from "react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import {
-  serializeTableElementForChat,
   serializeTableElementToCsv,
   serializeTableElementToHtml,
   serializeTableElementToMarkdown,
@@ -15,7 +14,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { reportMarkdownActionFailure, type TableCopyFormat } from "./markdownActionFailure";
 import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 
-type TableTextFormat = Exclude<TableCopyFormat, "png" | "chat">;
+type TableTextFormat = Exclude<TableCopyFormat, "png">;
 
 const TABLE_COPY_SERIALIZERS: Record<TableTextFormat, (table: Element) => string> = {
   markdown: serializeTableElementToMarkdown,
@@ -55,13 +54,6 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
       format === "html" ? { "text/html": `<meta charset="utf-8">${text}` } : undefined,
       { requireHtml: format === "html" },
     );
-  };
-
-  const handleCopyForChat = () => {
-    const table = containerRef.current?.querySelector("table");
-    if (!table) return;
-    const { text, html } = serializeTableElementForChat(table);
-    copyToClipboard(text, "chat", { "text/html": html });
   };
 
   const handleCopyPng = () => {
@@ -104,9 +96,6 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
             </MenuItem>
             <MenuItem onClick={() => handleCopy("html")}>
               <T>Copy as HTML</T>
-            </MenuItem>
-            <MenuItem onClick={handleCopyForChat}>
-              <T>Copy for chat apps</T>
             </MenuItem>
             {canCopyPng ? (
               <MenuItem onClick={handleCopyPng}>

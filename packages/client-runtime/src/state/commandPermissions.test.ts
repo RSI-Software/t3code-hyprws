@@ -179,31 +179,25 @@ describe("command permissions", () => {
     }),
   );
 
-  it.effect.each([
-    { method: WS_METHODS.serverCheckOtlpEndpoint, scopes: [AuthSettingsWriteScope] },
-    {
-      method: WS_METHODS.serverCheckSecretSource,
-      scopes: [AuthSettingsWriteScope, AuthProvidersManageScope],
-    },
-  ])("requires every destination grant in $scopes for $method", ({ method, scopes }) =>
-    Effect.gen(function* () {
-      const registry = yield* setup;
-      const check = createCommandPermissions(runtime, method);
-      registry.set(sessions(env), AsyncResult.success(grant(true)));
-      expect(registry.get(check.permissionAtom(env))).toBe(false);
-      const hold = (held: typeof scopes) =>
+  it.effect.each([WS_METHODS.serverCheckOtlpEndpoint, WS_METHODS.serverCheckSecretSource])(
+    "requires the destination settings grant for %s",
+    (method) =>
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const check = createCommandPermissions(runtime, method);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(check.permissionAtom(env))).toBe(false);
         registry.set(
           sessions(env),
-          AsyncResult.success({ ...grant(false), scopes: held, permissions: held }),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthSettingsWriteScope],
+            permissions: [AuthSettingsWriteScope],
+          }),
         );
-      for (const missing of scopes) {
-        hold(scopes.filter((scope) => scope !== missing));
-        expect(registry.get(check.permissionAtom(env))).toBe(false);
-      }
-      hold(scopes);
-      expect(registry.get(check.permissionAtom(env))).toBe(true);
-      yield* check.authorize(registry, env);
-    }),
+        expect(registry.get(check.permissionAtom(env))).toBe(true);
+        yield* check.authorize(registry, env);
+      }),
   );
 
   it.effect("requires the destination settings grant to connect or bind an issue tracker", () =>

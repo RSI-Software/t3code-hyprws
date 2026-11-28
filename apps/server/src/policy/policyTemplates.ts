@@ -194,9 +194,7 @@ const escapeXml = (text: string) =>
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    // XML parsers can normalize literal carriage returns before decoding text.
-    .replaceAll("\r", "&#13;");
+    .replaceAll('"', "&quot;");
 
 // ADMX keys are relative to the hive the policy class picks.
 const ADMX_KEY = WINDOWS_POLICY_KEY.replace(/^HKLM\\/, "");

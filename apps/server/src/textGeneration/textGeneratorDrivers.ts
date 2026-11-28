@@ -41,7 +41,6 @@ export interface TextGeneratorDriver {
 const GENERATE_TIMEOUT = "2 minutes";
 const LIST_MODELS_TIMEOUT = "25 seconds";
 const MAX_MODEL_PAGES = 10;
-const MAX_ERROR_DETAIL_LENGTH = 300;
 
 const ApiErrorBody = Schema.Struct({
   error: Schema.Struct({ message: Schema.String }),
@@ -57,12 +56,7 @@ const describeStatus = (label: string, status: number, message: string | undefin
         : status === 429
           ? "is rate-limiting requests"
           : `returned HTTP ${status}`;
-  const trimmed = message?.trim();
-  const end =
-    (trimmed?.codePointAt(MAX_ERROR_DETAIL_LENGTH - 1) ?? 0) > 0xffff
-      ? MAX_ERROR_DETAIL_LENGTH - 1
-      : MAX_ERROR_DETAIL_LENGTH;
-  const detail = trimmed?.slice(0, end);
+  const detail = message?.trim().slice(0, 300);
   return `${label} ${reason}${detail ? `: ${detail}` : "."}`;
 };
 

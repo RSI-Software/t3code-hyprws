@@ -47,7 +47,11 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { Menu } from "../../components/ui/Menu";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
-import { ProviderInstanceIcon, providerInstanceNameLabel } from "../../components/ProviderIcon";
+import {
+  ProviderIcon,
+  ProviderInstanceIcon,
+  providerInstanceNameLabel,
+} from "../../components/ProviderIcon";
 import { useNowAfter } from "../../lib/clock";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -80,6 +84,7 @@ import {
   threadHasUnseenCompletion,
   resolveThreadListV2RowStatus,
   resolveThreadListV2Status,
+  resolveThreadListV2ProviderDrivers,
   resolveThreadListV2SwipeActions,
   layoutThreadListV2RowMenuActions,
   threadListV2RowAccessibilityLabel,
@@ -88,11 +93,6 @@ import {
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { shouldRecedeThreadRow } from "./thread-row-emphasis";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
-import {
-  ThreadHostPressureIcon,
-  showThreadHostPressureNote,
-  useThreadHostPressureNote,
-} from "./ThreadHostPressureIcon";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { pullRequestStatus } from "../pull-requests/pullRequestStatus";
@@ -105,24 +105,6 @@ interface StatusLabel {
   readonly iconTintClassName: string;
 }
 const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> = {
-  connecting: {
-    label: msg("Connecting", { $context: "connection status" }),
-    icon: "wifi.slash",
-    className: "text-foreground-muted",
-    iconTintClassName: "accent-foreground-muted",
-  },
-  reconnecting: {
-    label: msg("Reconnecting", { $context: "connection status" }),
-    icon: "wifi.slash",
-    className: "text-foreground-muted",
-    iconTintClassName: "accent-foreground-muted",
-  },
-  offline: {
-    label: msg("Offline", { $context: "connection status" }),
-    icon: "wifi.slash",
-    className: "text-foreground-muted",
-    iconTintClassName: "accent-foreground-muted",
-  },
   approval: {
     label: msg("Approval", { $context: "thread status, waiting for approval" }),
     icon: "exclamationmark.shield",
@@ -850,11 +832,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const dormant = useSwipeRowDormant(props.activationKey);
 
   const selectThread = () => onSelectThread(thread);
-  const providerIconUrl = props.providers?.find(
-    (candidate) =>
-      candidate.instanceId ===
-      (thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId),
-  )?.iconUrl;
+  const { providerDrivers, providerIconUrl } = useMemo(() => {
+    const provider = props.providers?.find(
+      (candidate) =>
+        candidate.instanceId ===
+        (thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId),
+    );
+    return {
+      providerDrivers: resolveThreadListV2ProviderDrivers(thread, props.providers),
+      providerIconUrl: provider?.iconUrl,
+    };
+  }, [thread, props.providers]);
 
   const providerInstance = props.providerInstance;
   const providerNameLabel = providerInstance
@@ -902,8 +890,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const timeLabel = pendingSync ? gt("Waiting to sync") : props.timeLabel && m(props.timeLabel);
   const snoozeWakeLabelText =
     props.snoozeWakeLabelText === undefined ? undefined : m(props.snoozeWakeLabelText);
-  const hostPressure = useThreadHostPressureNote(thread.environmentId, thread.id);
-  const baseAccessibilityLabel = threadListV2RowAccessibilityLabel(
+  const rowAccessibilityLabel = threadListV2RowAccessibilityLabel(
     {
       title: thread.title,
       variant,
@@ -923,10 +910,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     },
     m,
   );
-  const rowAccessibilityLabel =
-    hostPressure === null
-      ? baseAccessibilityLabel
-      : `${baseAccessibilityLabel}, ${hostPressure.title}`;
 
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const markThreadUnread = useAtomCommand(threadEnvironment.markUnread, { reportFailure: false });
@@ -942,9 +925,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     () => [
       ...(prBadgeLabel ? [{ name: "openPullRequests", label: prBadgeLabel }] : []),
       ...(showsWoke ? [{ name: "dismissWoke", label: gt("Dismiss Woke notification") }] : []),
-      ...(hostPressure ? [{ name: "hostPressure", label: hostPressure.title }] : []),
     ],
-    [gt, hostPressure, prBadgeLabel, showsWoke],
+    [gt, prBadgeLabel, showsWoke],
   );
 
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
@@ -1440,14 +1422,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               type="monochrome"
             />
           ) : null}
-          {hostPressure ? (
-            <ThreadHostPressureIcon
-              note={hostPressure}
-              tintColorClassName={
-                selected ? selectedThreadRowColors.iconTintClassName : "accent-warning-foreground"
-              }
-            />
-          ) : null}
           {showsWoke ? (
             <Pressable
               className="-m-2.5 flex-row items-center gap-1 p-2.5"
@@ -1620,6 +1594,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ) : null}
         {providerInstance ? (
           <View className="flex-row items-center">
+            {providerDrivers.slice(0, -1).map(
+              (driver, index) => (
+                /* oxlint-disable react/no-array-index-key -- Provider history can repeat a driver; these decorative icons have no local state. */ <View
+                  key={`${driver}:${index}`}
+                  className="-mr-1 opacity-30"
+                >
+                  <ProviderIcon provider={driver} size={12} />
+                </View>
+              ) /* oxlint-enable react/no-array-index-key */,
+            )}
             <ProviderInstanceIcon
               iconUrl={providerIconUrl}
               provider={providerInstance.driverKind}
@@ -1671,9 +1655,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === "openPullRequests") handleOpenPullRequests();
           if (event.nativeEvent.actionName === "dismissWoke") handleAcknowledgeWoke();
-          if (event.nativeEvent.actionName === "hostPressure" && hostPressure) {
-            showThreadHostPressureNote(hostPressure);
-          }
         }}
         onPress={() => {
           close();

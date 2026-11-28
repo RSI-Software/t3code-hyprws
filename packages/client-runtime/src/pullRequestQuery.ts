@@ -1,5 +1,4 @@
 import type { PullRequestListFilters } from "@t3tools/contracts";
-import { splitsSurrogatePair } from "@t3tools/shared/assistantCitations";
 
 const REVIEW_VALUES: Record<string, PullRequestListFilters["review"]> = {
   approved: "approved",
@@ -21,10 +20,6 @@ const MAX_QUALIFIER_VALUES = 10;
 const MAX_QUALIFIER_LENGTH = 200;
 const MAX_TEXT_LENGTH = 200;
 
-function boundedText(value: string, limit: number): string {
-  return value.slice(0, splitsSurrogatePair(value, limit) ? limit - 1 : limit).trim();
-}
-
 function qualifierValue(raw: string): string {
   return raw.replaceAll('"', "").trim();
 }
@@ -43,7 +38,7 @@ function authorKey(login: string): string {
 function boundedNames(names: ReadonlyArray<string>): string[] {
   return names
     .slice(0, MAX_QUALIFIER_VALUES)
-    .map((name) => boundedText(name, MAX_QUALIFIER_LENGTH))
+    .map((name) => name.slice(0, MAX_QUALIFIER_LENGTH).trim())
     .filter((name) => name.length > 0);
 }
 
@@ -74,7 +69,7 @@ export function parsePullRequestQuery(raw: string): {
       }
       case "author": {
         if (negated) break;
-        const login = boundedText(value, MAX_QUALIFIER_LENGTH);
+        const login = value.slice(0, MAX_QUALIFIER_LENGTH).trim();
         if (author === undefined) author = login;
         else if (author === null || authorKey(author) !== authorKey(login)) author = null;
         continue;
@@ -132,7 +127,7 @@ export function parsePullRequestQuery(raw: string): {
     text.push(token);
   }
   return {
-    text: boundedText(text.join(" "), MAX_TEXT_LENGTH),
+    text: text.join(" ").slice(0, MAX_TEXT_LENGTH).trim(),
     filters: {
       ...(labels.length === 0 ? {} : { labels: labels.slice(0, MAX_QUALIFIER_VALUES) }),
       ...(excludedLabels.length === 0

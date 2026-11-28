@@ -1,4 +1,4 @@
-import { displayedPlanMarkdown, proposedPlanTitle } from "@t3tools/shared/proposedPlanText";
+import { stripDisplayedPlanMarkdown, proposedPlanTitle } from "@t3tools/shared/proposedPlanText";
 import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "./i18n/messages";
@@ -11,8 +11,7 @@ export function buildCollapsedProposedPlanPreviewMarkdown(
   resolve: MessageResolver = m,
 ): string {
   const maxLines = options?.maxLines ?? 8;
-  const { markdown, separatorLine } = displayedPlanMarkdown(planMarkdown);
-  const lines = markdown
+  const lines = stripDisplayedPlanMarkdown(planMarkdown)
     .trimEnd()
     .split(/\r?\n/)
     .map((line) => line.trimEnd());
@@ -21,8 +20,8 @@ export function buildCollapsedProposedPlanPreviewMarkdown(
   let hasMoreContent = false;
   let openFence: { marker: string; indent: string } | null = null;
 
-  for (const [index, line] of lines.entries()) {
-    const isVisibleLine = index !== separatorLine && line.trim().length > 0;
+  for (const line of lines) {
+    const isVisibleLine = line.trim().length > 0;
     if (isVisibleLine && visibleLineCount >= maxLines) {
       hasMoreContent = true;
       break;

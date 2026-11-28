@@ -1119,7 +1119,6 @@ export async function boundedArchive(
   for (const entry of entries) {
     const document = input.kind === "docx" && entry.name === "word/document.xml";
     const media = input.kind === "docx" && partTypes.binary(entry.name);
-    const isXmlEntry = entry.name.toLowerCase().endsWith(".xml");
     const chunks: Uint8Array[] = [];
     const sections = document ? wordSections() : null;
     let decoder: TextDecoder | undefined;
@@ -1173,7 +1172,7 @@ export async function boundedArchive(
             total > (spreadsheet ? 128 * 1024 * 1024 : OFFICE_PREVIEW_MAX_BYTES) ||
             (spreadsheet && total > Math.max(bytes.byteLength * 200, 8 * 1024 * 1024)) ||
             (!document &&
-              (spreadsheet || media || isXmlEntry) &&
+              (spreadsheet || media || entry.name.endsWith(".xml")) &&
               length > (spreadsheet ? 64 * 1024 * 1024 : 8 * 1024 * 1024))
           ) {
             stream.pause();

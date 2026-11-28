@@ -13,10 +13,7 @@ import {
   type StaticScreenProps,
 } from "@react-navigation/native";
 import { SymbolView } from "../../components/ui/AppSymbol";
-import {
-  groupIconFallbacks,
-  pickableProjectGroups,
-} from "@t3tools/client-runtime/state/project-grouping";
+import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import {
   isAtomCommandInterrupted,
@@ -573,10 +570,6 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           size={24}
                           projectTitle={scope.representative.title}
                           workspaceRoot={scope.representative.workspaceRoot}
-                          fallbackProjects={groupIconFallbacks(
-                            scope.projects,
-                            scope.representative,
-                          )}
                         />
                       }
                     />
@@ -602,10 +595,6 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           size={20}
                           projectTitle={scope.representative.title}
                           workspaceRoot={scope.representative.workspaceRoot}
-                          fallbackProjects={groupIconFallbacks(
-                            scope.projects,
-                            scope.representative,
-                          )}
                         />
                       </View>
                       <View className="min-w-0 flex-1">

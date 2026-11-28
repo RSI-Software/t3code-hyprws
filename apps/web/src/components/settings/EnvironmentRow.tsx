@@ -19,9 +19,7 @@ import { m, type MessageResolver } from "../../i18n/messages";
 const T3_CONNECT_NAME = "T3 Connect";
 
 export function formatDesktopSshTarget(target: DesktopSshEnvironmentTarget): string {
-  const host =
-    target.port && target.hostname.includes(":") ? `[${target.hostname}]` : target.hostname;
-  const authority = target.username ? `${target.username}@${host}` : host;
+  const authority = target.username ? `${target.username}@${target.hostname}` : target.hostname;
   return target.port ? `${authority}:${target.port}` : authority;
 }
 

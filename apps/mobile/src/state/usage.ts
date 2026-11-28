@@ -1,18 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
-  AuthProvidersManageScope,
   AuthDiagnosticsReadScope,
   USAGE_CONTRACT_VERSION,
   type EnvironmentId,
-  type UsageAccessRequest,
   type UsageSummary,
   type UsageSummaryInput,
 } from "@t3tools/contracts";
 import { refreshUsage, usageSummaryInput } from "@t3tools/client-runtime/state/usage";
-import {
-  resolveUsageAccess,
-  unansweredUsageAccessRequests,
-} from "@t3tools/client-runtime/state/usage-access";
+import { resolveUsageAccess } from "@t3tools/client-runtime/state/usage-access";
 import { mergeUsage, type EnvironmentUsage, type MergedUsage } from "@t3tools/shared/usageMerge";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { msg, useMessages } from "gt-react-native";
@@ -22,7 +17,7 @@ import { keepMarked } from "../i18n/messages";
 import { appAtomRegistry } from "./atom-registry";
 import { environmentPresentations } from "./presentation";
 import { serverEnvironment } from "./server";
-import { environmentSession, readEnvironmentScope, sessionHasScope } from "./session";
+import { environmentSession, readEnvironmentScope } from "./session";
 
 export interface EnvironmentUsageStatus {
   readonly environmentId: EnvironmentId;
@@ -30,8 +25,6 @@ export interface EnvironmentUsageStatus {
   readonly isPending: boolean;
   readonly isConnected: boolean;
   readonly canReadDiagnostics: boolean;
-  /** Agents still waiting for a usage access answer that this session may save. */
-  readonly accessRequests: readonly UsageAccessRequest[];
   readonly error: string | null;
   readonly summary: UsageSummary | null;
 }
@@ -58,7 +51,6 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
           label: presentation.entry.target.label,
           isConnected: presentation.connection.phase === "connected",
           ...access,
-          accessRequests: [],
           summary: null,
         });
         continue;
@@ -79,11 +71,6 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
         isPending: result.waiting,
         isConnected: presentation.connection.phase === "connected",
         canReadDiagnostics: true,
-        accessRequests: unansweredUsageAccessRequests({
-          canAnswer: sessionHasScope(sessionResult, AuthProvidersManageScope),
-          summary,
-          config: get(serverEnvironment.configValueAtom(environmentId)),
-        }),
         error: result._tag === "Failure" ? msg("This environment could not report usage.") : null,
         summary,
       });
@@ -100,7 +87,6 @@ const usageEnvironmentsAtom = Atom.make((get): readonly EnvironmentUsageStatus[]
     isPending: true,
     isConnected: presentation.connection.phase === "connected",
     canReadDiagnostics: false,
-    accessRequests: [],
     error: null,
     summary: null,
   })),

@@ -80,7 +80,7 @@ const SearchRequest = Schema.Struct({
   shortSpellings: Schema.fromJsonString(Schema.Array(Schema.Array(Schema.String))),
   /** How many of the newest hits to read. */
   hitLimit: Schema.Number,
-  projectIds: Schema.NullOr(TokenList),
+  projectId: Schema.NullOr(ProjectId),
   /** Threads the caller already lists, left out before the hit limit. */
   excludedThreadIds: TokenList,
 });
@@ -167,7 +167,7 @@ function accentInsensitiveGlob(token: string): string {
 function buildMessageSearch(
   query: string,
   hasIndex: boolean,
-): Omit<typeof SearchRequest.Type, "projectIds" | "excludedThreadIds"> | null {
+): Omit<typeof SearchRequest.Type, "projectId" | "excludedThreadIds"> | null {
   const { long, short, words, exact } = messageSearchTokens(query);
   if (long.length === 0) return null;
   // Two-character CJK words are too short for trigrams.
@@ -239,7 +239,7 @@ export const messageHitsQuery = (
     substrings,
     shortSpellings,
     hitLimit,
-    projectIds,
+    projectId,
     excludedThreadIds,
   }: typeof SearchRequest.Encoded,
 ) => sql`
@@ -251,8 +251,7 @@ export const messageHitsQuery = (
       WHERE threads.deleted_at IS NULL
         AND threads.archived_at IS NULL
         AND projects.deleted_at IS NULL
-        AND (${projectIds} IS NULL
-          OR threads.project_id IN (SELECT value FROM json_each(${projectIds})))
+        AND (${projectId} IS NULL OR threads.project_id = ${projectId})
         AND threads.thread_id NOT IN (SELECT value FROM json_each(${excludedThreadIds}))
         AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
           IS NOT 'subagent'
@@ -372,8 +371,7 @@ export class ThreadSearch extends Context.Service<
   {
     /** Message text matches, for clients that rank their own thread list. */
     readonly search: (
-      input: OrchestrationSearchThreadsInput &
-        Pick<OrchestrationV2SearchThreadsInput, "projectIds">,
+      input: OrchestrationSearchThreadsInput,
     ) => Effect.Effect<OrchestrationSearchThreadsResult, ThreadSearchError>;
     /**
      * Title, branch, pull request, and project matches ranked as the command
@@ -533,7 +531,7 @@ export const make = Effect.gen(function* () {
   // cannot use up the limit.
   const searchMessages = Effect.fn("ThreadSearch.search")(function* (
     input: OrchestrationSearchThreadsInput & {
-      readonly projectIds: ReadonlyArray<ProjectId> | null;
+      readonly projectId: ProjectId | null;
       /** Threads the caller already lists, which must not use up the limit. */
       readonly excludedThreadIds?: ReadonlySet<ThreadId>;
       /** Off for an agent's search, which has no use for the user's picks. */
@@ -567,7 +565,7 @@ export const make = Effect.gen(function* () {
           ? []
           : yield* searchRows({
               ...messageSearch,
-              projectIds: input.projectIds,
+              projectId: input.projectId,
               excludedThreadIds: [...(input.excludedThreadIds ?? [])],
             });
       }),
@@ -634,7 +632,7 @@ export const make = Effect.gen(function* () {
   });
 
   const search: ThreadSearch["Service"]["search"] = (input) =>
-    searchMessages({ ...input, projectIds: input.projectIds ?? null });
+    searchMessages({ ...input, projectId: null });
 
   const searchThreads: ThreadSearch["Service"]["searchThreads"] = Effect.fn(
     "ThreadSearch.searchThreads",
@@ -681,7 +679,7 @@ export const make = Effect.gen(function* () {
     const { matches } = yield* searchMessages({
       query: input.query,
       limit: 50,
-      projectIds: input.projectId === undefined ? null : [input.projectId],
+      projectId: input.projectId ?? null,
       excludedThreadIds: shown,
       picks: false,
     });
@@ -762,7 +760,7 @@ export const searchThreadsWithOlderSettledRows = Effect.fn(
 )(function* <E1, E2, E3, E4, E5>(input: {
   readonly request: OrchestrationV2SearchThreadsInput;
   readonly search: (
-    input: Parameters<ThreadSearch["Service"]["search"]>[0],
+    input: OrchestrationSearchThreadsInput,
   ) => Effect.Effect<OrchestrationSearchThreadsResult, E1>;
   readonly searchOlderSettled: (
     input: Parameters<ThreadSearch["Service"]["searchOlderSettled"]>[0],
@@ -773,7 +771,8 @@ export const searchThreadsWithOlderSettledRows = Effect.fn(
   ) => Effect.Effect<Effect.Effect<OrchestrationV2ThreadShellSnapshot, E4>, E3>;
   readonly latestSequence: Effect.Effect<number, E5>;
 }) {
-  const { olderSettledBefore, environmentLabel, titlesOnly, ...request } = input.request;
+  const { olderSettledBefore, projectIds, environmentLabel, titlesOnly, ...request } =
+    input.request;
   const messages: OrchestrationV2SearchThreadsResult =
     titlesOnly === true ? { matches: [] } : yield* input.search(request);
   if (olderSettledBefore === undefined) return messages;
@@ -781,7 +780,7 @@ export const searchThreadsWithOlderSettledRows = Effect.fn(
   const threadIds = yield* input.searchOlderSettled({
     query: request.query,
     before: olderSettledBefore,
-    projectIds: request.projectIds,
+    projectIds,
     environmentLabel,
     messageThreadIds: messages.matches.map((match) => match.threadId),
   });

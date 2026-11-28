@@ -61,14 +61,14 @@ describe("rightPanelStore", () => {
           kind: "file",
           relativePath: "src/index.ts",
           revealLine: null,
-          revealRequestId: expect.any(Number),
+          revealRequestId: 2,
         },
         {
           id: "file:README.md",
           kind: "file",
           relativePath: "README.md",
           revealLine: null,
-          revealRequestId: expect.any(Number),
+          revealRequestId: 1,
         },
       ],
     });
@@ -99,7 +99,7 @@ describe("rightPanelStore", () => {
           kind: "file",
           relativePath: "src/index.ts",
           revealLine: null,
-          revealRequestId: expect.any(Number),
+          revealRequestId: 1,
         },
       ],
     });

@@ -329,9 +329,11 @@ export function parseKnownHosts(raw: string): ReadonlyArray<KnownHost> {
       continue;
     }
 
-    const withoutMarker = trimmed.replace(/^@cert-authority\s+/u, "");
+    const withoutMarker = trimmed.startsWith("@")
+      ? trimmed.split(/\s+/u).slice(1).join(" ")
+      : trimmed;
     const [hostField = ""] = withoutMarker.split(/\s+/u);
-    if (hostField.length === 0 || hostField.startsWith("|") || hostField.startsWith("@")) {
+    if (hostField.length === 0 || hostField.startsWith("|")) {
       continue;
     }
 

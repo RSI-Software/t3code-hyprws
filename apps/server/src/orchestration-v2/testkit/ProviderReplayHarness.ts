@@ -382,7 +382,7 @@ export function layerWithRegistry<Error>(
     CommandReceiptStore.layer,
     layerEffectOutboxProvided,
     TurnItemPositionStore.layer,
-  ).pipe(Layer.provide(Layer.merge(layerDatabase, NodeCrypto.layer)));
+  ).pipe(Layer.provide(layerDatabase));
   const layerEventSinkProvided = EventSink.layerFromStores.pipe(
     Layer.provide(Layer.mergeAll(layerStores, layerDatabase, ThreadViewers.layer)),
   );

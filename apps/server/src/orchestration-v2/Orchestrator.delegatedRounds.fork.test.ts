@@ -1,5 +1,4 @@
 import { assert, it } from "@effect/vitest";
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   CommandId,
   EventId,
@@ -39,7 +38,7 @@ const adapter = {
 const database = SqlitePersistence.layerMemory;
 const testLayer = Layer.mergeAll(
   database,
-  ProjectionStore.layer.pipe(Layer.provide(NodeCrypto.layerDigest), Layer.provide(database)),
+  ProjectionStore.layer.pipe(Layer.provide(database)),
   layerWithRegistry(
     { name: "delegated-rounds" },
     ProviderAdapterRegistry.layerFromAdapters([adapter]),

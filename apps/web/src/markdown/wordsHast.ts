@@ -1247,8 +1247,6 @@ export function wordsHast(text: string, options: WordsHastOptions): Root {
     // llm-math's `\(…\)` and `\[…\]`, which agents write as often as `$`.
     texDelimiters: options.math,
     autolinkBoundaries: true,
-    // CommonMark's flanking rules leave `**文本。**后续` unclosed; this lets CJK emphasis close.
-    cjk: true,
     singleTilde: !extensions.userMessage,
     leadingWhitespace: extensions.leadingWhitespace === true,
     windowsPaths: true,
@@ -1366,7 +1364,6 @@ export function markdownTree(
   return parse(markdown, {
     windowsPaths: true,
     autolinkBoundaries: true,
-    cjk: true,
     skipHtml: options.skipHtml === true,
     singleTilde: options.singleTilde !== false,
     math: options.math === true,

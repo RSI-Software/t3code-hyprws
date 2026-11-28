@@ -75,7 +75,6 @@ const AntigravityProviderCapabilitiesV2 = {
   tools: {
     ...AcpProviderCapabilitiesV2.tools,
     supportsMcpTools: true,
-    supportsBackgroundWait: true,
   },
   subagents: {
     ...AcpProviderCapabilitiesV2.subagents,
@@ -292,7 +291,6 @@ export function makeAntigravityAcpAdapterFlavor(
         readAntigravityClientTextFile({
           fileSystem: options.fileSystem,
           path: options.path,
-          cwd,
           allowedRoots: antigravityClientFileRoots(cwd),
           request,
         }),

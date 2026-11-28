@@ -243,21 +243,6 @@ describe("CursorAgentSdkWorkerProtocol", () => {
     const restoredNullProto = deserializeWorkerError(serializeWorkerError(nullProto));
     assert.equal(restoredNullProto.message, "[Unserializable error]");
   });
-
-  it("keeps the servers a team MCP policy blocked", () => {
-    const blocked = Object.assign(
-      new Error("Inline mcpServers were rejected by team MCP policy and were not started"),
-      {
-        name: "InlineMcpServersBlockedError",
-        servers: [{ name: "t3-code", reason: "teamPolicy", message: "Blocked by team policy" }],
-      },
-    );
-    const wrapped = Object.assign(new Error(blocked.message, { cause: blocked }), {
-      name: "UnknownAgentError",
-    });
-    const restored = deserializeWorkerError(serializeWorkerError(wrapped));
-    assert.deepEqual(CursorAgentSdk.blockedInlineMcpServers(restored), ["t3-code"]);
-  });
 });
 
 describe("scrubCursorWorkerEnvironment", () => {
@@ -322,7 +307,6 @@ describe("CursorAgentSdkProcessRunner", () => {
                   stoppedUnits.push(unit);
                 }),
               kill: () => Effect.succeed(false),
-              controlGroups: Effect.undefined,
               clear: () => Effect.void,
             }),
           );
@@ -337,7 +321,6 @@ describe("CursorAgentSdkProcessRunner", () => {
           });
           yield* otherSession.close;
           assert.isFalse(otherSession.isAlive?.());
-          yield* otherSession.ended!;
           assert.isTrue(session.isAlive?.());
           assert.lengthOf(registeredPids, 1);
           assert.deepEqual(unregisteredPids, []);
@@ -459,8 +442,6 @@ describe("CursorAgentSdkProcessRunner", () => {
         // Dead worker scope tears down immediately instead of waiting for sessions to close.
         yield* Deferred.await(unregistered);
         assert.isFalse(session.isAlive?.());
-        // The session hears of its worker's death without being closed.
-        yield* session.ended!;
         yield* session.close;
       }),
     ).pipe(Effect.provide(NodeServices.layer)),

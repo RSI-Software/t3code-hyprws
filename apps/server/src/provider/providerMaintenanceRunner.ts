@@ -620,10 +620,6 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                     installedVersion?.replace(/^v/, "") !== targetVersion)
                 );
               });
-            const startupFailure = verifiedProviders.find(
-              (verifiedProvider) =>
-                verifiedProvider.status === "error" && verifiedProvider.message?.trim(),
-            )?.message;
             const stillOutdated =
               targetVersion === undefined &&
               verifiedProviders.some((verifiedProvider) => isOutdatedProvider(verifiedProvider));
@@ -633,9 +629,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 startedAt,
                 finishedAt,
                 message: couldNotVerify
-                  ? startupFailure
-                    ? `Update command completed, but the provider cannot start: ${startupFailure.trim()}`
-                    : "Update command completed, but T3 Code could not verify the provider version."
+                  ? "Update command completed, but T3 Code could not verify the provider version."
                   : stillOutdated
                     ? "Update command completed, but T3 Code still detects an outdated provider version."
                     : needsOpenCodeServerRestart(verifiedProviders)

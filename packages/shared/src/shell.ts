@@ -78,10 +78,6 @@ export type SpawnExecutableResolver = (
   env: NodeJS.ProcessEnv,
 ) => string | undefined | Promise<string | undefined>;
 
-function isExplicitCommandPath(command: string, platform: NodeJS.Platform): boolean {
-  return command.includes("/") || (platform === "win32" && command.includes("\\"));
-}
-
 async function resolveSpawnExecutableWithNode(
   command: string,
   platform: NodeJS.Platform,
@@ -108,7 +104,7 @@ async function resolveSpawnExecutableWithNode(
     }
   };
 
-  if (isExplicitCommandPath(command, platform)) {
+  if (command.includes("/") || command.includes("\\")) {
     for (const candidate of candidates) {
       if (await isExecutable(candidate)) return candidate;
     }
@@ -879,7 +875,7 @@ const resolveCommandPathForPlatform = Effect.fn("shell.resolveCommandPathForPlat
     path.extname,
   );
 
-  if (isExplicitCommandPath(command, platform)) {
+  if (command.includes("/") || command.includes("\\")) {
     for (const candidate of commandCandidates) {
       if (yield* isExecutableFile(candidate, platform, windowsPathExtensions)) {
         return candidate;
@@ -1190,7 +1186,7 @@ export const resolveSpawnCommand = Effect.fnUntraced(function* (
   }
   // Cache successful PATH lookups. Explicit paths and misses stay uncached so
   // newly installed executables are discoverable immediately.
-  const explicitPath = isExplicitCommandPath(command, platform);
+  const explicitPath = command.includes("/") || command.includes("\\");
   const cache = yield* CommandResolutionCache;
   const cacheKey = [
     "spawn",

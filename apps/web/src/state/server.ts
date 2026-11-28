@@ -34,7 +34,6 @@ export const serverEnvironment = createServerEnvironmentAtoms(connectionAtomRunt
   initialConfigValueAtom: environmentSession.initialConfigValueAtom,
   environmentThemes: true,
   usageLimitSources: true,
-  hostPressure: true,
   usageLimitsCommand: true,
 });
 export const environmentUpdateStatesAtom = environmentAtomList(

@@ -78,7 +78,6 @@ export function useProjectScriptSettings(
     transform: (current: readonly ProjectScript[]) => readonly ProjectScript[] | null,
     scriptId?: string,
     keybinding?: string | null,
-    onSettingsSaved?: () => void,
   ): Promise<AtomCommandResult<void, unknown>> {
     if (savingRef.current || targets.length === 0) {
       const message = m(msg("No available machine, or another action change is saving."));
@@ -107,7 +106,7 @@ export function useProjectScriptSettings(
     }
     savingRef.current = true;
     setSaving(true);
-    return writeTargets(transform, scriptId, keybinding, onSettingsSaved).finally(() => {
+    return writeTargets(transform, scriptId, keybinding).finally(() => {
       savingRef.current = false;
       setSaving(false);
     });
@@ -117,7 +116,6 @@ export function useProjectScriptSettings(
     transform: (current: readonly ProjectScript[]) => readonly ProjectScript[] | null,
     scriptId: string | undefined,
     keybinding: string | null | undefined,
-    onSettingsSaved: (() => void) | undefined,
   ): Promise<AtomCommandResult<void, unknown>> {
     for (const { environmentId, settings, keybindings, project } of targets) {
       const current = project
@@ -146,7 +144,6 @@ export function useProjectScriptSettings(
         },
       });
       if (result._tag === "Failure") return reportScriptFailure(result);
-      onSettingsSaved?.();
       const changedIds = scriptId
         ? [scriptId]
         : current
@@ -192,12 +189,7 @@ export function useProjectScriptSettings(
     return AsyncResult.success(undefined);
   }
 
-  function submit(
-    scriptId: string | null,
-    input: NewProjectScriptInput,
-    onActionCreated?: (scriptId: string) => void,
-    retryingCreation = false,
-  ) {
+  function submit(scriptId: string | null, input: NewProjectScriptInput) {
     const existingIds = [
       ...projects.flatMap((project) => project.scripts.map((script) => script.id)),
       ...targets.flatMap(({ settings, project }) =>
@@ -212,20 +204,15 @@ export function useProjectScriptSettings(
     ];
     const id = scriptId ?? nextProjectScriptId(input.name, existingIds);
     const next = buildProjectScript(id, input);
-    const creating = scriptId === null || retryingCreation;
     return persist(
       (current) => {
         const updated = current.map((script) =>
           script.id === id ? next : releaseClaimedRoles(script, input),
         );
-        // A retried creation may have reached only some targets before failing.
-        return creating && !current.some((script) => script.id === id)
-          ? [...updated, next]
-          : updated;
+        return scriptId === null ? [...updated, next] : updated;
       },
       id,
       input.keybinding,
-      creating ? () => onActionCreated?.(id) : undefined,
     );
   }
 

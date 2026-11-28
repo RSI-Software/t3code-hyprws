@@ -35,11 +35,7 @@ export type ProjectFaviconProject = Pick<
 export function ProjectFavicon(input: {
   project: ProjectFaviconProject;
   className?: string | undefined;
-  fallbackIcon?: ComponentType<{ className?: string }> | undefined;
-  /** Projects whose icon to show, in order, when this project has none. */
-  fallbackProjects?: ReadonlyArray<ProjectFaviconProject>;
-  /** The monogram shown when none of them has an icon. Defaults to this project's title. */
-  monogramTitle?: string;
+  fallbackIcon?: ComponentType<{ className?: string }>;
 }) {
   const { project } = input;
   if (project.projectIcon?.kind === "monogram") {
@@ -90,26 +86,13 @@ function AutomaticProjectFavicon(input: Parameters<typeof ProjectFavicon>[0]) {
   };
   const src = useAtomValue(projectFaviconUrlAtom(target));
   const FallbackIcon = input.fallbackIcon ?? FolderCodeIcon;
-  const monogramTitle = input.monogramTitle ?? project.title;
 
   if (!src || isProjectFaviconFallbackUrl(src)) {
-    const [nextProject, ...laterProjects] = input.fallbackProjects ?? [];
-    if (nextProject) {
-      return (
-        <ProjectFavicon
-          project={nextProject}
-          className={input.className}
-          fallbackIcon={input.fallbackIcon}
-          fallbackProjects={laterProjects}
-          monogramTitle={monogramTitle}
-        />
-      );
-    }
     return (
       <ProjectFaviconFallback
         className={input.className}
         icon={FallbackIcon}
-        projectName={monogramTitle}
+        projectName={project.title}
       />
     );
   }
@@ -126,7 +109,7 @@ function AutomaticProjectFavicon(input: Parameters<typeof ProjectFavicon>[0]) {
       src={src}
       className={input.className}
       fallbackIcon={FallbackIcon}
-      fallbackProjectName={monogramTitle}
+      fallbackProjectName={project.title}
       // An icon too large to cache inline loads from a signed URL that expires.
       onRemoteLoadError={() => refreshProjectFaviconUrl(target)}
     />

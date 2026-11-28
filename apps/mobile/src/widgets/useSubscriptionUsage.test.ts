@@ -59,9 +59,8 @@ vi.mock("@t3tools/client-runtime/state/runtime", () => ({
   runAtomCommand: (
     _registry: unknown,
     _command: unknown,
-    input: { readonly environmentId: string; readonly input?: { readonly limitsOnly?: boolean } },
+    input: { readonly environmentId: string },
   ) => {
-    expect(input.input).toEqual({ limitsOnly: true });
     fixture.refreshed.push(input.environmentId);
     return Promise.resolve();
   },

@@ -61,11 +61,9 @@ function canonicalRepositoryKey(key: string): string | null {
       "dev.azure.com/$1/$2/_git/$3",
     )
     .replace(
-      /^([^./]+)\.visualstudio\.com\/(?:defaultcollection\/)?((?:[^/]+\/)?_git\/[^/]+)$/u,
-      "dev.azure.com/$1/$2",
-    )
-    // Shorthand URLs omit a project named like its repository; DefaultCollection is reserved.
-    .replace(/^(dev\.azure\.com\/[^/]+)\/(?:defaultcollection\/)?_git\/([^/]+)$/u, "$1/$2/_git/$2");
+      /^([^.]+)\.visualstudio\.com\/(?:defaultcollection\/)?([^/]+)\/_git\/([^/]+)$/u,
+      "dev.azure.com/$1/$2/_git/$3",
+    );
   return canonical.startsWith("dev.azure.com/") ? canonical : null;
 }
 

@@ -1123,14 +1123,7 @@ export function PullRequestsPage() {
   const rightPanelMaximized = rightPanelState.isOpen && maximized;
   if (!rightPanelState.isOpen && maximized) setMaximized(false);
   const toggleRightPanelMaximized = () => {
-    if (rightPanelState.isOpen) {
-      setMaximized((value) => !value);
-      return;
-    }
-    // A closed panel opens straight into maximized.
-    if (!rightPanelAvailable) return;
-    toggleRightPanel();
-    setMaximized(true);
+    if (rightPanelState.isOpen) setMaximized((value) => !value);
   };
   const onGuideShown = () => setMaximized(true);
   // updateSearch leaves selectedUrl out, so a reload does not reveal the link again.
@@ -1253,7 +1246,6 @@ export function PullRequestsPage() {
         <RightPanelMaximizeControl
           maximized={rightPanelMaximized}
           onToggle={toggleRightPanelMaximized}
-          shortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggleMaximized")}
         />
       ) : null}
       {panelToggleControls}
@@ -1571,7 +1563,7 @@ export function PullRequestsPage() {
     if (!event.repeat) toggleRightPanel();
   });
   const toggleRightPanelMaximizedFromShortcut = useEffectEvent((event: KeyboardEvent) => {
-    if (!rightPanelState.isOpen && !rightPanelAvailable) return;
+    if (!rightPanelState.isOpen) return;
     event.preventDefault();
     event.stopPropagation();
     if (!event.repeat) toggleRightPanelMaximized();

@@ -16,7 +16,6 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { markdownLinkDestinationScanner } from "@t3tools/shared/markdownLinks";
 import { formatDuration } from "@t3tools/shared/orchestrationTimingCopy";
 import { parseUrl } from "@t3tools/shared/url";
 
@@ -954,19 +953,6 @@ export function workflowStepTime(ms: number, resolve: MFunctionType = mFallback)
   return formatDuration(ms, resolve);
 }
 
-function stripMarkdownLinks(text: string): string {
-  const scan = markdownLinkDestinationScanner(text);
-  let out = "";
-  let cursor = 0;
-  for (const match of text.matchAll(/\[([^[\]]*)\](?=\()/g)) {
-    const dest = match.index >= cursor ? scan(match.index + match[0].length) : null;
-    if (dest === null) continue;
-    out += text.slice(cursor, match.index) + match[1];
-    cursor = dest.end;
-  }
-  return cursor === 0 ? text : out + text.slice(cursor);
-}
-
 /**
  * The first prose sentence of a reply, as one line of plain text: headings, tables, and fenced
  * code blocks are skipped; indented text is a fallback. List marks, code, emphasis, and links read as words.
@@ -1014,11 +1000,11 @@ export function workflowOneLine(text: string): string {
     indented?.trim() ??
     "";
   const code: string[] = [];
-  const stripped = line
+  const plain = line
     .replace(/^(?:>\s*)+/, "")
     .replace(/^([-*]|\d+\.)\s+/, "")
-    .replace(/(`+)(.+?)\1(?!`)/g, (_, _ticks, inner: string) => `\0${code.push(inner) - 1}\0`);
-  const plain = stripMarkdownLinks(stripped)
+    .replace(/(`+)(.+?)\1(?!`)/g, (_, _ticks, inner: string) => `\0${code.push(inner) - 1}\0`)
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/(?<![\p{L}\p{M}\p{N}_/])(__|_)(\S(?:.*?\S)?)\1(?![\p{L}\p{M}\p{N}_/])/gu, "$2")
     .replace(/(\*\*|\*)(\S(?:.*?\S)?)\1/g, "$2")
     .replace(/\0(\d+)\0/g, (match, index: string) => code[Number(index)] ?? match);

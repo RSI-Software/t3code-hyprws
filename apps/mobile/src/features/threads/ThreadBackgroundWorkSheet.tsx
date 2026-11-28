@@ -15,10 +15,7 @@ import { SheetHeader } from "../../components/ui/SheetHeader";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenContent } from "../../components/ui/ScreenContent";
-import { useLinkedThreadReach } from "../../state/linkedThread";
-import { environmentThreadDetails, environmentThreadShells } from "../../state/threads";
-import { subagentThreadTarget, type SubagentThreadTarget } from "./threadAgentsPresentation";
-import { useOpenLinkedThreadRead } from "./useOpenLinkedThread";
+import { environmentThreadShells } from "../../state/threads";
 
 const KIND_LABELS = {
   subagent: msg("Subagent"),
@@ -31,42 +28,19 @@ type BackgroundWorkTarget = { readonly environmentId: EnvironmentId; readonly th
 
 export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<BackgroundWorkTarget>) {
   const navigation = useNavigation();
-  const openLinkedRead = useOpenLinkedThreadRead();
   const insets = useSafeAreaInsets();
   const gt = useGT();
   const m = useMessages();
   const target = route.params;
-  const threadRef = scopeThreadRef(target.environmentId, target.threadId);
-  const thread = useAtomValue(environmentThreadShells.threadShellAtom(threadRef));
-  const detail = useAtomValue(environmentThreadDetails.threadAtom(threadRef));
-  const pendingTasks = thread?.pendingBackgroundTasks ?? [];
-  const turnItems = detail?.projection.turnItems ?? [];
-  const presentation = presentPendingBackgroundWork(pendingTasks, m);
-  const rows = (presentation?.items ?? []).map((item) => {
-    const pending = pendingTasks.find((candidate) => candidate.taskId === item.taskId);
-    const itemKey = pending?.nativeItemId ?? item.taskId;
-    const turnItem = turnItems.findLast((candidate) =>
-      pending?.itemId === undefined
-        ? (candidate.nativeItemRef?.nativeId || candidate.id) === itemKey
-        : candidate.id === pending.itemId,
-    );
-    const remoteChild =
-      item.kind === "subagent" && turnItem?.type === "subagent" ? turnItem.remoteChild : undefined;
-    return { item, childThreadId: item.childThreadId ?? null, remoteChild };
-  });
-  const reach = useLinkedThreadReach(target.environmentId, rows);
-  const openThread = (child: SubagentThreadTarget, title: string) => {
+  const thread = useAtomValue(
+    environmentThreadShells.threadShellAtom(scopeThreadRef(target.environmentId, target.threadId)),
+  );
+  const presentation = presentPendingBackgroundWork(thread?.pendingBackgroundTasks ?? [], m);
+  const openThread = (threadId: ThreadId) => {
     void Haptics.selectionAsync();
-    if (child.linked !== undefined) {
-      openLinkedRead(child, child.linked, title, { source: target, replace: true });
-      return;
-    }
     // A thread replaces the leaf sheet so workspace back navigation still works.
     navigation.dispatch(
-      StackActions.replace("Thread", {
-        environmentId: child.environmentId,
-        threadId: child.threadId,
-      }),
+      StackActions.replace("Thread", { environmentId: target.environmentId, threadId }),
     );
   };
   const content = (
@@ -82,21 +56,9 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
           <T>Nothing running in the background.</T>
         </Text>
       ) : (
-        rows.map((row) => {
-          const { item } = row;
-          const openTarget =
-            item.kind === "subagent"
-              ? subagentThreadTarget(row, target.environmentId, reach.ownConnection, reach.isLinked)
-              : null;
-          return (
-            <BackgroundWorkRow
-              key={item.taskId}
-              item={item}
-              openTarget={openTarget}
-              onOpen={openThread}
-            />
-          );
-        })
+        presentation.items.map((item) => (
+          <BackgroundWorkRow key={item.taskId} item={item} onOpen={openThread} />
+        ))
       )}
     </ScrollView>
   );
@@ -110,12 +72,12 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
 
 function BackgroundWorkRow(props: {
   readonly item: PendingBackgroundWorkItem;
-  readonly openTarget: SubagentThreadTarget | null;
-  readonly onOpen: (child: SubagentThreadTarget, title: string) => void;
+  readonly onOpen: (threadId: ThreadId) => void;
 }) {
-  const { item, openTarget } = props;
+  const { item } = props;
   const gt = useGT();
   const m = useMessages();
+  const childThreadId = item.childThreadId;
   const row = (
     <View className="flex-row items-center gap-3 border-b border-border py-3.5">
       <SymbolView
@@ -130,18 +92,18 @@ function BackgroundWorkRow(props: {
         <Text className="font-t3-medium text-sm text-foreground">{item.label}</Text>
         <Text className="text-xs text-foreground-muted">{m(KIND_LABELS[item.kind])}</Text>
       </View>
-      {openTarget === null ? null : (
+      {childThreadId === undefined ? null : (
         <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />
       )}
     </View>
   );
-  return openTarget === null ? (
+  return childThreadId === undefined ? (
     <View accessible>{row}</View>
   ) : (
     <Pressable
       accessibilityRole="link"
       accessibilityLabel={gt("Open subagent {label}", { label: item.label })}
-      onPress={() => props.onOpen(openTarget, item.label)}
+      onPress={() => props.onOpen(childThreadId)}
       className="active:opacity-70"
     >
       {row}

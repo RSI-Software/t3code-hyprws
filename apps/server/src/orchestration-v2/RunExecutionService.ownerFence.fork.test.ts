@@ -1,5 +1,4 @@
 import { assert, it } from "@effect/vitest";
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   CheckpointScopeId,
   CommandId,
@@ -54,10 +53,9 @@ import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 
 const database = SqlitePersistence.layerMemory;
-const stores = Layer.mergeAll(
-  EventStore.layer,
-  ProjectionStore.layer.pipe(Layer.provide(NodeCrypto.layerDigest)),
-).pipe(Layer.provideMerge(database));
+const stores = Layer.mergeAll(EventStore.layer, ProjectionStore.layer).pipe(
+  Layer.provideMerge(database),
+);
 const persistence = Layer.mergeAll(
   stores,
   // These gates interleave subscribers at individual writes, not the shared batch worker.

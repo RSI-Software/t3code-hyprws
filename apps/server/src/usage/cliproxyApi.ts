@@ -63,7 +63,6 @@ const CodexUsage = Schema.Struct({
     }),
   ),
 });
-const OPTIONAL_HUB_CALL_TIMEOUT = "2 seconds";
 // The usage endpoint can report a window without a utilization, as the CLI's own schema allows.
 const ClaudeWindow = Schema.Struct({
   utilization: Schema.NullOr(Schema.Number),
@@ -236,17 +235,7 @@ const CODEX_HUB: HubProvider = {
       : {}),
   }),
   read: Effect.fnUntraced(function* ({ account, call, checkedAt }) {
-    const [usage, available] = yield* Effect.all(
-      [
-        call(`${CODEX_BASE}/usage`).pipe(Effect.flatMap(decodeCodexUsage)),
-        credits(call).pipe(
-          Effect.timeoutOption(OPTIONAL_HUB_CALL_TIMEOUT),
-          Effect.map(Option.getOrUndefined),
-          Effect.orElseSucceed(() => undefined),
-        ),
-      ],
-      { concurrency: 2 },
-    );
+    const usage = yield* decodeCodexUsage(yield* call(`${CODEX_BASE}/usage`));
     const toWindow = (window: typeof CodexWindow.Type | null | undefined) =>
       window
         ? {
@@ -257,6 +246,7 @@ const CODEX_HUB: HubProvider = {
               : { windowDurationMins: window.limit_window_seconds / 60 }),
           }
         : null;
+    const available = yield* credits(call).pipe(Effect.orElseSucceed(() => undefined));
     const next = available?.[0];
     const planType =
       usage.plan_type ?? account.id_token?.plan_type ?? account.id_token?.chatgpt_plan_type;
@@ -494,7 +484,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const [readings, models] = yield* Effect.all(
       [
         Effect.forEach(readable, ({ account, provider }) => readAccount(hub, account, provider), {
-          concurrency: 16,
+          concurrency: 4,
         }),
         Effect.forEach(
           readable,

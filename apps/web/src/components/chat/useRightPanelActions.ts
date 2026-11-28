@@ -262,15 +262,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const toggleThreadPanelStable = useStableCallback(toggleThreadPanel);
   const toggleRightPanelMaximized = () => {
-    if (!activeThreadRef) return;
-    if (!rightPanelOpen) {
-      // A closed panel opens straight into maximized.
-      requestWorkspaceFocus({ area: "panel" });
-      useRightPanelStore.getState().requestMaximize(activeThreadRef);
-      toggleRightPanel();
-      return;
-    }
-    if (!canMaximizeRightPanel) return;
+    if (!canMaximizeRightPanel || !activeThreadRef) return;
     if (!rightPanelMaximized) requestWorkspaceFocus({ area: "panel" });
     useRightPanelStore.getState().setMaximized(activeThreadRef, !rightPanelMaximized);
   };

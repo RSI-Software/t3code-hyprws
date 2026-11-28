@@ -1,11 +1,5 @@
-import {
-  type EnvironmentId,
-  type MessageId,
-  type ProviderInstanceId,
-  type RuntimeRequestId,
-} from "@t3tools/contracts";
+import { type EnvironmentId, type MessageId, type RuntimeRequestId } from "@t3tools/contracts";
 import { useState } from "react";
-import { updateWorktrunkDispatchFork } from "./useLocalDispatchState.fork"; // fork-hook: worktrunk-hooks/local-dispatch-update-import
 import { type ComposerSubmissionIntent } from "../../composer-logic";
 import { type SessionPhase, type Thread } from "../../types";
 import {
@@ -45,7 +39,6 @@ export function useLocalDispatchState(input: {
     preparingWorktree?: boolean;
     preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/local-dispatch-option
     submissionIntent?: ComposerSubmissionIntent;
-    providerInstanceId?: ProviderInstanceId;
   }) => {
     const preparingWorktree = Boolean(options?.preparingWorktree);
     const preparingWorktrunk = Boolean(options?.preparingWorktrunk); // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk
@@ -53,19 +46,11 @@ export function useLocalDispatchState(input: {
       const active = serverAcknowledgedLocalDispatch ? null : current;
       if (active) {
         const submissionIntent = options?.submissionIntent ?? active.submissionIntent;
-        const providerInstanceId = options?.providerInstanceId ?? active.providerInstanceId;
-        const worktrunkUpdate = updateWorktrunkDispatchFork(active, {
-          preparingWorktree,
-          preparingWorktrunk,
-          submissionIntent,
-          providerInstanceId,
-        }); // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-compare
-        if (worktrunkUpdate) return worktrunkUpdate; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-update
         return active.preparingWorktree === preparingWorktree &&
-          active.submissionIntent === submissionIntent &&
-          active.providerInstanceId === providerInstanceId
+          Boolean(active.preparingWorktrunk) === preparingWorktrunk && // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-compare
+          active.submissionIntent === submissionIntent
           ? active
-          : { ...active, preparingWorktree, submissionIntent, providerInstanceId };
+          : { ...active, preparingWorktree, preparingWorktrunk, submissionIntent }; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-update
       }
       return createLocalDispatchSnapshot(input.activeThread, {
         ...options,
@@ -82,7 +67,6 @@ export function useLocalDispatchState(input: {
     isPreparingWorktree: activeLocalDispatch?.preparingWorktree ?? false,
     isPreparingWorktrunk: activeLocalDispatch?.preparingWorktrunk ?? false, // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-read
     isSendBusy: activeLocalDispatch !== null,
-    localDispatchProviderInstanceId: activeLocalDispatch?.providerInstanceId ?? null,
     backgroundSubmissionPending: activeLocalDispatch?.submissionIntent === "background",
   };
 }

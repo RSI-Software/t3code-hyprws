@@ -28,10 +28,8 @@ import { ProviderDriverError } from "../Errors.ts";
 import * as ResetCreditCoordinator from "../resetCreditCoordinator.ts";
 import {
   checkCodexProviderStatus,
-  makeCodexAppServerHelper,
   makePendingCodexProvider,
   makeCodexSkillsProbe,
-  probeCodexUsageLimits,
   withCodexAppServerClient,
 } from "../CodexProvider.ts";
 import { makeCodexAgentOptionsDecorator } from "../CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-agent-options-import
@@ -290,14 +288,6 @@ export const CodexDriver: ProviderDriver<
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, pathService),
     );
-    const codexHelper = yield* makeCodexAppServerHelper().pipe(
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-    );
-    const checkUsageLimits = probeCodexUsageLimits({
-      helper: codexHelper,
-      codexSettings: effectiveConfig,
-      environment: processEnv,
-    }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CodexSettings>>({
       resolveMaintenance,
@@ -311,7 +301,6 @@ export const CodexDriver: ProviderDriver<
           (draft, catalog) => stampIdentity(applyCodexModelCatalog(draft, catalog)),
         ),
       checkProvider,
-      checkUsageLimits,
       enrichSnapshot: ({ settings, snapshot, publishSnapshot }) =>
         resolveMaintenance().pipe(
           Effect.flatMap((maintenanceCapabilities) =>
@@ -339,7 +328,7 @@ export const CodexDriver: ProviderDriver<
       processEnv,
       snapshot.getSnapshot.pipe(Effect.map((value) => value.models)),
     );
-    const probeSkills = yield* makeCodexSkillsProbe(codexHelper).pipe(
+    const probeSkills = yield* makeCodexSkillsProbe().pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
     const snapshotForCwd = (cwd: string) =>
@@ -424,12 +413,7 @@ export const CodexDriver: ProviderDriver<
       yield* fileSystem.watch(accountKey).pipe(
         Stream.filter((event) => pathService.basename(event.path) === "auth.json"),
         Stream.debounce(Duration.millis(250)),
-        Stream.runForEach(() =>
-          codexHelper.invalidateAll.pipe(
-            Effect.andThen(snapshot.refresh),
-            Effect.ignoreCause({ log: true }),
-          ),
-        ),
+        Stream.runForEach(() => snapshot.refresh.pipe(Effect.ignoreCause({ log: true }))),
         Effect.catchReason("PlatformError", "NotFound", () => Effect.void),
         Effect.ignoreCause({ log: true }),
         Effect.forkScoped,

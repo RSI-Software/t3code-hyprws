@@ -1023,8 +1023,6 @@ export interface LocalDispatchSnapshot {
   preparingWorktree: boolean;
   preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk
   submissionIntent: ComposerSubmissionIntent;
-  /** The send's provider; the thread still names the previous one until the server switches. */
-  providerInstanceId: ProviderInstanceId | null;
   latestUserMessageId: ChatMessage["id"] | null;
   latestRunId: RunId | null;
   latestRunRequestedAt: string | null;
@@ -1042,7 +1040,6 @@ export function createLocalDispatchSnapshot(
     latestUserMessageId?: ChatMessage["id"] | null;
     preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-option
     submissionIntent?: ComposerSubmissionIntent;
-    providerInstanceId?: ProviderInstanceId;
   },
 ): LocalDispatchSnapshot {
   const environmentId = options?.environmentId ?? activeThread?.environmentId;
@@ -1055,7 +1052,6 @@ export function createLocalDispatchSnapshot(
     preparingWorktree: Boolean(options?.preparingWorktree),
     preparingWorktrunk: Boolean(options?.preparingWorktrunk), // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-snapshot
     submissionIntent: options?.submissionIntent ?? "foreground",
-    providerInstanceId: options?.providerInstanceId ?? null,
     latestUserMessageId: options?.latestUserMessageId ?? null,
     latestRunId: latestRun?.runId ?? null,
     latestRunRequestedAt: latestRun?.requestedAt ?? null,

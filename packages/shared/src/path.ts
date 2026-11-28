@@ -127,15 +127,9 @@ export function stripSlashPrefixedWindowsDrive(path: string): string {
 }
 
 export function fileBasename(path: string): string {
-  const isPosix =
-    path.startsWith("/") &&
-    !isNetworkPath(path) &&
-    !SLASH_PREFIXED_WINDOWS_DRIVE_PATTERN.test(path);
-  const trimmed = path.replace(isPosix ? /\/+$/ : /[/\\]+$/, "");
+  const trimmed = path.replace(/[/\\]+$/, "");
   if (trimmed.length === 0) return path;
-  const separatorIndex = isPosix
-    ? trimmed.lastIndexOf("/")
-    : Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  const separatorIndex = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
   return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed;
 }
 
@@ -164,7 +158,7 @@ export function workspaceRelativeFilePath(
   const rootForCompare = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
   if (pathForCompare.replace(/\/+$/, "") === rootForCompare) return ".";
   if (!pathForCompare.startsWith(`${rootForCompare}/`)) return null;
-  const relativePath = normalizedPath.slice(normalizedRoot.length + 1).replace(/^\/+/, "");
+  const relativePath = normalizedPath.slice(normalizedRoot.length + 1);
   // `/repo/../x` starts with the root but escapes it; the server rejects that as a workspace path.
   let depth = 0;
   for (const segment of relativePath.split("/")) {

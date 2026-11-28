@@ -271,8 +271,7 @@ export const makeRotatingLogFileWriter = Effect.fn("makeRotatingLogFileWriter")(
     }
   });
 
-  const staged = `${input.filePath}.rotating`;
-  const publishStaged = Effect.gen(function* () {
+  const rotate = Effect.gen(function* () {
     yield* fileSystem.remove(withSuffix(maxFiles), { force: true }).pipe(Effect.ignore);
     for (let index = maxFiles - 1; index >= 1; index -= 1) {
       const source = withSuffix(index);
@@ -281,18 +280,11 @@ export const makeRotatingLogFileWriter = Effect.fn("makeRotatingLogFileWriter")(
         yield* fileSystem.rename(source, withSuffix(index + 1));
       }
     }
-    yield* fileSystem.rename(staged, withSuffix(1));
-  });
-
-  const rotate = Effect.gen(function* () {
-    const exists = (filePath: string) =>
-      fileSystem.exists(filePath).pipe(Effect.orElseSucceed(() => false));
-    // A log left staged by an interrupted rotation becomes a backup first.
-    if (yield* exists(staged)) yield* publishStaged;
-    // Move the active log aside before touching backups: while it cannot move, none is aged out.
-    if (yield* exists(input.filePath)) {
-      yield* fileSystem.rename(input.filePath, staged);
-      yield* publishStaged;
+    const currentExists = yield* fileSystem
+      .exists(input.filePath)
+      .pipe(Effect.orElseSucceed(() => false));
+    if (currentExists) {
+      yield* fileSystem.rename(input.filePath, withSuffix(1));
     }
     yield* Ref.set(currentSize, 0);
   }).pipe(

@@ -3,7 +3,6 @@ import {
   GitCommandError,
   type GitManagerServiceError,
   ProjectId,
-  type ProjectScript,
   type ThreadId,
   VcsProcessSpawnError,
 } from "@t3tools/contracts";
@@ -122,10 +121,7 @@ export class ManagedProjectFolders extends Context.Service<
     }) => Effect.Effect<Option.Option<string>, ScratchFolderError>;
     readonly namedProjectsRoot: string;
     /** Removes failed/cancelled creations' folders only while no project owns them. */
-    readonly createNamedProject: (input: {
-      readonly name: string;
-      readonly scripts?: readonly ProjectScript[];
-    }) => Effect.Effect<
+    readonly createNamedProject: (input: { readonly name: string }) => Effect.Effect<
       {
         readonly projectId: ProjectId;
         readonly workspaceRoot: string;
@@ -492,7 +488,6 @@ const make = Effect.gen(function* () {
         projectId: ProjectId.make(id),
         title: input.name,
         workspaceRoot,
-        ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
       })
       .pipe(
         // Re-check ownership before deleting rejected creations; interruption after commit or conflicts can leave an owner.

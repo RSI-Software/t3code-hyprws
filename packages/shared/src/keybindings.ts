@@ -68,7 +68,6 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "ctrl+`", command: "terminal.focus", when: "!terminalFocus" },
   { key: "ctrl+`", command: "chat.focusComposer", when: "terminalFocus" },
   { key: "mod+alt+b", command: "rightPanel.toggle" },
-  { key: "mod+alt+e", command: "rightPanel.toggleMaximized" },
   { key: "mod+shift+b", command: "threadPanel.toggle", when: "!terminalFocus" },
   { key: "mod+t", command: "rightPanel.new", when: "rightPanelOpen && !terminalFocus" },
   { key: "mod+d", command: "terminal.split", when: "terminalFocus" },

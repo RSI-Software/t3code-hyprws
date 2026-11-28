@@ -197,7 +197,6 @@ function resolveReleaseAsset(
 }
 
 const VERSION_PATTERN = /\b(\d{4})\.(\d{1,2})\.(\d+)\b/u;
-const MANAGED_VERSION_PATTERN = /^\d{4}\.\d{1,2}\.\d+$/u;
 
 function parseVersion(value: string): readonly [number, number, number] | null {
   const match = VERSION_PATTERN.exec(value);
@@ -364,19 +363,13 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
     const entries = yield* fileSystem
       .readDirectory(managedRoot)
       .pipe(Effect.orElseSucceed(() => []));
-    const candidates = entries
+    return entries
       .filter(
         (entry) =>
-          MANAGED_VERSION_PATTERN.test(entry) &&
+          parseVersion(entry) !== null &&
           compareCloudflaredVersions(entry, CLOUDFLARED_VERSION) < 0,
       )
       .sort((left, right) => compareCloudflaredVersions(right, left));
-    return yield* Effect.filter(candidates, (entry) =>
-      fileSystem.stat(path.join(managedRoot, entry)).pipe(
-        Effect.map((info) => info.type === "Directory"),
-        Effect.orElseSucceed(() => false),
-      ),
-    );
   });
 
   const resolvePathExecutable = Effect.gen(function* () {
@@ -391,11 +384,11 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
       // POSIX shells search the working directory for an empty entry. Resolve it now: the
       // connector may be launched from elsewhere.
       const workingDirectoryEntry = directory === "" && platform !== "win32";
-      const entry = platform === "win32" ? directory.trim().replace(/^"|"$/gu, "") : directory;
-      if (entry.length === 0 && !workingDirectoryEntry) continue;
+      const trimmed = directory.trim().replace(/^"|"$/gu, "");
+      if (trimmed.length === 0 && !workingDirectoryEntry) continue;
       const candidate = workingDirectoryEntry
         ? path.resolve(cwd, executableFileName(platform))
-        : path.join(entry, executableFileName(platform));
+        : path.join(trimmed, executableFileName(platform));
       if (!(yield* isExecutableFile(candidate))) continue;
       const available = yield* compatibleCandidate(candidate, "path");
       if (available) return available;

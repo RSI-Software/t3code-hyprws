@@ -158,10 +158,6 @@ export function clientRpcRequiredScopes(
   if (method === WS_METHODS.guestShareCreate) {
     return [AuthAccessWriteScope, AuthOrchestrationReadScope];
   }
-  // Checking a secret source resolves a caller-named reference and applies it to providers.
-  if (method === WS_METHODS.serverCheckSecretSource) {
-    return [AuthSettingsWriteScope, AuthProvidersManageScope];
-  }
   if (method === WS_METHODS.collaboratorShareThreadFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   if (method === WS_METHODS.collaboratorSetAccessFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   if (method === WS_METHODS.colleagueInviteFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes

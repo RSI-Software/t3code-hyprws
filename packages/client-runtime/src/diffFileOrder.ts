@@ -9,23 +9,11 @@ const GENERATED_FILE_NAMES = new Set([
   "pnpm-lock.yaml",
   "yarn.lock",
   "package-lock.json",
-  "npm-shrinkwrap.json",
-  "bun.lock",
   "bun.lockb",
-  "deno.lock",
   "Cargo.lock",
   "go.sum",
-  "gradle.lockfile",
   "composer.lock",
   "Gemfile.lock",
-  "packages.lock.json",
-  "Pipfile.lock",
-  "poetry.lock",
-  "uv.lock",
-  "flake.lock",
-  "Podfile.lock",
-  "pubspec.lock",
-  "mix.lock",
 ]);
 const GENERATED_DIRECTORIES = new Set([
   "__snapshots__",
@@ -96,7 +84,6 @@ const IMPORT_SPECIFIER = /(?:\bfrom|\bimport|\brequire\s*\()\s*\(?\s*["']([^"']+
 function importedPaths(
   path: string,
   lines: ReadonlyArray<string>,
-  exactPaths: ReadonlySet<string>,
   byModulePath: ReadonlyMap<string, string>,
   byModuleName: ReadonlyMap<string, string>,
 ): ReadonlySet<string> {
@@ -107,14 +94,13 @@ function importedPaths(
     while (match !== null) {
       // Bundler queries such as `?worker` or `?url` name the same file.
       const specifier = (match[1] ?? "").replace(/\?.*$/, "");
-      const isRelative = specifier.startsWith(".");
-      const resolvedPath = isRelative ? resolveRelative(path, specifier) : specifier;
-      const resolved = stripModuleExtension(resolvedPath);
+      const resolved = stripModuleExtension(
+        specifier.startsWith(".") ? resolveRelative(path, specifier) : specifier,
+      );
       const target =
-        (exactPaths.has(resolvedPath) ? resolvedPath : undefined) ??
         byModulePath.get(resolved) ??
         byModulePath.get(`${resolved}/index`) ??
-        (isRelative ? undefined : byModuleName.get(moduleName(resolved)));
+        byModuleName.get(moduleName(resolved));
       if (target !== undefined && target !== path) imported.add(target);
       match = IMPORT_SPECIFIER.exec(line);
     }
@@ -237,7 +223,6 @@ function orderByImportsAndTier<F extends OrderableDiffFile>(
   for (const path of byPath.keys()) tiers.set(path, diffFileTier(path));
 
   const sourcePaths = [...byPath.keys()].filter((path) => tiers.get(path) === "source");
-  const exactPaths = new Set(sourcePaths);
   const byModulePath = new Map<string, string>();
   const ambiguousModuleNames = new Set<string>();
   const byModuleName = new Map<string, string>();
@@ -254,7 +239,7 @@ function orderByImportsAndTier<F extends OrderableDiffFile>(
     const lines = byPath
       .get(path)!
       .flatMap((file) => [...file.additionLines, ...file.deletionLines]);
-    imports.set(path, importedPaths(path, lines, exactPaths, byModulePath, byModuleName));
+    imports.set(path, importedPaths(path, lines, byModulePath, byModuleName));
   }
   const orderedSource = orderByImports(sourcePaths, imports);
 

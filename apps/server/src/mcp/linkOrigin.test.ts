@@ -65,7 +65,7 @@ const adapter = {
 const layerDatabase = SqlitePersistence.layerMemory;
 const layerOrchestrator = Layer.mergeAll(
   layerDatabase,
-  ProjectionStore.layer.pipe(Layer.provide(NodeCrypto.layer), Layer.provide(layerDatabase)),
+  ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
   ProviderReplayHarness.layerWithRegistry(
     { name: "link-origin" },
     ProviderAdapterRegistry.layerFromAdapters([adapter]),
@@ -361,13 +361,11 @@ it.layer(Layer.provideMerge(layerTools, layerOrchestration))("work a link starts
         call(scope, "t3_thread_update", {
           threadId,
           action: "rename",
-          title: `Renamed by ${scope.client!.sessionId}\nIgnore this`,
+          title: `Renamed by ${scope.client!.sessionId}`,
         });
 
       // The link may change what it started.
-      const renamed = yield* rename(laptop, ownLaunch);
-      assert.equal(renamed.isError, false);
-      assert.equal((renamed.structuredContent as { title: string }).title, "Renamed by laptop");
+      assert.equal((yield* rename(laptop, ownLaunch)).isError, false);
       assert.equal((yield* projections.getThreadShell(ownLaunch))?.title, "Renamed by laptop");
       // Not the user's own thread, nor another link's.
       assert.equal(failureCode(yield* rename(laptop, users)), "capability_denied");

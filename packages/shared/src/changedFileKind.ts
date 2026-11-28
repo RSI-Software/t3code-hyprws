@@ -44,7 +44,7 @@ const GENERATED_FILES = new Set([
   "yarn.lock",
 ]);
 const GENERATED_NAME =
-  /(\.generated\.|\.gen\.|\.g\.dart$|\.pb\.go$|_pb2(_grpc)?\.py$|\.pb\.(cc|h)$|\.min\.(js|css)$|\.(js|css)\.map$)/i;
+  /(\.generated\.|\.gen\.|\.g\.dart$|\.pb\.go$|_pb2(_grpc)?\.py$|\.pb\.(cc|h)$|\.min\.(js|css)$|\.(js|css)\.map$)/;
 const GENERATED_DIRS = new Set(["__generated__", "_generated", "generated"]);
 
 const MOCK_NAME = /(\.snap$|\.(mocks?|fixtures?|stubs?|fakes?)\.[^.]+$)/i;

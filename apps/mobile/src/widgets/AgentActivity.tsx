@@ -352,6 +352,7 @@ function AgentActivity(
     compactTrailing: showCompactGlyph ? (
       <HStack
         modifiers={[
+          padding({ trailing: 2 }),
           accessibilityElement("ignore"),
           accessibilityLabel(agentsLabel),
           ...linkModifiers,

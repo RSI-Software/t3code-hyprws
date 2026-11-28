@@ -68,7 +68,7 @@ const CLAUDE_HOST_SESSION_VARIABLES = [
  * Claude Code reads its entrypoint from the process env, not its settings `env`, so T3 Code applies that override itself.
  */
 export const mergeClaudeProcessEnvironment = Effect.fn("mergeClaudeProcessEnvironment")(function* (
-  config: Pick<ClaudeSettings, "homePath" | "enabled">,
+  config: Pick<ClaudeSettings, "homePath">,
   instanceEnvironment: ProviderInstanceEnvironment | undefined,
   hostEnvironment: NodeJS.ProcessEnv,
 ) {
@@ -82,8 +82,6 @@ export const mergeClaudeProcessEnvironment = Effect.fn("mergeClaudeProcessEnviro
   delete baseEnvironment.ELECTRON_RUN_AS_NODE;
   stripForkHostEnvironment(baseEnvironment, "claudeAgent"); // fork-hook: upstream-fixes/provider-instance-environment
   const environment = yield* mergeProviderInstanceEnvironment(instanceEnvironment, baseEnvironment);
-  // A turned-off Claude never runs, so its settings stay unread.
-  if (!config.enabled) return environment;
   const settingsEntrypoint = (yield* readClaudeSettingsEnv(config, undefined, environment))
     .CLAUDE_CODE_ENTRYPOINT;
   return settingsEntrypoint
