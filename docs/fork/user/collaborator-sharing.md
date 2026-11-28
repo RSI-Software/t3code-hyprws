@@ -66,6 +66,7 @@ They see which you did: **Sent by the host** under a sent message, **Replied to*
 Open **Share with collaborator** on the thread, then **Stop sharing** beside their name.
 For a saved colleague, **pick their checked name** under **Share with** again.
 Their waiting messages are dropped, and their copy **freezes**, marked **Disconnected from host**.
+That copy stays **only where they opened the thread before**; any other device or browser shows **No copy on this device**.
 Sharing again brings it back to live.
 
 To **cut all access**, revoke their session in **Settings → Connections**; a saved colleague is forgotten too.
