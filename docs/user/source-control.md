@@ -110,9 +110,3 @@ Open **Issues** from the sidebar utility row or **Open issues** in the command p
 - **GitHub verification fails**: Upgrade `gh` to 2.81.0+ or save a token in Settings.
 - **Push fails**: Check Git SSH/HTTPS credentials separately from API auth.
 - **Fork PR badge missing**: Set upstream with `git branch --set-upstream-to=<remote>/<branch>`.
-
-## Moving a started thread between checkouts
-
-A started thread can move to another existing checkout from the branch selector. Provider
-continuation, queued turns, terminal follow and pin behavior, retry, and checked undo are described
-in [Managed terminals and checkout moves](../fork/user/managed-terminals.md).

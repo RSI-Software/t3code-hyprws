@@ -70,7 +70,6 @@ import { copyContextMenuImage } from "./ContextMenuImage.ts";
 import * as WindowDispatch from "./DesktopWindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-import
 import * as WindowPlacement from "./WindowPlacement.fork.ts"; // fork-hook: multi-window/placement-import
 import { hubFilterTitleFork } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
-import { bindWindowDemandStateFork } from "./WindowDemandState.fork.ts"; // fork-hook: zmux-estate/window-demand-state-import
 import { trimAppContextMenuFork } from "./AppContextMenu.fork.ts"; // fork-hook: upstream-fixes/themed-context-menu-import
 import { installMainWindowRemoteRequestHeaderPolicy } from "./RemoteRequestHeaders.ts";
 import {
@@ -957,7 +956,6 @@ export const make = Effect.gen(function* () {
       event.preventDefault();
       window.setTitle(environment.displayName);
     });
-    const publishWindowDemandStateFork = bindWindowDemandStateFork(window); // fork-hook: zmux-estate/window-demand-state
     window.on("resize", scheduleBoundsPersist);
     window.on("move", scheduleBoundsPersist);
     window.on("maximize", scheduleBoundsPersist);
@@ -1039,7 +1037,6 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
-      publishWindowDemandStateFork(); // fork-hook: zmux-estate/window-demand-state
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
     });
     window.webContents.on(

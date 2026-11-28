@@ -167,7 +167,6 @@ const RPC_AGGREGATES = {
   [WS_METHODS.pullRequestsSubscribeActivityRefreshesFork]: "pull-requests", // fork-hook: upstream-fixes/pr-activity-refresh-rpc-aggregate
   [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
   [WS_METHODS.pullRequestsUploadAttachment]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
-  [WS_METHODS.threadCheckoutMoveRequest]: "orchestration", // fork-hook: zmux-estate/checkout-move-rpc-aggregate
   [WS_METHODS.issuesList]: "issues",
   [WS_METHODS.issuesDetail]: "issues",
   [WS_METHODS.issuesSummaryFork]: "issues", // fork-hook: github-issues/issue-summary-rpc-aggregate

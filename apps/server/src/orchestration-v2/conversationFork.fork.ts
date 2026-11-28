@@ -8,7 +8,6 @@ import type { ProviderAdapterV2TurnInput } from "@t3tools/provider-core/server/P
 /** A fork copies conversation and checkout settings, not the source's live controls. */
 export function freshConversationForkMetadataFork() {
   return {
-    checkoutMove: undefined,
     issues: [],
     unsettledAt: null,
     limitRecovery: null,

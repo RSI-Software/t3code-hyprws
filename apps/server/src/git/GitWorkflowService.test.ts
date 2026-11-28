@@ -12,7 +12,6 @@ import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
-import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 
 const makeWorktrunkHookRunnerLayer = (
@@ -67,7 +66,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowServi
               Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
-          Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: zmux-estate/ref-named-test-layer
           Layer.provide(makeWorktrunkHookRunnerLayer()), // fork-hook: worktrunk-hooks/ref-named-test-layer
           Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
@@ -93,7 +91,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowServi
               execute: (input) => Effect.die(`spawned Git in ${input.cwd}`),
             }),
           ),
-          Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: zmux-estate/removed-worktree-test-layer
           Layer.provide(makeWorktrunkHookRunnerLayer()), // fork-hook: worktrunk-hooks/removed-worktree-test-layer
         ),
       ),

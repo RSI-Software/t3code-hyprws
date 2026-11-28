@@ -64,7 +64,6 @@ import {
   useAvailableSettingsSearchItems,
   useHasSecretProvidersEnvironment,
 } from "./useAvailableSettingsSearchItems";
-import { SquareTerminalIcon } from "lucide-react"; // fork-hook: zmux-estate/settings-icon-import
 import { handleSettingsSectionKeyDown } from "./settingsSectionNavigation";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
 
@@ -98,7 +97,6 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/diagnostics": WrenchIcon,
   "/settings/voice": MicIcon,
   "/settings/appearance": PaletteIcon,
-  "/settings/terminal": SquareTerminalIcon, // fork-hook: zmux-estate/settings-icon
   "/settings/chat": MessageSquareTextIcon,
   "/settings/diffs": FileDiffIcon,
   "/settings/projects": PanelsTopLeftIcon,

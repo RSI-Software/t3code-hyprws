@@ -1,7 +1,6 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
-import { TerminalSessionMode } from "./settings.ts"; // fork-hook: zmux-estate/session-mode-contract-import
 
 export const DEFAULT_TERMINAL_ID = "term-1";
 export const DEFAULT_MAX_TERMINAL_BUFFER_BYTES = 512 * 1024;
@@ -215,7 +214,6 @@ const TerminalRowsSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).ch
   Schema.isLessThanOrEqualTo(500),
 );
 const TerminalIdSchema = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(128));
-const TerminalAttachmentIdSchema = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(128));
 const TerminalEnvKeySchema = Schema.String.check(
   Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
 ).check(Schema.isMaxLength(128));
@@ -233,14 +231,11 @@ export type TerminalThreadInput = typeof TerminalThreadInput.Type;
 const TerminalSessionInput = Schema.Struct({
   ...TerminalThreadInput.fields,
   terminalId: TerminalIdSchema,
-  /** Viewer-local managed attachment. Omission preserves the legacy shared terminal. */
-  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
 });
 export type TerminalSessionInput = Schema.Codec.Encoded<typeof TerminalSessionInput>;
 
 export const TerminalOpenInput = Schema.Struct({
   ...TerminalSessionInput.fields,
-  sessionModeFork: Schema.optional(TerminalSessionMode), // fork-hook: zmux-estate/session-mode-open-contract
   cwd: TrimmedNonEmptyStringSchema,
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   cols: Schema.optional(TerminalColsSchema),
@@ -260,7 +255,6 @@ export type TerminalObserveInput = Schema.Codec.Encoded<typeof TerminalObserveIn
 
 export const TerminalAttachInput = Schema.Struct({
   ...TerminalObserveInput.fields,
-  sessionModeFork: Schema.optional(TerminalSessionMode), // fork-hook: zmux-estate/session-mode-attach-contract
   cwd: Schema.optional(TrimmedNonEmptyStringSchema),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   cols: Schema.optional(TerminalColsSchema),
@@ -334,7 +328,6 @@ export type TerminalClearInput = Schema.Codec.Encoded<typeof TerminalClearInput>
 export const TerminalCloseInput = Schema.Struct({
   ...TerminalThreadInput.fields,
   terminalId: Schema.optional(TerminalIdSchema),
-  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   deleteHistory: Schema.optional(Schema.Boolean),
 });
 export type TerminalCloseInput = typeof TerminalCloseInput.Type;
@@ -342,13 +335,9 @@ export type TerminalCloseInput = typeof TerminalCloseInput.Type;
 export const TerminalSessionStatus = Schema.Literals(["starting", "running", "exited", "error"]);
 export type TerminalSessionStatus = typeof TerminalSessionStatus.Type;
 
-export const TerminalAttachmentStatus = Schema.Literals(["attached", "suspended"]);
-export type TerminalAttachmentStatus = typeof TerminalAttachmentStatus.Type;
-
 export const TerminalSessionSnapshot = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
-  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   cwd: Schema.String.check(Schema.isNonEmpty()),
   worktreePath: Schema.NullOr(TrimmedNonEmptyStringSchema),
   status: TerminalSessionStatus,
@@ -369,27 +358,21 @@ export const TerminalSessionSnapshot = Schema.Struct({
   rows: Schema.optional(TerminalRowsSchema),
   // Why the shell failed to start, kept so later attachments can show it.
   error: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
-  /** Managed tmux client state. Optional so older clients retain the running session shape. */
-  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 export type TerminalSessionSnapshot = typeof TerminalSessionSnapshot.Type;
 
 export const TerminalSummary = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
-  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   cwd: Schema.String.check(Schema.isNonEmpty()),
   worktreePath: Schema.NullOr(TrimmedNonEmptyStringSchema),
   status: TerminalSessionStatus,
   pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
   exitCode: Schema.NullOr(Schema.Int),
   exitSignal: Schema.NullOr(Schema.Int),
-  /** Last-known subprocess state before detach while suspended. */
   hasRunningSubprocess: Schema.Boolean,
   label: Schema.String.check(Schema.isMaxLength(128)),
   updatedAt: Schema.String,
-  /** Managed tmux client state. Optional so older clients retain the running session shape. */
-  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 export type TerminalSummary = typeof TerminalSummary.Type;
 
@@ -408,7 +391,6 @@ const TerminalMetadataRemoveEvent = Schema.Struct({
   type: Schema.Literal("remove"),
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
-  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
 });
 
 export const TerminalMetadataStreamEvent = Schema.Union([
@@ -421,7 +403,6 @@ export type TerminalMetadataStreamEvent = typeof TerminalMetadataStreamEvent.Typ
 const TerminalEventBaseSchema = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
-  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   sequence: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 
@@ -470,15 +451,11 @@ const TerminalRestartedEvent = Schema.Struct({
 const TerminalActivityEvent = Schema.Struct({
   ...TerminalEventBaseSchema.fields,
   type: Schema.Literal("activity"),
-  /** Last-known subprocess state before detach when announcing suspension. */
   hasRunningSubprocess: Schema.Boolean,
-  /** Last-known display title before detach when announcing suspension. */
   label: Schema.String.check(Schema.isMaxLength(128)),
   // Shared PTY grid changes ride on activity because older clients reject unknown event types.
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
-  /** Present when activity announces a managed attachment lifecycle change. */
-  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 
 export const TerminalEvent = Schema.Union([
@@ -541,33 +518,6 @@ export class TerminalCwdStatError extends Schema.TaggedError<TerminalCwdStatErro
 ) {
   override get message() {
     return `Failed to access terminal cwd: ${this.cwd}`;
-  }
-}
-
-export class TerminalManagedRetargetError extends Schema.TaggedError<TerminalManagedRetargetError>()(
-  "TerminalManagedRetargetError",
-  {
-    cwd: Schema.String,
-    worktreePath: Schema.NullOr(Schema.String),
-    reason: Schema.Literals([
-      "cwd-outside-worktree",
-      "command-unavailable",
-      "resolve-timeout",
-      "invalid-protocol",
-      "missing-session",
-      "binding-conflict",
-      "attach-failed",
-      "attach-timeout",
-      "readiness-overflow",
-    ]),
-    target: Schema.optional(Schema.String),
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {
-  override get message() {
-    const destination = this.worktreePath ?? this.cwd;
-    const target = this.target ? ` (${this.target})` : "";
-    return `Managed terminal retarget failed for ${destination}: ${this.reason}${target}`;
   }
 }
 
@@ -676,7 +626,6 @@ export class TerminalProcessChangedError extends Schema.TaggedError<TerminalProc
 
 export const TerminalError = Schema.Union([
   TerminalCwdError,
-  TerminalManagedRetargetError,
   TerminalHistoryError,
   TerminalSessionLookupError,
   TerminalProviderInstanceNotFoundError,

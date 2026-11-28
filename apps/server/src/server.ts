@@ -122,7 +122,6 @@ import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
 import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
 import * as ProcessRunner from "./processRunner.ts";
-import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
@@ -169,15 +168,10 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
-import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
-import { checkoutMoveServiceLiveFork } from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/server-checkout-move-import
 import * as ThreadGroupsFork from "./orchestration-v2/ThreadGroupsService.fork.ts"; // fork-hook: thread-ordering/server-thread-groups-import
 import * as ColleaguesFork from "./collaborator/Colleagues.fork.ts"; // fork-hook: colleague-collab/server-shares-import
 import * as ColleagueThreadFork from "./collaborator/ColleagueThreadFork.fork.ts"; // fork-hook: colleague-collab/server-thread-fork-import
 import { routeLayerFork as colleagueRoutesFork } from "./collaborator/ColleaguesHttp.fork.ts"; // fork-hook: colleague-collab/server-routes-import
-import { checkoutHeadFollowLiveFork } from "./git/CheckoutHeadFollow.fork.ts"; // fork-hook: zmux-estate/server-checkout-head-follow-import
-import { settledLaneSessionReactorLiveFork } from "./zmux/SettledLaneSessions.fork.ts"; // fork-hook: zmux-estate/server-settled-lane-sessions-import
-import * as SettledLaneAttachGuard from "./zmux/SettledLaneAttachGuard.fork.ts"; // fork-hook: zmux-estate/server-settled-lane-guard-import
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
@@ -320,11 +314,6 @@ const layerServerSettings = ServerSettings.layer.pipe(
   Layer.provideMerge(ManagedPolicy.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
-const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
-  Layer.provide(ProcessRunner.layer),
-  Layer.provideMerge(layerServerSettings),
-);
-const CheckoutMutationCoordinatorLayerLive = CheckoutMutationCoordinator.layer;
 const WorktrunkHookRunnerLayerLive = WorktrunkHookRunner.layer.pipe(
   Layer.provide(ProcessRunner.layer),
 );
@@ -509,7 +498,6 @@ const layerGitManager = GitManager.layer.pipe(
   Layer.provide(layerPullRequestService.pipe(Layer.provide(RuntimeLayer.layerProjectService))),
   Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
   Layer.provideMerge(WorktreeSetupTracker.layer),
-  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(WorktrunkHookRunnerLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
@@ -523,7 +511,6 @@ const layerGit = Layer.empty.pipe(
 
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
   Layer.provideMerge(layerVcsDriverRegistry),
-  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(WorktrunkHookRunnerLayerLive),
   Layer.provideMerge(layerGit),
 );
@@ -585,9 +572,6 @@ const layerTerminal = TerminalManager.layer(
   Layer.provide(layerPtyAdapter),
   Layer.provide(layerPortScanner),
   Layer.provide(layerNativeTelemetry),
-  Layer.provide(layerServerSettings),
-  Layer.provide(ZmuxSessionBinderLayerLive),
-  Layer.provide(SettledLaneAttachGuard.layer), // fork-hook: zmux-estate/server-settled-lane-attach-guard
 );
 
 const layerPreview = Layer.empty.pipe(
@@ -827,12 +811,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
   ArtifactWatchReactorFork.layer, // fork-hook: thread-artifacts/server-artifact-watch-reactor
-  checkoutMoveServiceLiveFork, // fork-hook: zmux-estate/server-checkout-move-service
   ThreadGroupsFork.layer, // fork-hook: thread-ordering/server-thread-groups-service
   ColleaguesFork.layer, // fork-hook: colleague-collab/server-shares-service
   ColleagueThreadFork.layer, // fork-hook: colleague-collab/server-thread-fork-service
-  checkoutHeadFollowLiveFork, // fork-hook: zmux-estate/server-checkout-head-follow
-  settledLaneSessionReactorLiveFork.pipe(Layer.provide(ZmuxSessionBinderLayerLive)), // fork-hook: zmux-estate/server-settled-lane-sessions-reactor
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
   // One hub, which the feeders above and the workflow store inside the runtime publish to.
@@ -941,7 +922,6 @@ const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
   // fetch interval goes in context here, before the first build captures it.
   Layer.provideMerge(VcsAutomaticFetchInterval.layer.pipe(Layer.provide(layerServerSettings))),
   Layer.provide(NetService.layer),
-  Layer.provideMerge(CheckoutMutationCoordinatorLayerLive),
 );
 
 const layerCommandReadiness = HttpRouter.middleware(
@@ -1503,7 +1483,6 @@ const layerMakeServer = Layer.unwrap(
       Layer.provide(DatabaseMigrationProgress.layer),
       Layer.provide(layerApplicationObservability),
       Layer.provideMerge(FetchHttpClient.layer),
-      Layer.provide(CheckoutMutationCoordinatorLayerLive),
       Layer.provide(VcsProcess.layer),
       Layer.provideMerge(AgentScopeLive.layer),
       Layer.provideMerge(layerPlatformServices),

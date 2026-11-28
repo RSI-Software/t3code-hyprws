@@ -128,25 +128,6 @@ const FORK_TABLES = [
   )`,
 ] as const;
 
-/**
- * Repairs fork nightlies `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded
- * migration row `(48, "ProjectionThreadCheckoutMove")`. The Migrator runs only ids above the
- * latest recorded one, so that row would skip upstream's real 048: delete exactly it before
- * `runMigrations`. Databases that already carry `checkout_move_json` keep that column unread.
- */
-export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRow")(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const tables = yield* sql<{ readonly name: string }>`
-      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
-    `;
-  if (!tables.some((table) => table.name === "effect_sql_migrations")) return;
-  // Read first: a current database takes no write, so a `query_only` recheck still passes.
-  const stale =
-    yield* sql`SELECT 1 FROM effect_sql_migrations WHERE migration_id = 48 AND name = ${"ProjectionThreadCheckoutMove"}`;
-  if (stale.length === 0) return;
-  yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 48 AND name = ${"ProjectionThreadCheckoutMove"}`;
-});
-
 // Payload columns that hold thread issue links under `$.issues`.
 const ISSUE_LINK_PAYLOADS = [
   { table: "orchestration_v2_projection_threads", key: "thread_id", column: "payload_json" },

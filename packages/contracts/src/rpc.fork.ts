@@ -84,32 +84,6 @@ export const pullRequestAttachmentRpcFork = {
   ] as const,
 };
 
-// Thread checkout move (zmux-estate): the request, result, and refusal live in
-// `checkoutMove.ts`; the handler lives in
-// `apps/server/src/git/CheckoutMoveService.fork.ts`.
-import {
-  ThreadCheckoutMoveError,
-  ThreadCheckoutMoveRequestInput,
-  ThreadCheckoutMoveRequestResult,
-} from "./checkoutMove.ts";
-
-const WsThreadCheckoutMoveRequestRpcFork = Rpc.make("thread.checkoutMove.request", {
-  payload: ThreadCheckoutMoveRequestInput,
-  success: ThreadCheckoutMoveRequestResult,
-  error: Schema.Union([ThreadCheckoutMoveError, EnvironmentAuthorizationError]),
-});
-
-/**
- * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
- * marked hooks in `rpc.ts` (`zmux-estate/checkout-move-rpc-*`).
- */
-export const checkoutMoveRpcFork = {
-  methodNames: {
-    threadCheckoutMoveRequest: "thread.checkoutMove.request",
-  } as const,
-  rpcs: [WsThreadCheckoutMoveRequestRpcFork] as const,
-};
-
 // Server-side sidebar thread groups (thread-ordering); the schemas and the one
 // mutation reducer live in `threadGroups.fork.ts`.
 import {
@@ -329,7 +303,6 @@ export const wsRpcsFork = [
   ...pullRequestAttachmentRpcFork.rpcs,
   ...pullRequestActivityRpcFork.rpcs,
   ...issueSummaryRpcFork.rpcs,
-  ...checkoutMoveRpcFork.rpcs,
   ...threadGroupsRpcFork.rpcs,
   ...collaboratorRpcFork.rpcs,
 ] as const;

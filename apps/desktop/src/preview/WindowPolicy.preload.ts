@@ -15,10 +15,7 @@ export type PreviewCapableDesktopBridge = DesktopBridge & {
  * only place the fork adds to it.
  */
 export type ProjectWindowCapabilities = Required<
-  Pick<
-    DesktopBridge,
-    "requestWindow" | "publishWindowProjects" | "getWindowDemandState" | "onWindowDemandStateChange"
-  >
+  Pick<DesktopBridge, "requestWindow" | "publishWindowProjects">
 > &
   Pick<DesktopBridge, "windowId" | "windowScopeSeed">;
 
@@ -26,20 +23,6 @@ const windowIdCapability = (): Pick<DesktopBridge, "windowId"> => {
   const windowId = readWindowIdPreloadArgument(process.argv);
   return windowId === null ? {} : { windowId };
 };
-
-let windowDemandState = true;
-const windowDemandStateListeners = new Set<(demanded: boolean) => void>();
-
-/**
- * One preload process serves one renderer, so the hub demand channel is
- * subscribed once at module load. Registering inside `exposePreviewCapability`
- * would add a second `ipcRenderer` listener on every extra call.
- */
-ipcRenderer.on(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, (_event, demanded: unknown) => {
-  if (typeof demanded !== "boolean" || demanded === windowDemandState) return;
-  windowDemandState = demanded;
-  for (const listener of windowDemandStateListeners) listener(demanded);
-});
 
 const projectWindowCapabilities = (): ProjectWindowCapabilities => ({
   requestWindow: (request) => ipcRenderer.invoke(IpcChannels.REQUEST_WINDOW_CHANNEL, request),
@@ -50,11 +33,6 @@ const projectWindowCapabilities = (): ProjectWindowCapabilities => ({
   // Branded ids are plain strings at runtime; the preload cannot import the
   // contracts package without breaking its sandboxed bundle.
   windowScopeSeed: readWindowScopeSeedPreloadArgument(process.argv) as WindowScopeSeed | null,
-  getWindowDemandState: () => windowDemandState,
-  onWindowDemandStateChange: (listener) => {
-    windowDemandStateListeners.add(listener);
-    return () => windowDemandStateListeners.delete(listener);
-  },
 });
 
 /** Keep the fork policy at one seam without rebuilding the upstream bridge. */

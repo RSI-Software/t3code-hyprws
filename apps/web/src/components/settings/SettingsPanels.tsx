@@ -139,7 +139,6 @@ import {
   externalSymlinksRestoreLabelFork,
   ShowIgnoredFilesSettingsRowFork,
 } from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
-import { terminalRestoreDefaultsFork, terminalRestoreLabelsFork } from "./TerminalSettings.fork"; // fork-hook: zmux-estate/settings-restore-import
 
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
   turn: msg("Wait for the full response"),
@@ -578,7 +577,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
       ? [gt("Composer context")]
       : []),
-    ...terminalRestoreLabelsFork(settings), // fork-hook: zmux-estate/settings-restore-labels
     ...getChangedTypographySettingLabels(settings, messages),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? [gt("Default diff file state")]
@@ -734,7 +732,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
-      ...terminalRestoreDefaultsFork, // fork-hook: zmux-estate/settings-restore-defaults
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,

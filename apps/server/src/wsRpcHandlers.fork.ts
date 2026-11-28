@@ -13,7 +13,6 @@ import {
 import * as CollaboratorShares from "./collaborator/CollaboratorShares.fork.ts";
 import * as Colleagues from "./collaborator/Colleagues.fork.ts";
 import * as ColleagueThreadFork from "./collaborator/ColleagueThreadFork.fork.ts";
-import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import * as IssueService from "./issue/IssueService.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
@@ -30,7 +29,6 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
   readonly sessionId: AuthSessionId;
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
 }) {
-  const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const issues = yield* IssueService.IssueService;
   const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
@@ -38,7 +36,6 @@ export const makeWsRpcHandlersFork = Effect.fn("makeWsRpcHandlersFork")(function
   const colleagues = yield* Colleagues.ColleaguesFork;
   const colleagueThreads = yield* ColleagueThreadFork.ColleagueThreadForkFork;
   return WsRpcGroupFork.of({
-    ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),
     "pullRequests.createAttachmentUploadUrl": (input) =>
       pullRequests.createAttachmentUploadUrl(input),
     "pullRequests.uploadAttachment": (input) => pullRequests.uploadAttachment(input),

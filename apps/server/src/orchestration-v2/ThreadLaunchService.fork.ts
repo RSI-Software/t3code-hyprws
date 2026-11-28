@@ -1,7 +1,7 @@
-// Fork-owned post-create step for a V2 launch's thread worktree: bind the checkout's managed
-// zmux session (not for delegated children), then run Worktrunk create hooks for a Worktrunk-mode launch. Neither fails the
-// launch: a failure lands on the setup card and persists as a run-less `system_notice` turn item
-// so it survives a reload. Services are looked up optionally so upstream harnesses need none.
+// Fork-owned post-create step for a V2 launch's thread worktree: run Worktrunk create hooks for a
+// Worktrunk-mode launch. It never fails the launch: a failure lands on the setup card and persists
+// as a run-less `system_notice` turn item so it survives a reload. Services are looked up
+// optionally so upstream harnesses need none.
 import { type ThreadId, TurnItemId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -9,9 +9,7 @@ import * as Option from "effect/Option";
 
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
-import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as EventSink from "./EventSink.ts";
-import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 
 interface ThreadWorktreeCreatedFork {
@@ -27,24 +25,13 @@ type ThreadWorktreeIntegrationsFork = (input: ThreadWorktreeCreatedFork) => Effe
 /** Builds the post-create step from whichever integration services are present. */
 export const makeThreadWorktreeIntegrationsFork = Effect.gen(function* () {
   const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
-  const zmux = yield* Effect.serviceOption(ZmuxSessionBinder.ZmuxSessionBinder);
   const worktrunk = yield* Effect.serviceOption(WorktrunkHookRunner.WorktrunkHookRunner);
   const eventSink = yield* Effect.serviceOption(EventSink.EventSinkV2);
   const ids = yield* IdAllocator.IdAllocatorV2;
-  const threads = yield* Effect.serviceOption(ThreadManagement.ThreadManagementService);
-
-  // A delegated child's session is created on first terminal open, not at launch.
-  const isDelegatedChild = (threadId: ThreadId) =>
-    Option.isNone(threads)
-      ? Effect.succeed(false)
-      : threads.value.getThreadShell(threadId).pipe(
-          Effect.map((shell) => shell?.lineage.relationshipToParent === "subagent"),
-          Effect.orElseSucceed(() => false),
-        );
 
   /** One notice per launch: a retried launch rewrites it instead of stacking a second. */
-  const persistFailures = Effect.fn("ThreadLaunchService.persistFailures")(
-    function* (threadId: ThreadId, failures: ReadonlyArray<string>) {
+  const persistFailure = Effect.fn("ThreadLaunchService.persistFailures")(
+    function* (threadId: ThreadId, failure: string) {
       if (Option.isNone(eventSink)) return;
       const now = yield* DateTime.now;
       yield* eventSink.value.write({
@@ -71,7 +58,7 @@ export const makeThreadWorktreeIntegrationsFork = Effect.gen(function* () {
               completedAt: now,
               updatedAt: now,
               type: "system_notice",
-              message: failures.join("; "),
+              message: failure,
             },
           },
         ],
@@ -91,49 +78,22 @@ export const makeThreadWorktreeIntegrationsFork = Effect.gen(function* () {
   const integrate: ThreadWorktreeIntegrationsFork = Effect.fn(
     "ThreadLaunchService.fork.worktreeIntegrations",
   )(function* (input) {
-    const notes: Array<string> = [];
-    const failures: Array<string> = [];
-
-    if (Option.isSome(zmux) && !(yield* isDelegatedChild(input.threadId))) {
-      const bound = yield* zmux.value.bind(input.worktreePath, { projectPath: input.projectCwd });
-      if (bound.status === "failed") {
-        failures.push(`${bound.notice.summary}: ${bound.notice.detail}`);
-        yield* Effect.logWarning("Thread worktree zmux session failed to bind", {
-          threadId: input.threadId,
-          worktreePath: input.worktreePath,
-          detail: bound.notice.detail,
-        });
-      } else if (bound.status === "bound") {
-        notes.push(`zmux session ${bound.outcome}`);
-        yield* Effect.logInfo("Thread worktree zmux session bound", {
-          threadId: input.threadId,
-          worktreePath: input.worktreePath,
-          target: bound.target,
-          outcome: bound.outcome,
-        });
+    if (input.strategy.type !== "worktree" || input.strategy.worktrunk !== true) return;
+    let failure: string | undefined;
+    if (Option.isNone(worktrunk)) {
+      failure = "Worktrunk hooks unavailable on this server";
+    } else {
+      const hooks = yield* worktrunk.value.runCreateHooks({
+        projectCwd: input.projectCwd,
+        worktreePath: input.worktreePath,
+      });
+      if (hooks.status === "failed") {
+        failure = `Worktrunk ${hooks.operation} hook failed: ${hooks.detail}`;
       }
     }
-
-    if (input.strategy.type === "worktree" && input.strategy.worktrunk === true) {
-      if (Option.isNone(worktrunk)) {
-        failures.push("Worktrunk hooks unavailable on this server");
-      } else {
-        const hooks = yield* worktrunk.value.runCreateHooks({
-          projectCwd: input.projectCwd,
-          worktreePath: input.worktreePath,
-        });
-        if (hooks.status === "failed") {
-          failures.push(`Worktrunk ${hooks.operation} hook failed: ${hooks.detail}`);
-        }
-      }
-    }
-
-    if (notes.length === 0 && failures.length === 0) return;
-    yield* tracker.stage(input.threadId, "checkout", {
-      ...(failures.length > 0 ? { status: "warning" as const } : {}),
-      detail: [...failures, ...notes].join("; "),
-    });
-    if (failures.length > 0) yield* persistFailures(input.threadId, failures);
+    if (failure === undefined) return;
+    yield* tracker.stage(input.threadId, "checkout", { status: "warning", detail: failure });
+    yield* persistFailure(input.threadId, failure);
   });
 
   return integrate;

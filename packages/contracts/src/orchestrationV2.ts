@@ -98,7 +98,6 @@ import {
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
 import * as ThreadArtifactsFork from "./threadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestration-v2-import
 import { ExternalSendModesFork } from "./externalMcpSend.fork.ts"; // fork-hook: device-auth/message-dispatch-expected-modes-import
-import { ThreadCheckoutMove } from "./checkoutMove.ts"; // fork-hook: zmux-estate/orchestration-v2-checkout-move-import
 import { ColleagueThreadOriginFork } from "./collaborator.fork.ts"; // fork-hook: colleague-collab/notice-origin-import
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
@@ -513,7 +512,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(GitRefName),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/app-thread-checkout-move
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   artifacts: ThreadArtifactsFork.ThreadArtifactLinksFieldFork, // fork-hook: thread-artifacts/app-thread-artifacts
@@ -2435,7 +2433,6 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(GitRefName),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/thread-shell-checkout-move
   collaboratorFork: Schema.optional(Schema.Literals(["send", "approve", "frozen", "read"])), // fork-hook: colleague-collab/thread-shell-access
   collaboratorSubjectFork: Schema.optional(Schema.String), // fork-hook: colleague-collab/thread-shell-subject
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -3512,7 +3509,6 @@ export const OrchestrationV2Command = Schema.Union([
     branch: Schema.optional(Schema.NullOr(GitRefName)),
     worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     expectedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-    checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/metadata-update-checkout-move
     expectedBranch: Schema.optional(Schema.NullOr(GitRefName)),
     /** A message queued in the same commit, so a workspace change cannot settle the thread first. */
     continuation: Schema.optional(Schema.Struct({ messageId: MessageId, text: Schema.String })),
