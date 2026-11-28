@@ -69,6 +69,7 @@ import {
   typingSubscription,
 } from "./CollaboratorTyping.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
+import { FrozenNoCopyFork, useFrozenWithoutCopyFork } from "./FrozenNoCopy.fork";
 import {
   QueuedForColleagueFork,
   submitMessageCommand,
@@ -179,6 +180,7 @@ export function useCollaboratorChatFork(
   const resolve = useAtomCommand(resolveMessageCommand);
   const clearComposerContent = useComposerDraftStore((store) => store.clearComposerContent);
   const access = thread?.collaboratorFork;
+  const noCopy = useFrozenWithoutCopyFork(thread);
   const configs = useServerConfigs();
   const served =
     thread != null &&
@@ -316,10 +318,12 @@ export function useCollaboratorChatFork(
     composer: (items: ReadonlyArray<ComposerBannerStackItem>) => {
       const bannerItems = hostOffline(items);
       if (access === "frozen") {
+        const stopped = gt("The host stopped sharing this thread.");
+        const banner = localizedBanner(FROZEN_BANNER, messages);
         return {
           canOperateThread: false,
-          sendDisabledReason: gt("The host stopped sharing this thread."),
-          bannerItems: [localizedBanner(FROZEN_BANNER, messages), ...bannerItems],
+          sendDisabledReason: stopped,
+          bannerItems: [noCopy ? { ...banner, description: stopped } : banner, ...bannerItems],
         };
       }
       // A host on an older build sends team threads as `read` and refuses requests there.
@@ -401,13 +405,16 @@ export function useCollaboratorChatFork(
       }
       return sendMenu;
     },
+    /** Nothing will load into a frozen thread this device never kept. */
+    syncPhase: noCopy ? { syncPhase: null } : {},
     footer: (footer: ReactNode) =>
-      thread == null || (waiting.length === 0 && outbox.queued.length === 0)
+      thread == null || (!noCopy && waiting.length === 0 && outbox.queued.length === 0)
         ? {}
         : {
             footer: (
               <>
                 {footer}
+                {noCopy ? <FrozenNoCopyFork /> : null}
                 {waiting.length === 0 ? null : (
                   <WaitingMessages
                     environmentId={thread.environmentId}
