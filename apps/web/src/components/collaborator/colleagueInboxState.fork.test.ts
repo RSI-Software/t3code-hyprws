@@ -8,7 +8,7 @@ import { expect, it } from "vite-plus/test";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { threadTriagePermitted } from "~/state/use-orchestration-command";
 import { readSendPermittedFork } from "./collaboratorAccess.fork";
-import { closeColleagueInboxFork, colleagueInboxAtom } from "./colleagueInbox.fork";
+import { closeColleagueInboxFork, colleagueInboxAtom } from "./colleagueInboxState.fork";
 import { readEnvironmentScopeDenied } from "~/state/session";
 
 it("browsing a colleague's inbox denies operate on their environment only, except a shared thread's send, even with no session there (offline), until it closes", () => {

@@ -25,6 +25,7 @@ import * as Option from "effect/Option";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
+import { collaboratorRenewalFork } from "../collaborator/collaboratorSubject.fork.ts"; // fork-hook: colleague-collab/session-renewal-import
 import type {
   ServerAuthInternalError,
   ServerAuthInvalidCredentialError,
@@ -1010,10 +1011,8 @@ const make = Effect.gen(function* () {
       const extended = yield* authSessions
         .extend({
           sessionId: claims.sid,
-          expiresAt: DateTime.max(
-            row.value.expiresAt,
-            DateTime.add(now, { milliseconds: Duration.toMillis(input.renewalWindow) }),
-          ), // fork-hook: colleague-collab/session-lifetime
+          expiresAt: DateTime.add(now, { milliseconds: Duration.toMillis(input.renewalWindow) }),
+          ...collaboratorRenewalFork(claims.sub, row.value.expiresAt), // fork-hook: colleague-collab/session-renewal
           now,
         })
         .pipe(

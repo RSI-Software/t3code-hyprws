@@ -33,7 +33,7 @@ import { waitForAtomValue } from "~/state/waitForAtomValue";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { createColleagueAttacherFork } from "./colleagueAttach.fork";
 import { ColleagueCopiesSyncFork } from "./colleagueCopy.fork";
-import { closeColleagueInboxFork } from "./colleagueInbox.fork";
+import { closeColleagueInboxFork } from "./colleagueInboxState.fork";
 import { createColleagueReconcilerFork, type KnownColleagueFork } from "./colleagueReconcile.fork";
 
 const colleaguesFamily = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {

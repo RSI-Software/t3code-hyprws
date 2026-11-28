@@ -21,7 +21,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import { SidebarFolderDrop } from "../sidebar/SidebarFolderDrop";
 import { SidebarContent, SidebarGroup, useSidebar } from "../ui/sidebar";
-import { colleagueInboxAtom } from "./colleagueInbox.fork";
+import { colleagueInboxAtom } from "./colleagueInboxState.fork";
 import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
 
 const MINE = "mine";
