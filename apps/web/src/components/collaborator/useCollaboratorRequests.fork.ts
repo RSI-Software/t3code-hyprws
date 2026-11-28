@@ -74,7 +74,7 @@ function useRequestedThreadFamiliesFork(
 }
 
 /** The sidebar's threads with their waiting requests; the same list when none wait. */
-export function useThreadsWithCollaboratorRequestsFork<T extends CollaboratorRequestShellFork>(
+function useThreadsWithCollaboratorRequestsFork<T extends CollaboratorRequestShellFork>(
   threads: readonly T[],
 ): readonly T[] {
   const requests = useCollaboratorRequestsFork();
@@ -83,6 +83,14 @@ export function useThreadsWithCollaboratorRequestsFork<T extends CollaboratorReq
   return threads.map((thread) =>
     withCollaboratorRequestsFork(thread, requests.get(collaboratorRequestKeyFork(thread))),
   );
+}
+
+/** The sidebar list's `threads` with their waiting requests; nothing to override when none wait. */
+export function useSidebarThreadsWithRequestsFork<T extends CollaboratorRequestShellFork>(
+  threads: readonly T[],
+): { readonly threads?: readonly T[] } {
+  const withRequests = useThreadsWithCollaboratorRequestsFork(threads);
+  return withRequests === threads ? {} : { threads: withRequests };
 }
 
 /** One card's live thread with its waiting requests. */

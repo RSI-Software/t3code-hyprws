@@ -82,7 +82,14 @@ it.effect("keeps a collaborator's browser and desktop sessions past 30 days", ()
 
     yield* TestClock.adjust("400 days");
     yield* sessions.verify(browser.sessionToken);
-    yield* serverAuth.renewAccessToken(desktop.access_token, key.thumbprint, Effect.void);
+    const renewed = yield* serverAuth.renewAccessToken(
+      desktop.access_token,
+      key.thumbprint,
+      Effect.void,
+    );
+    // A renewal keeps the collaborator's expiry, where a stock one would cut it to 30 days.
+    yield* TestClock.adjust("400 days");
+    yield* serverAuth.renewAccessToken(renewed.access_token, key.thumbprint, Effect.void);
   }).pipe(Effect.provide(layer)),
 );
 

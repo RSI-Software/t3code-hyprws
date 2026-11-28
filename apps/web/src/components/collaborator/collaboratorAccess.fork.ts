@@ -93,7 +93,11 @@ export const hostOnlyDetailsFork = (collaborator: boolean) =>
     : {};
 
 /** Automations stay the host's: a collaborator session, or one still loading, never asks for them. */
-export const useHostScheduledTasksFork = (environmentId: EnvironmentId, needed = true) =>
-  useHostSessionFork(environmentId) && needed
+export const useHostScheduledTasksFork = (environmentId: EnvironmentId) =>
+  useHostSessionFork(environmentId)
     ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} })
     : null;
+
+/** The automation a message names, or none where `useHostScheduledTasksFork` would not ask. */
+export const useHostScheduledTaskIdFork = <T>(environmentId: EnvironmentId, taskId: T) =>
+  useHostSessionFork(environmentId) ? taskId : undefined;

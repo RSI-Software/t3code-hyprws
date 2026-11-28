@@ -40,3 +40,7 @@ export const collaboratorSessionLifetimeFork = (
     : field === "ttl"
       ? { ttl: COLLABORATOR_SESSION_TTL }
       : { renewalWindow: COLLABORATOR_SESSION_TTL };
+
+/** A collaborator's renewal keeps the session's own expiry, which stock renewal would cut to its window. */
+export const collaboratorRenewalFork = <T>(subject: string, expiresAt: T) =>
+  isCollaboratorSubject(subject) ? { expiresAt } : {};
