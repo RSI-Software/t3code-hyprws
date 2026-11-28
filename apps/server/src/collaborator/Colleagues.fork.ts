@@ -38,6 +38,7 @@ import {
   ColleagueSelfErrorFork,
   ColleagueSilentErrorFork,
   type ColleagueSaveInputFork,
+  type ColleagueSaveResultFork,
   type ColleagueShareThreadInputFork,
   ColleagueStorageErrorFork,
   ColleagueUnknownShapeErrorFork,
@@ -114,6 +115,8 @@ const toColleague = (
   threadIds: threadIds.get(row.subject) ?? [],
 });
 
+const EnvironmentAnswer = Schema.Struct({ environmentId: EnvironmentId });
+
 const ClientPairingResponse = Schema.Struct({
   credential: TrimmedNonEmptyString,
   expiresAt: IsoDateTime,
@@ -181,7 +184,8 @@ export class ColleaguesFork extends Context.Service<
     ) => Effect.Effect<ColleagueGrantFork, ColleagueErrorFork>;
     /**
      * Accept step 2, called by a collaborator's session holding a colleague invite, or already
-     * saved: keeps their grant, answers with ours, never wider than the caller's session.
+     * saved: keeps their grant, answers with ours, never wider than the caller's session, and
+     * says whether their grant's address answers here.
      */
     readonly save: (
       caller: {
@@ -190,7 +194,7 @@ export class ColleaguesFork extends Context.Service<
         readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
       },
       input: ColleagueSaveInputFork,
-    ) => Effect.Effect<ColleagueGrantFork, ColleagueErrorFork>;
+    ) => Effect.Effect<ColleagueSaveResultFork, ColleagueErrorFork>;
     /** Accept step 3, owner: keeps the sharer's grant under step 1's subject. */
     readonly connect: (
       input: ColleagueConnectInputFork,
@@ -437,9 +441,23 @@ const make = Effect.gen(function* () {
     }
   });
 
-  const save: ColleaguesFork["Service"]["save"] = Effect.fn("ColleaguesFork.save")(function* (
-    { subject, sessionId: caller, scopes: held },
-    input,
+  /** Whether the colleague's address answers here as their environment, as attaching them needs. */
+  const answersAs = Effect.fn("ColleaguesFork.answersAs")(
+    function* (colleague: ColleagueFork) {
+      const response = yield* httpClient
+        .get(`${colleague.url}/.well-known/t3/environment`, { acceptJson: true })
+        .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk));
+      const answer = yield* HttpClientResponse.schemaBodyJson(EnvironmentAnswer)(response);
+      return answer.environmentId === colleague.environmentId;
+    },
+    Effect.timeoutOption(REMOTE_TIMEOUT),
+    Effect.map(Option.getOrElse(() => false)),
+    Effect.orElseSucceed(() => false),
+  );
+
+  const keepSaved = Effect.fn("ColleaguesFork.keepSaved")(function* (
+    { subject, sessionId: caller, scopes: held }: Parameters<ColleaguesFork["Service"]["save"]>[0],
+    input: ColleagueSaveInputFork,
   ) {
     if (!isCollaboratorSubject(subject)) return yield* new ColleagueNotInvitedErrorFork();
     const invited =
@@ -451,14 +469,21 @@ const make = Effect.gen(function* () {
     const scopes = COLLABORATOR_SCOPES.filter((scope) => held.includes(scope));
     if (scopes.length === 0) return yield* new ColleagueNoScopeErrorFork();
     const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl, scopes);
-    yield* store(subject, name, input.grant, sessionId, caller).pipe(
+    const saved = yield* store(subject, name, input.grant, sessionId, caller).pipe(
       Effect.onError(() => revoke(sessionId)),
     );
     if (invited !== undefined && input.invite !== undefined) {
       yield* shares.spendColleagueInvite(input.invite);
     }
-    return grant;
+    return { grant, saved };
   }, exclusive);
+  // Outside `exclusive`: a silent address holds no other save or removal.
+  const save: ColleaguesFork["Service"]["save"] = Effect.fn("ColleaguesFork.save")(
+    function* (caller, input) {
+      const { grant, saved } = yield* keepSaved(caller, input);
+      return { ...grant, returnReachable: yield* answersAs(saved) };
+    },
+  );
 
   const connect: ColleaguesFork["Service"]["connect"] = Effect.fn("ColleaguesFork.connect")(
     function* (input) {

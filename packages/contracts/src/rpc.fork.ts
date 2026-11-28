@@ -174,6 +174,7 @@ import {
   ColleagueQueueMessageInputFork,
   ColleagueRemoveResultFork,
   ColleagueSaveInputFork,
+  ColleagueSaveResultFork,
   ColleagueShareThreadInputFork,
   ColleagueSubjectInputFork,
   ColleagueUnqueueMessageInputFork,
@@ -267,7 +268,7 @@ export const collaboratorRpcFork = {
     }),
     Rpc.make("colleague.saveFork", {
       payload: ColleagueSaveInputFork,
-      success: ColleagueGrantFork,
+      success: ColleagueSaveResultFork,
       error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
     }),
     Rpc.make("colleague.connectFork", {

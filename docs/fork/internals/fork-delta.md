@@ -853,6 +853,7 @@ The thread id **rides the pairing URL query**, which pairing ignores; the deskto
 A **team project** carries `teamFork: true` on its project and shell; a client `project.update` or the agent tool `t3_project_update` sets it, `project.meta-updated` writes `fork_team_projects`, and every project read attaches it. The tool's description tells agents to set it **only when the user asks**.
 A **saved colleague** is a `fork_colleagues` row: each server keeps **the other's collaborator grant** as a bearer token in the secret store.
 Accepting runs **three client calls**: `colleague.inviteFork` (own server), `colleague.saveFork` (the sharer's, as the collaborator), `colleague.connectFork` (own server), so **no server reaches the other** to save.
+`colleague.saveFork` then **probes the step 1 grant's address** from the sharer's server, outside the save lock, and answers `returnReachable`; `false` turns the accepter's saved toast into a warning.
 Only a link with a **colleague invite** saves: `colleague.saveFork` spends the one-time token in `fork_colleague_invites` (digest only, 24 hours), or re-saves an already saved subject; a plain share link **saves nothing**.
 The grant `colleague.saveFork` issues is **never wider than the calling session**.
 A colleague's server **mints one-time pairing codes** for its own subject over `/api/fork/colleague/pair-client`: the same subject and scopes, so it **never widens** the grant, though it lacks `access:write`.

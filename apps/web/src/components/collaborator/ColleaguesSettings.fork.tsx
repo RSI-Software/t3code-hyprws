@@ -1,7 +1,7 @@
 // Fork-only (colleague-collab): Settings → Sharing & access lists the colleagues saved on the
-// chosen server, once each, with what it shares with them, and invites one by a colleague-only
-// link. Removing one ends their access on both servers; their devices stay listed under
-// Authorized clients until then.
+// chosen server, once each, with what they read (team projects and threads shared with them),
+// and invites one by a colleague-only link. Removing one ends their access on both servers;
+// their devices stay listed under Authorized clients until then.
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -25,7 +25,7 @@ import { useState } from "react";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { namedClipboardTarget, useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { useQuietThreadShell, useServerConfigs } from "~/state/entities";
+import { useProjects, useQuietThreadShell, useServerConfigs } from "~/state/entities";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
 import { readPreparedConnection } from "~/state/session";
@@ -170,6 +170,7 @@ function SharedThreadTitle(props: {
 function ColleagueRow(props: {
   readonly environmentId: EnvironmentId;
   readonly colleague: ColleagueFork;
+  readonly teamProjects: ReadonlyArray<string>;
   readonly canRemove: boolean;
 }) {
   const gt = useGT();
@@ -214,20 +215,31 @@ function ColleagueRow(props: {
     <SettingsRow
       title={colleague.name}
       description={
-        colleague.threadIds.length === 0 ? (
+        colleague.threadIds.length === 0 && props.teamProjects.length === 0 ? (
           gt("Nothing shared with them")
         ) : (
-          <ul aria-label={gt("Threads shared with {name}", { name: colleague.name })}>
-            {colleague.threadIds.map((threadId) => (
-              <SharedThreadTitle
-                key={threadId}
-                environmentId={props.environmentId}
-                threadId={threadId}
-                title={titles.data?.[threadId]}
-                settled={titles.isSuccess || titles.error !== null}
-              />
-            ))}
-          </ul>
+          <>
+            {props.teamProjects.length === 0 ? null : (
+              <span className="block">
+                {gt("Reads all threads in team projects: {projects}", {
+                  projects: props.teamProjects.join(", "),
+                })}
+              </span>
+            )}
+            {colleague.threadIds.length === 0 ? null : (
+              <ul aria-label={gt("Threads shared with {name}", { name: colleague.name })}>
+                {colleague.threadIds.map((threadId) => (
+                  <SharedThreadTitle
+                    key={threadId}
+                    environmentId={props.environmentId}
+                    threadId={threadId}
+                    title={titles.data?.[threadId]}
+                    settled={titles.isSuccess || titles.error !== null}
+                  />
+                ))}
+              </ul>
+            )}
+          </>
         )
       }
       control={
@@ -249,6 +261,10 @@ export function ColleaguesSettingsFork(props: {
   const searchableSetting = useSearchableSetting();
   const served = colleaguesServedFork(useServerConfigs(), props.environmentId);
   const { data } = useEnvironmentQuery(served ? colleaguesAtom(props.environmentId) : null);
+  // Every saved colleague reads every thread of a team project here, archived ones included.
+  const teamProjects = useProjects()
+    .filter((project) => project.environmentId === props.environmentId && project.teamFork)
+    .map((project) => project.title);
   if (!served) return null;
   const colleagues = data ?? [];
   return (
@@ -264,6 +280,7 @@ export function ColleaguesSettingsFork(props: {
             key={colleague.subject}
             environmentId={props.environmentId}
             colleague={colleague}
+            teamProjects={teamProjects}
             canRemove={props.canRemove}
           />
         ))

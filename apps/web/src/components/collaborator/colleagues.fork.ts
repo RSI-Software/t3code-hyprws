@@ -86,6 +86,9 @@ const sharerConnected = (environmentId: EnvironmentId) =>
     timeoutMs: SHARER_TIMEOUT_MS,
   });
 
+// Sharers whose save already warned that they cannot reach this server; the saved toast stands down.
+const warnedSaves = new Set<EnvironmentId>();
+
 const linkBase = (environmentId: EnvironmentId) => {
   const linkBaseUrl = readPreparedConnection(environmentId)?.httpBaseUrl;
   return linkBaseUrl === undefined ? {} : { linkBaseUrl };
@@ -154,6 +157,8 @@ export function useSaveColleagueFork() {
             input: { grant: invited.value, invite: colleagueInvite, ...linkBase(sharer) },
           })
         : invited;
+    const unreachable = saved._tag === "Success" && saved.value.returnReachable === false;
+    if (unreachable) warnedSaves.add(sharer);
     const connected =
       invited._tag === "Success" && saved._tag === "Success"
         ? await connect({
@@ -166,6 +171,30 @@ export function useSaveColleagueFork() {
             },
           })
         : saved;
+    if (connected._tag === "Success" && unreachable && invited._tag === "Success") {
+      const savedName = connected.value.name;
+      const returnUrl = invited.value.url;
+      const toastId = toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: gt("Saved {name}, but they can't reach you", { name: savedName }),
+          description: gt(
+            "{name}'s machine can't open {url}, so threads you share won't reach them.",
+            { name: savedName, url: returnUrl },
+          ),
+          timeout: 0,
+          actionProps: {
+            children: gt("Retry"),
+            onClick: () => {
+              toastManager.close(toastId);
+              void saveColleague(sharer, colleagueInvite);
+            },
+          },
+        }),
+      );
+      return;
+    }
+    warnedSaves.delete(sharer);
     if (connected._tag === "Success" || isAtomCommandInterrupted(connected)) return;
     const error = squashAtomCommandFailure(connected);
     fail(error instanceof Error ? error.message : String(error));
@@ -250,6 +279,7 @@ function AttachColleagues(props: { readonly environmentId: EnvironmentId }) {
     const saves = data.map((colleague) => `${colleague.subject}:${colleague.savedAt}`);
     for (const colleague of seen.current === null ? [] : data) {
       if (seen.current?.has(`${colleague.subject}:${colleague.savedAt}`)) continue;
+      if (warnedSaves.delete(colleague.environmentId)) continue;
       toastManager.add({
         type: "success",
         title: gt("Saved {name} as a colleague", { name: colleague.name }),

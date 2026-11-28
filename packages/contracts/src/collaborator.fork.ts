@@ -364,6 +364,14 @@ export const ColleagueSaveInputFork = Schema.Struct({
 });
 export type ColleagueSaveInputFork = typeof ColleagueSaveInputFork.Type;
 
+/** Step 2's answer: the sharer's grant, and whether the sharer's server reached the caller's. */
+export const ColleagueSaveResultFork = Schema.Struct({
+  ...ColleagueGrantFork.fields,
+  /** False when the step 1 grant's address did not answer as its environment; absent from older servers. */
+  returnReachable: Schema.optional(Schema.Boolean),
+});
+export type ColleagueSaveResultFork = typeof ColleagueSaveResultFork.Type;
+
 /** Accept step 3, on the accepting client's own server: keeps the sharer's grant. */
 export const ColleagueConnectInputFork = Schema.Struct({
   /** The `subject` of step 1's grant. */
