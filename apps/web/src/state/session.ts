@@ -19,7 +19,7 @@ import { environmentAtomList, environmentIdsKey } from "./environmentAtomList";
 import {
   readColleagueInboxVetoFork,
   useColleagueInboxVetoFork,
-} from "../components/collaborator/colleagueInbox.fork"; // fork-hook: colleague-collab/inbox-veto-import
+} from "../components/collaborator/colleagueInboxState.fork"; // fork-hook: colleague-collab/inbox-veto-import
 
 export const environmentSession = createEnvironmentSessionAtoms(connectionAtomRuntime);
 export const environmentSessionStatesAtom = environmentAtomList(
@@ -35,13 +35,12 @@ export function useEnvironmentScope(
 ): boolean {
   const vetoedFork = useColleagueInboxVetoFork(environmentId, scope); // fork-hook: colleague-collab/inbox-veto
   // Select the grant: every revalidation emits a new result, and most consumers are list rows.
-  const granted = useAtomValue(
+  return useAtomValue(
     environmentId === null
       ? EMPTY_SESSION_STATE_ATOM
       : environmentSession.sessionStateAtom(environmentId),
-    (result) => sessionHasScope(result, scope),
-  ); // fork-hook: colleague-collab/inbox-veto
-  return granted && !vetoedFork; // fork-hook: colleague-collab/inbox-veto
+    (result) => sessionHasScope(result, scope) && !vetoedFork, // fork-hook: colleague-collab/inbox-veto
+  );
 }
 
 export function useEnvironmentCanConfigureRelay(environmentId: EnvironmentId | null): boolean {
@@ -114,13 +113,12 @@ export function useEnvironmentScopeDenied(
   scope: AuthEnvironmentScope,
 ): boolean {
   const vetoedFork = useColleagueInboxVetoFork(environmentId, scope); // fork-hook: colleague-collab/inbox-veto
-  const denied = useAtomValue(
+  return useAtomValue(
     environmentId === null
       ? EMPTY_SESSION_STATE_ATOM
       : environmentSession.sessionStateAtom(environmentId),
-    (result) => sessionDeniesScope(result, scope),
-  ); // fork-hook: colleague-collab/inbox-veto
-  return denied || vetoedFork; // fork-hook: colleague-collab/inbox-veto
+    (result) => sessionDeniesScope(result, scope) || vetoedFork, // fork-hook: colleague-collab/inbox-veto
+  );
 }
 
 export function readEnvironmentScopeDenied(

@@ -116,7 +116,7 @@ import {
   ColleagueSidebarFork,
   useColleagueInboxFork,
 } from "./collaborator/ColleagueInbox.fork"; // fork-hook: colleague-collab/inbox-import
-import { readColleagueInboxBrowsingFork } from "./collaborator/colleagueInbox.fork"; // fork-hook: colleague-collab/inbox-shortcuts-import
+import { readColleagueInboxBrowsingFork } from "./collaborator/colleagueInboxState.fork"; // fork-hook: colleague-collab/inbox-shortcuts-import
 import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -145,7 +145,7 @@ import { isMacPlatform } from "~/lib/utils";
 import * as threadGroupsFork from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
 import { SidebarThreadGroupDropLayerFork, SidebarThreadGroupHeader } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
-import { useThreadsWithCollaboratorRequestsFork } from "./collaborator/useCollaboratorRequests.fork"; // fork-hook: colleague-collab/sidebar-requests-import
+import { useSidebarThreadsWithRequestsFork } from "./collaborator/useCollaboratorRequests.fork"; // fork-hook: colleague-collab/sidebar-requests-import
 import { liftCollaboratorRequestsFork } from "./collaborator/collaboratorRequests.logic.fork"; // fork-hook: colleague-collab/sidebar-requests-active-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
 import { sidebarThreadGroupLayoutFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
@@ -1263,7 +1263,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
-  const threads = useThreadsWithCollaboratorRequestsFork(useQuietThreadShells()); // fork-hook: colleague-collab/sidebar-requests
+  const threads = useQuietThreadShells();
   const promotingDraftThreadKeys = usePromotingDraftThreadKeys();
   const listedThreads =
     promotingDraftThreadKeys.length === 0
@@ -1509,6 +1509,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     connectedEnvironmentIds,
     optimisticDrop,
     threads: listedThreads,
+    ...useSidebarThreadsWithRequestsFork(listedThreads), // fork-hook: colleague-collab/sidebar-requests
     delegatedUnderParent,
     routeRowThreadKey,
     departingThreadKey,

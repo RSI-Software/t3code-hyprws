@@ -541,15 +541,15 @@ export function SortableThreadRow(
     scopeThreadRef(rowProps.thread.environmentId, rowProps.thread.id),
   );
   // A runtime on the arranged copy but not the run-less live shell is the list's launch overlay.
-  const thread = useThreadWithCollaboratorRequestsFork(
+  const thread =
     liveThread === null
       ? rowProps.thread
       : rowProps.thread.runtime !== null
         ? asLaunchingThread(liveThread)
-        : liveThread,
-  ); // fork-hook: colleague-collab/sidebar-row-requests
+        : liveThread;
+  const cardFork = useThreadWithCollaboratorRequestsFork(thread); // fork-hook: colleague-collab/sidebar-row-requests
   // Keyed by variant so a card/slim switch remounts the row.
-  return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
+  return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={cardFork} sortable={bag} />; // fork-hook: colleague-collab/sidebar-row-requests
 }
 export type SidebarSweepAction = "settle" | "unsettle" | "unsnooze";
 const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {

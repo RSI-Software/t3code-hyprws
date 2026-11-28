@@ -17,9 +17,10 @@ import { Link } from "@tanstack/react-router";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironment } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
+import { serverEnvironment } from "../../state/server";
 import {
   useCollaboratorSessionFork,
-  useHostScheduledTasksFork,
+  useHostScheduledTaskIdFork,
 } from "../collaborator/collaboratorAccess.fork"; // fork-hook: colleague-collab/automations-host-import
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { memo, use, useState, type ReactNode } from "react";
@@ -402,8 +403,9 @@ export function useScheduledTaskTitle(
   environmentId: EnvironmentId,
   scheduledTaskId: ScheduledTaskId | undefined,
 ): string | undefined {
+  const hostTaskIdFork = useHostScheduledTaskIdFork(environmentId, scheduledTaskId); // fork-hook: colleague-collab/automations-host-only
   const tasksQuery = useEnvironmentQuery(
-    useHostScheduledTasksFork(environmentId, scheduledTaskId !== undefined), // fork-hook: colleague-collab/automations-host-only
+    hostTaskIdFork ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} }) : null, // fork-hook: colleague-collab/automations-host-only
   );
   return tasksQuery.data?.tasks.find((task) => task.id === scheduledTaskId)?.title;
 }
