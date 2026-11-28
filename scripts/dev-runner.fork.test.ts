@@ -181,6 +181,23 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
       assert.isUndefined(explicit?.CODEX_HOME);
     }).pipe(Effect.scoped),
   );
+  it.effect("keeps a malformed worktree agent config byte for byte", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeWorktree;
+      const files = {
+        [NodePath.join(cwd, ".t3", "claude", "settings.json")]: '{"env": {"A": "1",}}',
+        [NodePath.join(cwd, ".t3", "codex", "config.toml")]: "[features\nhooks = true",
+      };
+      for (const [file, text] of Object.entries(files)) {
+        NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
+        NodeFS.writeFileSync(file, text);
+      }
+      yield* spawnedEnv({ cwd, home: NodePath.join(cwd, "home") });
+      for (const [file, text] of Object.entries(files)) {
+        assert.equal(NodeFS.readFileSync(file, "utf8"), text);
+      }
+    }).pipe(Effect.scoped),
+  );
   it.effect("disables zmux for worktree state unless opted back in", () =>
     Effect.gen(function* () {
       const cwd = yield* makeWorktree;
