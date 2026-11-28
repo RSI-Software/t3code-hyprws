@@ -32,7 +32,7 @@ You each save the other as a **colleague**, and both apps say so: **Saved Jordan
 The sharer's app names you by **the name they typed**; yours names them by **their git `user.name`**, else by their machine.
 
 - Threads they share with you later **appear live**, with no new link
-- A colleague sees **nothing of yours** until you share a thread
+- A colleague sees **nothing of yours** until you share a thread or mark its project **team**
 - In a browser with no T3 Code of its own, you stay a **one-time guest**
 
 To share with a saved colleague, right-click the thread, then **Share with → their name**: **one click**, no link.
