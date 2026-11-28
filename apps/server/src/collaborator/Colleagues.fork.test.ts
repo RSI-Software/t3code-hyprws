@@ -279,10 +279,15 @@ const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subj
  * The host shares a thread with Sam through a link; Sam accepts it in their own app, which runs the
  * three accept steps against their own server and the host's, and names the host as its grant does.
  */
-const accept = Effect.fn("accept")(function* (host: Server, sam: Server, invite?: string) {
+const accept = Effect.fn("accept")(function* (
+  host: Server,
+  sam: Server,
+  invite?: string,
+  app = samApp,
+) {
   const samGrant = yield* sam.colleagues.invite({ environmentId: host.environmentId, name: "Jo" });
   assert.isUndefined(samGrant.name);
-  const hostGrant = yield* host.colleagues.save(samApp, {
+  const hostGrant = yield* host.colleagues.save(app, {
     grant: samGrant,
     ...(invite && { invite }),
   });
@@ -471,12 +476,19 @@ it.effect("Settings' invite link saves a colleague and shares no thread", () =>
       const sam = yield* makeServer("sam", 3802);
       const { pairingUrl } = yield* host.shares.inviteColleague({ name: "Sam" });
       assert.isFalse(new URL(pairingUrl).searchParams.has("thread"));
-      host.sessions.set("sam-app", { sessionId: "sam-app", subject: "colleague:sam" });
+      const { subject } = host.links.at(-1)!;
+      host.sessions.set("sam-app", { sessionId: "sam-app", subject });
 
-      const hostOnSam = yield* accept(host, sam, inviteOf(pairingUrl));
+      const hostOnSam = yield* accept(host, sam, inviteOf(pairingUrl), { ...samApp, subject });
       assert.strictEqual(hostOnSam.name, "Jo");
       const [samOnHost] = yield* host.colleagues.list;
-      assert.deepInclude(samOnHost, { subject: "colleague:sam", name: "Sam", threadIds: [] });
+      assert.deepInclude(samOnHost, { subject, name: "Sam", threadIds: [] });
+
+      // A typed name is always a new person: two "Alex" invites give two subjects.
+      yield* host.shares.inviteColleague({ name: "Alex" });
+      yield* host.shares.inviteColleague({ name: "Alex" });
+      const [first, second] = host.links.slice(-2).map((link) => link.subject);
+      assert.notStrictEqual(first, second);
     }),
   ),
 );

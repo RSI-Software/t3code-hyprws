@@ -220,10 +220,9 @@ const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const digest = yield* Digest.Digest;
   // The table keeps only a digest, so a database read cannot spend an invite.
-  const inviteDigest = (token: string) =>
-    digest
-      .digest(Digest.sha256, new TextEncoder().encode(token))
-      .pipe(Effect.map(Base64Url.encode));
+  const inviteDigest = Effect.fn("CollaboratorSharesFork.inviteDigest")(function* (token: string) {
+    return Base64Url.encode(yield* digest.digest(Digest.sha256, new TextEncoder().encode(token)));
+  });
   // The local tunnel's public hostname, then the origin the sharing client reached, then a guess.
   const pairingBaseUrl = Effect.fn("CollaboratorSharesFork.pairingBaseUrl")(function* (
     linkBaseUrl: string | undefined,
@@ -347,15 +346,21 @@ const make = Effect.gen(function* () {
     return { pairingUrl: pairing.toString(), localOnly };
   });
 
+  // A typed name is always a new person, so it never reaches someone else's grant.
+  const newPersonSubject = Effect.fn("CollaboratorSharesFork.newPersonSubject")(function* (
+    name: string,
+  ) {
+    return `${collaboratorSubject(name)}-${yield* random.uuidV4()}`;
+  });
+
   const share = Effect.fn("CollaboratorSharesFork.share")(function* (
     input: CollaboratorShareThreadInputFork,
   ) {
     const thread = yield* readThread(input.threadId);
-    // Only a pick of someone shared before reaches their grant; a typed name is a new person.
+    // Only a pick of someone shared before reaches their grant.
     const picked =
       input.subject !== undefined && current.has(input.subject) ? input.subject : undefined;
-    const subject =
-      picked ?? `${collaboratorSubject(input.collaboratorName)}-${yield* random.uuidV4()}`;
+    const subject = picked ?? (yield* newPersonSubject(input.collaboratorName));
     const collaboratorName = current.get(subject)?.name ?? input.collaboratorName;
     const knownCollaborator = yield* auth.listSessions().pipe(
       Effect.map((sessions) => sessions.some((session) => session.subject === subject)),
@@ -373,15 +378,16 @@ const make = Effect.gen(function* () {
     return { ...link, knownCollaborator, collaboratorName };
   });
 
-  const inviteColleague: CollaboratorSharesFork["Service"]["inviteColleague"] = (input) => {
-    const subject = collaboratorSubject(input.name);
-    return mintLink({
-      subject,
-      name: current.get(subject)?.name ?? input.name,
+  const inviteColleague: CollaboratorSharesFork["Service"]["inviteColleague"] = Effect.fn(
+    "CollaboratorSharesFork.inviteColleague",
+  )(function* (input) {
+    return yield* mintLink({
+      subject: yield* newPersonSubject(input.name),
+      name: input.name,
       linkBaseUrl: input.linkBaseUrl,
       colleague: true,
     });
-  };
+  });
 
   const colleagueInvite: CollaboratorSharesFork["Service"]["colleagueInvite"] = Effect.fn(
     "CollaboratorSharesFork.colleagueInvite",
