@@ -646,58 +646,14 @@ The domain retires when it is empty.
 
 ## zmux-estate
 
-### Need
-
-- Terminal and worktree **in zmux**
-- Upstream owns **no session manager**
-
-### Shape
-
-`terminalSessionMode` is the **default launch**; a terminal's `sessionModeFork` overrides it.
-`zmuxAutoSessions` (null follows the launch mode) **gates worktree adoption** and unsettle restore.
-The **physical checkout owns** its managed session; threads are consumers.
-A **delegated child's worktree binds lazily**, on first terminal open, at launch and on unsettle.
-T3 **snapshots a session identity** and hands it back for conditional removal.
-Settle or delete **kills the checkout session** and every tab; viewers and busy commands do not preserve it.
-`thread.unsettled` **re-ensures** a linked worktree's session through the automatic gate.
-Each plain-shell fallback **prints its reason**; a missing binary degrades silently.
-Legacy `zmuxSessions` **folds into `terminalSessionMode`** on load.
-The binder, `apps/server/src/zmux/`, runs **through `ProcessRunner`** with tmux variables stripped.
-
-### Demand leases
-
-**Visible terminal surfaces** hold demand: web on document visibility, Electron on each shown, non-minimized window, **never on focus**.
-Electron **cannot see Hyprland workspace occlusion**, so a shown window on an inactive workspace still holds demand.
-Client streams **release immediately**; a server-owned grace timer then detaches only the `zmux open` PTY.
-Resume **re-resolves the persisted checkout**, so renames follow the verified target.
-
-### Checkout moves
-
-A thread moves between existing checkouts through a **durable requested and effective transition**, queued behind active turns and serialized by ordered checkout leases.
-A move **relocates a provider only** when that thread has a live runtime; a dormant thread moves metadata and records a null effective checkout.
-**Partial failures retain** provider availability and the observed effective checkout.
-A turn start on a thread whose **worktree is gone** runs a recovery move to the project root inline, bypassing only that thread's own pending turn.
-Terminal follow and pin **stay client-owned**; move state carries no attachment identities.
-Move state **rides the V2 thread payload** through `thread.metadata.update`, so it needs no fork column.
-`ForkSchema.ts` only **clears the stale migration record** a V1 build left behind.
-Managed suspension **stays internal**; released clients decode it through the optional `attachmentStatus` sibling.
-
-### Retirement condition
-
-Upstream terminals attach to an operator-chosen external session manager, and worktree lifecycle exposes hooks it can bind to.
+**Retired.** Managed zmux terminals and checkout moves are gone; upstream recreates a missing worktree on turn start and moves a thread through the branch selector.
+Its commits and their removal **fold out at the next sync**; then delete this section and the trailer value.
 
 ### Rebase scan
 
-| Path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Why it matters                                     |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `apps/server/src/terminal/ManagedAttachmentLifecycle.ts`, `apps/web/src/state/terminalAttachmentRetention.fork.ts`, `apps/server/src/zmux/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Fork-only; a conflict means upstream took the path |
-| `packages/contracts/src/terminal.ts`, `packages/contracts/src/settings.ts`, `packages/contracts/src/git.ts`, `packages/contracts/src/ipc.ts`, `packages/contracts/src/settings.test.ts`, `packages/contracts/src/orchestration.ts`, `packages/contracts/src/index.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Shared contracts and wire schemas                  |
-| `apps/server/src/terminal/Manager.ts`, `apps/server/src/git/GitWorkflowService.ts`, `apps/server/src/orchestration-v2/EventSink.ts`, `apps/server/src/orchestration-v2/Orchestrator.ts`, `apps/server/src/orchestration-v2/ProjectionStore.ts`, `apps/server/src/orchestration-v2/runtimeLayer.ts`, `apps/server/src/orchestration-v2/ThreadLaunchService.ts`, `apps/server/src/server.ts`, `apps/server/src/ws.ts`, `apps/server/src/git/GitManager.ts`, `apps/server/src/git/GitManager.test.ts`, `apps/server/src/serverSettings.ts`, `apps/server/src/serverSettings.test.ts`, `apps/server/src/processRunner.ts`, `apps/server/src/git/CheckoutMutationCoordinator.ts`, `apps/server/src/project/AgentSessionImporter.test.ts`, `apps/server/src/persistence/ForkSchema.ts`, `apps/server/src/orchestration-v2/testkit/ProviderReplayHarness.ts` | Shared server and orchestration seams              |
-| `apps/web/src/components/ThreadTerminalDrawer.tsx`, `apps/web/src/components/onboarding/WelcomePage.tsx`, `apps/web/src/state/terminalSessions.ts`, `apps/web/src/state/terminalSessions.test.ts`, `apps/web/src/state/terminalAttachmentRetention.fork.test.ts`, `apps/web/src/components/settings/SettingsPanels.tsx`, `apps/web/src/components/ThreadTerminalDrawer.test.ts`, `apps/web/src/components/settings/settingsSearch.ts`, `apps/web/src/state/entities.ts`, `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/BranchToolbarBranchSelector.tsx`, `apps/web/src/components/BranchToolbarBranchSelector.fork.ts`, `apps/web/src/components/BranchToolbar.logic.fork.ts`, `apps/web/src/terminal/ghostty/surface.ts`                                                                                                          | Shared web surfaces                                |
-| `apps/desktop/src/window/DesktopWindow.ts`, `apps/desktop/src/preview/WindowPolicy.preload.ts`, `apps/desktop/src/ipc/channels.ts`, `apps/desktop/src/window/DesktopWindow.test.ts`, `apps/desktop/src/preload.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Shared desktop and Electron seams                  |
-| `apps/mobile/src/features/terminal/ThreadTerminalRouteScreen.tsx`, `apps/mobile/src/persistence/mobile-preferences.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Shared mobile surfaces                             |
-| `packages/client-runtime/src/state/terminal.ts`, `packages/client-runtime/src/state/runtime.test.ts`, `packages/client-runtime/src/operations/checkoutMove.fork.ts`, `packages/client-runtime/src/operations/commands.ts`, `packages/client-runtime/src/state/threadCommands.ts`, `packages/client-runtime/src/state/checkoutMove.ts`, `packages/client-runtime/package.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Shared packages                                    |
-| `docs/architecture/terminal-renderers.md`, `docs/user/source-control.md`, `docs/internals/terminal-runtime.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Shared tooling, workflows, and docs                |
+| Path | Why it matters                                  |
+| ---- | ----------------------------------------------- |
+| `**` | Retired; keep upstream's side of every conflict |
 
 ## worktrunk-hooks
 

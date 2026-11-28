@@ -34,7 +34,6 @@ import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
-import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 
 export class GitWorkflowService extends Context.Service<
@@ -206,7 +205,6 @@ export const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => rootPath),
       Effect.flatMap((cwd) => withWorkspaceLease(cwd, effect)),
     );
-  const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
   const worktrunkHookRunner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
@@ -286,21 +284,6 @@ export const make = Effect.gen(function* () {
     }
     return true;
   });
-
-  const reconcileManagedSession = Effect.fn("GitWorkflowService.reconcileManagedSession")(
-    function* (cwd: string) {
-      const result = yield* zmuxSessionBinder.reconcileExisting(cwd);
-      if (result.status === "failed") {
-        yield* Effect.logWarning(
-          "Git branch changed but its managed zmux session did not reconcile",
-          {
-            cwd,
-            detail: result.notice.detail,
-          },
-        );
-      }
-    },
-  );
 
   const routeGitManager =
     <Input extends { readonly cwd: string }, Output>(
@@ -556,7 +539,6 @@ export const make = Effect.gen(function* () {
       return ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
         Effect.andThen(
           Effect.gen(function* () {
-            const preparedUnbind = yield* zmuxSessionBinder.prepareUnbind(input.path);
             // Decide before removal: the marker lives in the gitdir that
             // `git worktree remove` deletes.
             const worktrunk = yield* worktrunkHookRunner.isWorktrunkWorktree(input.path);
@@ -582,35 +564,6 @@ export const make = Effect.gen(function* () {
                 worktreePath: input.path,
               });
             }
-            if (preparedUnbind.status === "prepared") {
-              const result = yield* zmuxSessionBinder.unbind(preparedUnbind.identity);
-              if (result.status !== "unbound") {
-                const detail =
-                  result.status === "failed"
-                    ? result.notice.detail
-                    : `cleanup returned ${result.status}`;
-                return yield* new GitCommandError({
-                  operation: "GitWorkflowService.removeWorktree.cleanup",
-                  command: "zmux session kill",
-                  cwd: input.cwd,
-                  detail: `The worktree was removed, but its managed session cleanup failed: ${detail}. Retry only with the frozen identity: \`${ZmuxSessionBinder.protectedCleanupCommand(preparedUnbind.identity)}\`.`,
-                });
-              }
-            } else if (
-              preparedUnbind.status === "failed" ||
-              preparedUnbind.status === "unavailable"
-            ) {
-              return yield* new GitCommandError({
-                operation: "GitWorkflowService.removeWorktree.cleanup",
-                command: "zmux session resolve",
-                cwd: input.cwd,
-                detail: `The worktree was removed, but its managed session was preserved because cleanup ownership could not be verified: ${
-                  preparedUnbind.status === "failed"
-                    ? preparedUnbind.notice.detail
-                    : "zmux became unavailable before its exact cleanup identity could be prepared"
-                }`,
-              });
-            }
           }),
         ),
       );
@@ -632,9 +585,6 @@ export const make = Effect.gen(function* () {
             ? withCheckoutLease(handle.repository.rootPath, git.createRef(input))
             : git.createRef(input),
         ),
-        Effect.tap(() =>
-          input.switchRef === true ? reconcileManagedSession(input.cwd) : Effect.void,
-        ),
       );
     }),
     switchRef: Effect.fn("GitWorkflowService.switchRef")(function (input) {
@@ -642,18 +592,11 @@ export const make = Effect.gen(function* () {
         Effect.flatMap((handle) =>
           withCheckoutLease(handle.repository.rootPath, Effect.scoped(git.switchRef(input))),
         ),
-        Effect.tap(() => reconcileManagedSession(input.cwd)),
       );
     }),
     renameBranch: Effect.fn("GitWorkflowService.renameBranch")(function (input) {
       return ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(
-        Effect.andThen(
-          Effect.gen(function* () {
-            const renamed = yield* git.renameBranch(input);
-            yield* reconcileManagedSession(input.cwd);
-            return renamed;
-          }),
-        ),
+        Effect.andThen(git.renameBranch(input)),
       );
     }),
   });

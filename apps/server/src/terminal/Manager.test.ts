@@ -58,7 +58,6 @@ import { makePrepareTerminalLaunch } from "../workspace/restoreMissingWorktree.t
 import { layerNoTaskFolders } from "../orchestration-v2/ProviderTurnStartService.testkit.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import { terminalOutputStream } from "./OutputProtocol.ts";
-import { awaitStartingExitEvictionFork } from "./Manager.eviction.fork-test-harness.ts"; // fork-hook: zmux-estate/starting-exit-eviction
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -1064,10 +1063,8 @@ it.layer(
       ]);
       expect(ptyAdapter.spawnInputs).toHaveLength(1);
 
-      const evictFork = yield* awaitStartingExitEvictionFork(manager, unsubscribe, "thread-1"); // fork-hook: zmux-estate/starting-exit-eviction
       // Opening another terminal completes eviction before the next resumed attach.
       yield* manager.open(openInput({ threadId: "thread-2" }));
-      yield* evictFork(ptyAdapter.processes[1]); // fork-hook: zmux-estate/starting-exit-eviction
       const unsubscribeEvicted = yield* manager.attachStream(
         { ...openInput(), restartIfNotRunning: true, resume: true },
         (event) => Ref.update(attachEvents, (events) => [...events, event]),

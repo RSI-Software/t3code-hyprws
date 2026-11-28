@@ -70,8 +70,6 @@ Enable **Settings → Labs → Boring sidebar (group by project)** on web/deskto
 
 > Tip: If a scheduled task targets a thread, settle it instead of archiving—archiving causes scheduled runs to fail.
 
-For a worktree using [managed zmux terminals](../fork/user/managed-terminals.md#settle-a-thread), settlement permanently removes the whole session, every tab, and running commands such as dev servers.
-
 ### Settlement rules and hooks
 
 - **Automatic settlement**: By default, environments settle threads after 7 days of inactivity or when their linked PR merges/closes (even while your apps are closed). Active work, pending questions/approvals, and waited-on background work block auto-settlement. Configure rules in **Settings → Threads** (per environment or **All environments**), including **Keep threads with a PR**.
@@ -79,8 +77,6 @@ For a worktree using [managed zmux terminals](../fork/user/managed-terminals.md#
 - **Drag-to-settle** (web/desktop): Press and drag down/up from a thread's **Settle**, **Un-settle**, or **Wake** button to act on a contiguous range (`Esc` cancels).
 - **Offline settle/snooze**: Queues locally (**Pending** / **Waiting to sync**) and syncs on reconnect; remote changes take precedence if the thread changed in the meantime.
 - **Worktree cleanup on settle**: Enable **Run in the thread's worktree when the thread settles** on a project action (or `"runOnSettle": true` in `t3.json`), e.g. `cargo clean`, to reclaim disk space automatically in worktree threads.
-
-These actions run in independent shells, so managed-session removal does not interrupt them.
 
 ### Snooze options
 

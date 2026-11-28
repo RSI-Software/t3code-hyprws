@@ -207,10 +207,6 @@ export const TerminalFontSize = Schema.Int.check(
 export type TerminalFontSize = typeof TerminalFontSize.Type;
 const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
 
-export const TerminalSessionMode = Schema.Literals(["shell", "zmux"]);
-export type TerminalSessionMode = typeof TerminalSessionMode.Type;
-const DEFAULT_TERMINAL_SESSION_MODE: TerminalSessionMode = "shell";
-
 // "artwork" follows the running channel and shows nothing on Latest. The fixed artwork
 // modes let any channel opt into a specific channel's art.
 export const EnvironmentIdentificationMode = Schema.Literals([
@@ -1632,15 +1628,6 @@ export const ServerSettings = Schema.Struct({
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   /** Clones default to `<addProjectBaseDirectory>/<host>/<owner>/<repo>`, like ghq. */
   ghqCloneLayout: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  // `zmuxSessions` boolean folds into this key via
-  // `migrateLegacyZmuxSettings` before decode.
-  terminalSessionMode: TerminalSessionMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_SESSION_MODE)),
-  ),
-  zmuxAutoSessions: Schema.NullOr(Schema.Boolean).pipe(
-    // Null follows the launch mode; read it through `zmuxAutoSessionsEnabled`.
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ), // fork-hook: zmux-estate/auto-sessions-setting
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1719,20 +1706,6 @@ export const ServerSettings = Schema.Struct({
 export type ServerSettings = typeof ServerSettings.Type;
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = Schema.decodeSync(ServerSettings)({});
-
-export const migrateLegacyZmuxSettings = (raw: unknown): unknown => {
-  // Fold the retired `zmuxSessions` boolean into `terminalSessionMode`: `true` keeps managed
-  // sessions unless a mode is pinned; other shapes just lose the key. Runs on raw JSON before
-  // decode, so the file converges on the next write.
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw) || !("zmuxSessions" in raw)) {
-    return raw;
-  }
-  const { zmuxSessions, ...rest } = raw as Record<string, unknown>;
-  if (zmuxSessions === true && rest.terminalSessionMode === undefined) {
-    return { ...rest, terminalSessionMode: "zmux" satisfies TerminalSessionMode };
-  }
-  return rest;
-}; // fork-hook: zmux-estate/legacy-zmux-settings-migration
 
 /**
  * Fork: lift a settings file that stored `defaultThreadEnvMode: "worktrunk"`
@@ -2092,8 +2065,6 @@ export const ServerSettingsPatch = Schema.Struct({
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
-  terminalSessionMode: Schema.optionalKey(TerminalSessionMode),
-  zmuxAutoSessions: Schema.optionalKey(Schema.NullOr(Schema.Boolean)), // fork-hook: zmux-estate/auto-sessions-patch
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),

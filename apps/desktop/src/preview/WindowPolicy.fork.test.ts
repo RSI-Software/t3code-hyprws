@@ -30,7 +30,6 @@ const { fromWebContents, fromId, ipcRenderer } = vi.hoisted(() => ({
   fromWebContents: vi.fn(() => null as Electron.BrowserWindow | null),
   fromId: vi.fn(() => null as Electron.WebContents | null),
   ipcRenderer: {
-    on: vi.fn<(channel: string, listener: (event: unknown, ...args: never[]) => void) => void>(),
     invoke: vi.fn(() => Promise.resolve()),
   },
 }));
@@ -40,17 +39,6 @@ vi.mock("electron", () => ({
   ipcRenderer,
   webContents: { fromId },
 }));
-
-// The preload module subscribes once at load, and Vitest clears mock calls
-// before each test, so its load-time subscriptions are kept here.
-const loadSubscriptions = [...ipcRenderer.on.mock.calls];
-const subscriptions = () => [...loadSubscriptions, ...ipcRenderer.on.mock.calls];
-
-/** Replays what the main process pushes on a preload channel the bridge subscribed to. */
-const emit = (channel: string, ...args: ReadonlyArray<unknown>) => {
-  for (const [subscribed, listener] of subscriptions())
-    if (subscribed === channel) listener({}, ...(args as never[]));
-};
 
 const firstWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
 const secondWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
@@ -263,43 +251,6 @@ describe("desktop preview window policy", () => {
     } finally {
       process.argv = originalArgv;
     }
-  });
-
-  it("tracks hub demand state per preload and stops after unsubscribe", () => {
-    const exposed = exposePreviewCapability({} as PreviewCapableDesktopBridge);
-    const seen: Array<boolean> = [];
-    const unsubscribe = exposed.onWindowDemandStateChange((demanded) => seen.push(demanded));
-
-    expect(exposed.getWindowDemandState()).toBe(true);
-    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, false);
-    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, false);
-    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, "no");
-    expect(exposed.getWindowDemandState()).toBe(false);
-
-    unsubscribe();
-    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, true);
-
-    // Repeats and non-boolean payloads never reach a listener, and the state
-    // keeps advancing for `getWindowDemandState` after the listener is gone.
-    expect(seen).toStrictEqual([false]);
-    expect(exposed.getWindowDemandState()).toBe(true);
-  });
-
-  it("subscribes the demand channel once no matter how many bridges are exposed", () => {
-    const before = subscriptions().filter(
-      ([channel]) => channel === IpcChannels.WINDOW_DEMAND_STATE_CHANNEL,
-    ).length;
-
-    exposePreviewCapability({} as PreviewCapableDesktopBridge);
-    exposePreviewCapability({} as PreviewCapableDesktopBridge);
-
-    // The listener belongs to the preload module, not to a bridge, so a repeat
-    // call never adds a second `ipcRenderer` subscription.
-    expect(
-      subscriptions().filter(([channel]) => channel === IpcChannels.WINDOW_DEMAND_STATE_CHANNEL)
-        .length,
-    ).toBe(before);
-    expect(before).toBe(1);
   });
 
   effectIt.effect("keeps project preview events out of hub compatibility listeners", () => {

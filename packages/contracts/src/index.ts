@@ -15,7 +15,6 @@ export * from "./desktopAppActivation.ts";
 export * from "./remoteAccess.ts";
 export * from "./ipc.ts";
 export * from "./terminal.ts";
-export * from "./checkoutMove.ts";
 export * from "./provider.ts";
 export * from "./providerInstance.ts";
 export * from "./providerSetup.ts";
@@ -93,4 +92,3 @@ export * from "./colleagueThreads.fork.ts"; // fork-hook: colleague-collab/colle
 export { teamProjectChangeFork } from "./teamProject.fork.ts"; // fork-hook: colleague-collab/team-project-export
 export * from "./speechRemoteModel.fork.ts"; // fork-hook: voice-input/contracts-export
 export * from "./voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-contracts
-export * from "./terminalSession.fork.ts"; // fork-hook: zmux-estate/terminal-session-export

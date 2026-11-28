@@ -278,7 +278,6 @@ it.effect("a conversation fork resets source controls and keeps source children"
     ] as const)
       assert.isNull(fork[field]);
     assert.isUndefined(fork.rollbackRequestId);
-    assert.isUndefined(fork.checkoutMove);
     assert.deepEqual(fork.forkedFrom, { type: "run", threadId: sourceId, runId: cutoffRunId });
     assert.equal(fork.lineage.parentThreadId, sourceId);
     yield* threads.dispatch({

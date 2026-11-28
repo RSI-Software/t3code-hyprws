@@ -16,12 +16,12 @@ They are not separate instances: every window shares one Electron process, backe
 ```text
 ┌─ Virtual desktop 1 ──────────┐   ┌─ Virtual desktop 2 ──────────┐
 │ T3 Code · Project A          │   │ T3 Code · Projects B, C      │
-│ editor + zmux · browsers     │   │ editor + zmux · browsers     │
+│ editor · browsers            │   │ editor · browsers            │
 └──────────────────────────────┘   └──────────────────────────────┘
                └──────── one backend, one state ────────┘
 ```
 
-My setup around it is opinionated: Hyprland, dual-monitor virtual desktops, `zmux`, and Worktrunk.
+My setup around it is opinionated: Hyprland, dual-monitor virtual desktops, and Worktrunk.
 The fork encodes none of that policy.
 
 ## Multiple windows
@@ -103,26 +103,6 @@ https://github.com/user-attachments/assets/f3b4c546-8c33-4f11-97bc-1c2eff67d195
 **Rich and Source views of an existing file**
 
 https://github.com/user-attachments/assets/4dc25fb0-3ed7-4cc2-9eee-d5b34eb3cd57
-
-</details>
-
-### Managed `zmux` terminals
-
-- **Terminals join** the checkout's session
-- **New worktrees join** the same session
-- **Shared** between T3 Code and the CLI
-- **Pick zmux or plain** in Settings → Terminal
-
-See the **[guide](docs/fork/user/managed-terminals.md)**.
-
-https://github.com/user-attachments/assets/3fa4a68f-a189-4ca8-98d5-416e8c9eb4fd
-
-<details>
-<summary>More clips</summary>
-
-**Open a plain shell alongside managed `zmux`**
-
-https://github.com/user-attachments/assets/283f3ee9-a2f5-4f8a-821f-7d67d0994064
 
 </details>
 

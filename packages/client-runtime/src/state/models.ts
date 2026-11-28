@@ -22,7 +22,6 @@ import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
 
 import { formatSubagentDisplayTitle } from "./subagentDisplay.ts";
-import { checkoutMoveShellFieldsFork } from "./checkoutMove.ts"; // fork-hook: zmux-estate/shell-checkout-move-import
 
 export interface EnvironmentProject extends OrchestrationProjectShell {
   readonly environmentId: EnvironmentId;
@@ -208,7 +207,6 @@ export interface EnvironmentThreadShell {
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
   readonly artifacts?: OrchestrationV2ThreadShell["artifacts"]; // fork-hook: thread-artifacts/client-shell-artifacts-field
-  readonly checkoutMove?: import("@t3tools/contracts").ThreadCheckoutMove; // fork-hook: zmux-estate/shell-checkout-move-field
   /** Absent from rows built before issue linking; the server sends an empty list. */
   readonly issues?: ReadonlyArray<import("@t3tools/contracts").ThreadIssueLink>;
   readonly collaboratorFork?: "send" | "approve" | "frozen" | "read"; // fork-hook: colleague-collab/client-shell-access-field
@@ -323,7 +321,6 @@ export function presentThreadShell(
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
     ...(thread.artifacts === undefined ? {} : { artifacts: thread.artifacts }), // fork-hook: thread-artifacts/client-shell-artifacts
-    ...checkoutMoveShellFieldsFork(thread), // fork-hook: zmux-estate/shell-checkout-move
     issues: thread.issues ?? [],
     ...(thread.collaboratorFork ? { collaboratorFork: thread.collaboratorFork } : {}), // fork-hook: colleague-collab/client-shell-access
     ...(thread.collaboratorSubjectFork

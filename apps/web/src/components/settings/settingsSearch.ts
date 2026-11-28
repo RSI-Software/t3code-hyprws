@@ -20,7 +20,6 @@ import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
-  | "/settings/terminal" // fork-hook: zmux-estate/settings-path
   | "/settings/projects"
   | "/settings/general"
   | "/settings/diagnostics"
@@ -100,7 +99,6 @@ export interface SettingsSearchAvailability {
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
-  "/settings/terminal": "Terminal", // fork-hook: zmux-estate/settings-label
   "/settings/diagnostics": msg("Diagnostics"),
   "/settings/projects": msg("Projects"),
   "/settings/general": msg("General"),
@@ -149,7 +147,6 @@ const ALL_SETTINGS_NAV_GROUPS: ReadonlyArray<SettingsNavGroup> = [
     paths: [
       "/settings/general",
       "/settings/appearance",
-      "/settings/terminal", // fork-hook: zmux-estate/settings-nav-group
       "/settings/chat",
       "/settings/diffs",
       "/settings/keybindings",
@@ -257,11 +254,9 @@ const SOURCE_CONTROL_HOST_TERMS = sourceControlClients.definitions
   .flatMap((definition) => [definition.label, ...(definition.searchKeywords ?? [])])
   .join(" ");
 
-import { terminalSearchItemsFork } from "./terminalSearch.fork"; // fork-hook: zmux-estate/settings-search-import
 import { voiceSearchItemsFork } from "./voiceSearch.fork"; // fork-hook: voice-input/settings-search-import
 import { worktrunkSearchItemsFork } from "./worktrunkSearch.fork"; // fork-hook: worktrunk-hooks/settings-search-import
 export const SETTINGS_SEARCH_ITEMS = [
-  ...terminalSearchItemsFork, // fork-hook: zmux-estate/settings-search-items
   {
     id: "storage-worktree-keep-when",
     targetId: "storage-worktrees",
@@ -1574,7 +1569,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/voice": null,
-  "/settings/terminal": null, // fork-hook: zmux-estate/settings-scope
   "/settings/appearance": null,
   "/settings/chat": null,
   "/settings/diffs": null,

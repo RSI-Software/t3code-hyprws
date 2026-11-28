@@ -71,7 +71,6 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts"; // fork-hook: worktrunk-hooks/git-manager-test-layer
 import * as GitManager from "./GitManager.ts";
 
@@ -676,7 +675,6 @@ function makeManager(input?: {
     ProjectionStore.ProjectionStoreV2Error | ProjectStore.ProjectStoreV2Error,
     ProjectionStore.ProjectionStoreV2 | ProjectStore.ProjectStoreV2
   >;
-  zmuxSessionBinder?: Partial<ZmuxSessionBinder.ZmuxSessionBinder["Service"]>;
 }) {
   const { service: fakeProvider, calls: providerCalls } = createFakeSourceControlProvider(
     input?.providerScenario,
@@ -779,12 +777,6 @@ function makeManager(input?: {
         runForThread: () => Effect.succeed({ status: "no-script" as const }),
       },
     ),
-    Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
-      bind: () => Effect.succeed({ status: "disabled" as const }),
-      resolve: () => Effect.succeed({ status: "disabled" as const }),
-      unbind: () => Effect.succeed({ status: "disabled" as const }),
-      ...input?.zmuxSessionBinder,
-    }),
     layerServerSettings,
   ).pipe(
     Layer.provideMerge(layerSourceControlRegistry),
@@ -815,11 +807,6 @@ const layerGitManagerTest = layerGitFixtureTemplates.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-  Layer.provideMerge(
-    Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
-      reconcileExisting: () => Effect.succeed({ status: "disabled" as const }),
-    }),
-  ), // fork-hook: worktrunk-hooks/git-manager-test-layer
   Layer.provideMerge(
     Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
       isWorktrunkWorktree: () => Effect.succeed(false),

@@ -30,10 +30,6 @@ import type {
 import { getTerminalLabel } from "@t3tools/shared/terminalLabelsCopy";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import {
-  disambiguateTerminalLabels,
-  splitTerminalLabelSuffix,
-} from "@t3tools/shared/terminalLabels";
-import {
   closestCenter,
   DndContext,
   type DragEndEvent,
@@ -1068,7 +1064,6 @@ function RightPanelTab(
       : sideChatShell.lineage.sideChat === true
         ? sideChatShell.title
         : formatSubagentDisplayTitle(sideChatShell.title);
-  const { base: titleBase, suffix: titleSuffix } = splitTerminalLabelSuffix(title);
   const sideChatState = sideChatTabState(sideChatShell);
   const content = (
     <>
@@ -1156,8 +1151,7 @@ function RightPanelTab(
               }
               onClick={(event) => onActivate(surface, event.shiftKey)}
             >
-              <span className="truncate">{titleBase}</span>
-              {titleSuffix ? <span className="shrink-0">{titleSuffix}</span> : null}
+              <span className="truncate">{title}</span>
             </button>
           }
           label={
@@ -1255,20 +1249,6 @@ export function RightPanelTabs({ ref, ...props }: RightPanelTabsProps) {
       return true;
     },
   }));
-
-  // Terminals sharing a zmux session all carry the session target as their
-  // label; suffix duplicates so the strip stays readable.
-  const terminalStripBaseLabels = new Map<string, string>();
-  for (const surface of props.surfaces) {
-    if (surface.kind !== "terminal") continue;
-    const terminalId = surface.activeTerminalId;
-    if (terminalStripBaseLabels.has(terminalId)) continue;
-    terminalStripBaseLabels.set(
-      terminalId,
-      props.terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId),
-    );
-  }
-  const terminalStripLabelsById = disambiguateTerminalLabels(terminalStripBaseLabels);
 
   const updateTabScrollState = (viewport: HTMLDivElement) => {
     const hasOverflow = viewport.scrollWidth - viewport.clientWidth > TAB_SCROLL_EDGE_TOLERANCE;
@@ -1687,9 +1667,7 @@ export function RightPanelTabs({ ref, ...props }: RightPanelTabsProps) {
                     title={surfaceTitle(
                       surface,
                       props.previewSessions,
-                      surface.kind === "terminal"
-                        ? terminalStripLabelsById
-                        : props.terminalLabelsById,
+                      props.terminalLabelsById,
                       messages,
                     )}
                     audio={tabAudioState(

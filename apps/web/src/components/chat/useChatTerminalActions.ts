@@ -56,7 +56,6 @@ import { previewEnvironment } from "../../state/preview";
 import { readEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
-import { useTerminalPanelActionsFork } from "./useChatTerminalActions.fork"; // fork-hook: zmux-estate/session-mode-panel-import
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
@@ -349,11 +348,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     void launched.result;
   };
   const addTerminalSurfaceStable = useStableCallback(addTerminalSurface);
-  const terminalPanelActionsFork = useTerminalPanelActionsFork(
-    activeThreadRef,
-    terminalActions,
-    addTerminalSurfaceStable,
-  ); // fork-hook: zmux-estate/session-mode-panel-create
   const splitPanelTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (
       !activeThreadRef ||
@@ -485,6 +479,5 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     splitPanelTerminalVerticalStable,
     splitTerminalStable,
     toggleTerminalVisibilityStable,
-    ...terminalPanelActionsFork, // fork-hook: zmux-estate/session-mode-panel-actions
   };
 }
