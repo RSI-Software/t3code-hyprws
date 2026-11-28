@@ -32,10 +32,16 @@ const fromHost = (context: OrchestrationMessageContext | undefined) =>
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
 
-  const runFromHost = (threadId: ThreadId, runId: RunId) =>
-    threads
-      .getThreadRecords(threadId, ["messages"], { messageRunIds: [runId], messageRoles: ["user"] })
-      .pipe(Effect.map(({ messages }) => messages.every((message) => fromHost(message.context))));
+  const runFromHost = Effect.fn("TeamMarkRightsFork.runFromHost")(function* (
+    threadId: ThreadId,
+    runId: RunId,
+  ) {
+    const { messages } = yield* threads.getThreadRecords(threadId, ["messages"], {
+      messageRunIds: [runId],
+      messageRoles: ["user"],
+    });
+    return messages.every((message) => fromHost(message.context));
+  });
 
   const actsForHost = Effect.fn("TeamMarkRightsFork.actsForHost")(function* (thread: ThreadRef) {
     let threadId = thread.id;
