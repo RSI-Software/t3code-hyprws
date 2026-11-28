@@ -973,7 +973,8 @@ database("CollaboratorSessionFork", (it) => {
           yield* service.shareWith({ threadId: shared, subject: "colleague:alex", name: "Alex" });
           yield* sql`
             INSERT INTO fork_colleagues (subject, name, environment_id, url, secret_name, saved_at)
-            VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
+            VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', ''),
+                   ('colleague:kit', 'Kit', 'env-kit', 'http://kit', 'secret', '')
           `;
           yield* sql`INSERT INTO fork_team_projects (project_id, marked_at) VALUES (${otherProject}, '')`;
           const archived = Effect.fnUntraced(function* (subject: string) {
@@ -983,7 +984,11 @@ database("CollaboratorSessionFork", (it) => {
               undefined as never,
             );
             return {
-              threads: threads.map(({ id, collaboratorFork }) => [id, collaboratorFork]),
+              threads: threads.map(({ id, collaboratorFork, collaboratorSubjectFork }) => [
+                id,
+                collaboratorFork,
+                collaboratorSubjectFork,
+              ]),
               projects: projects.map(({ id }) => id),
             };
           });
@@ -1008,11 +1013,17 @@ database("CollaboratorSessionFork", (it) => {
 
           // The hand share keeps its access, the team thread takes requests, the third stays hidden.
           assert.deepStrictEqual(yield* archived("colleague:alex"), {
+            // Each carries Alex's own subject, so Alex's client knows Alex's lines.
             threads: [
-              [shared, "approve"],
-              [other, "approve"],
+              [shared, "approve", "colleague:alex"],
+              [other, "approve", "colleague:alex"],
             ],
             projects: [sharedProject, otherProject],
+          });
+          // A team-only colleague, shared nothing by hand, still learns which lines are theirs.
+          assert.deepStrictEqual(yield* archived("colleague:kit"), {
+            threads: [[other, "approve", "colleague:kit"]],
+            projects: [otherProject],
           });
           // A one-time guest reads only what was shared with them by hand: here, nothing.
           assert.deepStrictEqual(yield* archived("colleague:pat"), { threads: [], projects: [] });
@@ -1025,6 +1036,7 @@ database("CollaboratorSessionFork", (it) => {
             [shared, other, hidden],
           );
           yield* sql`DELETE FROM fork_colleague_shares WHERE subject = 'colleague:alex'`;
+          yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:kit'`;
           yield* sql`DELETE FROM fork_team_projects WHERE project_id = ${otherProject}`;
           yield* sql`DELETE FROM fork_colleagues WHERE subject = 'colleague:alex'`;
         }),

@@ -72,16 +72,18 @@ interface CopyInput {
   readonly read: ColleagueThreadReadFork;
   readonly from: EnvironmentId;
   readonly to: EnvironmentId;
+  readonly people: { readonly host: string; readonly you: string | null };
 }
 
 const copyCommand = createRuntimeCommand(connectionAtomRuntime, {
   label: "colleague-fork:copy-attachments",
-  execute: ({ read, from, to }: CopyInput, registry) =>
+  execute: ({ read, from, to, people }: CopyInput, registry) =>
     colleagueForkMessagesFork(
       read.messages,
       read.source === "host"
         ? copyColleagueAttachmentFork(registry, from, to)
         : () => Effect.succeed(null),
+      people,
     ),
 });
 
@@ -121,6 +123,7 @@ function ColleagueForkDialog({
   const sharer = useSharerNamesFork().get(threadRef.environmentId);
   const machine = useEnvironment(threadRef.environmentId)?.label;
   const host = sharer ?? machine ?? gt("the host");
+  const you = thread?.collaboratorSubjectFork ?? null;
   const primary = usePrimaryEnvironmentId();
   const projects = useProjects();
   const local = projects.filter(
@@ -162,7 +165,12 @@ function ColleagueForkDialog({
     if (state.status !== "ready" && state.status !== "failed") return;
     if (thread === null || primary === null || project === undefined) return;
     setState({ status: "forking", read: state.read });
-    const copied = await copy({ read: state.read, from: threadRef.environmentId, to: primary });
+    const copied = await copy({
+      read: state.read,
+      from: threadRef.environmentId,
+      to: primary,
+      people: { host, you },
+    });
     if (copied._tag === "Failure") return setState({ status: "ready", read: state.read });
     const result = await fork({
       environmentId: primary,

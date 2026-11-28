@@ -75,14 +75,17 @@ const sameShare = (a: CollaboratorShare | undefined, b: CollaboratorShare | unde
   [...(a?.threadIds ?? [])].every(([id, access]) => b?.threadIds.get(id) === access) &&
   sameIds(a?.frozen.keys(), b?.frozen.keys());
 
-const frozenShells = (share: CollaboratorShare | undefined) =>
+const frozenShells = ({ share, subject }: ShellView) =>
   [...(share?.frozen.values() ?? [])].map((thread) => ({
     ...thread,
     collaboratorFork: "frozen" as const,
+    collaboratorSubjectFork: subject,
   }));
 
 /** What one collaborator session reads: its hand shares, and the team projects of a colleague. */
 interface ShellView {
+  /** The collaborator's own subject, so their client knows its lines. */
+  readonly subject: string;
   readonly share: CollaboratorShare | undefined;
   /** Team project ids; empty for a one-time guest. */
   readonly team: ReadonlySet<string>;
@@ -102,12 +105,14 @@ interface ShellVisible {
  * thread's messages wait for the host. The collaborator's client reads its access from the thread.
  */
 const readableIn =
-  ({ share, team }: ShellView) =>
+  ({ share, team, subject }: ShellView) =>
   <T extends OrchestrationV2ThreadShell>(thread: T) => {
     const access =
       share?.threadIds.get(thread.id) ??
       (team.has(thread.projectId) ? ("approve" as const) : undefined);
-    return access === undefined ? [] : [{ ...thread, collaboratorFork: access }];
+    return access === undefined
+      ? []
+      : [{ ...thread, collaboratorFork: access, collaboratorSubjectFork: subject }];
   };
 
 /** Narrows one shell item; an authoritative snapshot resets `visible` to the readable threads'. */
@@ -146,7 +151,7 @@ const filterShellItem = (
       visible.threads.clear();
       for (const thread of [...live, ...liveArchived]) visible.threads.add(thread.id);
       // A frozen copy stands in for the live thread, so it never reveals later changes.
-      const frozen = frozenShells(share).filter((thread) => !visible.threads.has(thread.id));
+      const frozen = frozenShells(view).filter((thread) => !visible.threads.has(thread.id));
       const threads = [...live, ...frozen.filter((thread) => thread.archivedAt === null)];
       const archivedThreads = [
         ...liveArchived,
@@ -508,7 +513,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
       ),
       teamMarks(subject).pipe(Stream.changesWith<ReadonlySet<string>>(sameIds)),
     ).pipe(
-      Stream.map(([share, team]): ShellView => ({ share, team })),
+      Stream.map(([share, team]): ShellView => ({ subject, share, team })),
       Stream.switchMap(narrowed),
     );
   };
@@ -806,7 +811,7 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
         Effect.all([archive(input, options), teamThreads.marksOf(subject)]).pipe(
           Effect.map(([snapshot, team]) => {
             const threads = snapshot.threads.flatMap(
-              readableIn({ share: current().get(subject), team }),
+              readableIn({ subject, share: current().get(subject), team }),
             );
             const projectIds = new Set(threads.map((thread) => thread.projectId));
             const projects = snapshot.projects.filter((project) => projectIds.has(project.id));
