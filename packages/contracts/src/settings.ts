@@ -45,6 +45,7 @@ import {
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectScript, type ProjectMutation } from "./project.ts";
+import { withTeamProjectScopesFork } from "./teamProject.fork.ts"; // fork-hook: colleague-collab/team-project-scopes-import
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
@@ -2204,6 +2205,8 @@ export function requiredScopesForServerSettingsPatch(
 export function requiredScopesForProjectMutation(
   mutation: ProjectMutation,
 ): ReadonlyArray<AuthEnvironmentScope> {
+  if (mutation.type === "project.update" && mutation.teamFork !== undefined)
+    return withTeamProjectScopesFork(mutation, requiredScopesForProjectMutation); // fork-hook: colleague-collab/team-project-scopes
   if (mutation.type === "project.delete" || mutation.scripts === undefined) {
     return [AuthOrchestrationOperateScope];
   }
