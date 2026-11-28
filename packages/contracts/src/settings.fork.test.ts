@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { ClientSettingsSchema, ClientSettingsPatch } from "./settings.ts";
+import type { CommandId, ProjectId } from "./baseSchemas.ts";
+import {
+  ClientSettingsSchema,
+  ClientSettingsPatch,
+  requiredScopesForProjectMutation,
+} from "./settings.ts";
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
@@ -32,5 +37,31 @@ describe("GitHub link open modes", () => {
         githubChangeRequestOpenMode: "integrated",
       }),
     ).toEqual({ githubLinkOpenMode: "integrated", githubChangeRequestOpenMode: "integrated" });
+  });
+});
+
+describe("team project scopes", () => {
+  it("asks for sharing rights when a mutation marks or unmarks a team project", () => {
+    const projectId = "project-1" as ProjectId;
+    const commandId = "command-1" as CommandId;
+    for (const teamFork of [true, false]) {
+      expect(
+        requiredScopesForProjectMutation({
+          type: "project.update",
+          commandId,
+          projectId,
+          teamFork,
+        }),
+      ).toEqual(["orchestration:operate", "access:write", "orchestration:read"]);
+    }
+    expect(
+      requiredScopesForProjectMutation({
+        type: "project.update",
+        commandId,
+        projectId,
+        teamFork: true,
+        scripts: [],
+      }),
+    ).toEqual(["orchestration:operate", "settings:write", "access:write", "orchestration:read"]);
   });
 });

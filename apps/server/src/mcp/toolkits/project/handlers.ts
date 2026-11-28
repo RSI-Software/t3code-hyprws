@@ -48,6 +48,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestrationMcp from "../../OrchestratorMcpService.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
+import { requireTeamMarkRightsFork } from "./teamMark.fork.ts"; // fork-hook: colleague-collab/team-project-mcp-rights-import
 import { placeLaunchedThreadsFork, prepareLaunchGroupFork } from "../threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
@@ -621,6 +622,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   ),
   t3_project_update: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
+      yield* requireTeamMarkRightsFork(input); // fork-hook: colleague-collab/team-project-mcp-rights
       const projects = yield* Project.ProjectService;
       const updated = yield* projects
         .update({ ...input, commandId: yield* newCommandId() })
