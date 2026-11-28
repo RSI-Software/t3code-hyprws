@@ -8,6 +8,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { type ColleagueFork, EnvironmentId, WS_METHODS } from "@t3tools/contracts";
+import { AsyncResult } from "effect/reactivity";
 import * as Schema from "effect/Schema";
 import { useGT } from "gt-react";
 import { createElement, Fragment, useEffect, useRef, useState } from "react";
@@ -72,10 +73,18 @@ const connectCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   tag: WS_METHODS.colleagueConnectFork,
 });
 
-// The sharer's server config arrives after pairing; past this, the save gives up and says so.
-const SHARER_CONFIG_TIMEOUT_MS = 15_000;
+// The sharer's server config and session arrive after pairing; past this, the save gives up and says so.
+const SHARER_TIMEOUT_MS = 15_000;
 // How often a colleague whose attach failed is tried again while their server stays down.
 const COLLEAGUE_RETRY_MS = 15_000;
+
+const sharerConnected = (environmentId: EnvironmentId) =>
+  waitForAtomValue({
+    registry: appAtomRegistry,
+    atom: environmentCatalog.stateAtom(environmentId),
+    predicate: (state) => AsyncResult.isSuccess(state) && state.value.phase === "connected",
+    timeoutMs: SHARER_TIMEOUT_MS,
+  });
 
 const linkBase = (environmentId: EnvironmentId) => {
   const linkBaseUrl = readPreparedConnection(environmentId)?.httpBaseUrl;
@@ -83,7 +92,7 @@ const linkBase = (environmentId: EnvironmentId) => {
 };
 
 /**
- * Returns the accept that runs once a shared thread's environment is paired: each server saves
+ * Returns the accept that runs once a link with a colleague invite is paired: each server saves
  * the other as a colleague. A browser that is only the sharer's guest has no server of its own.
  */
 export function useSaveColleagueFork() {
@@ -92,7 +101,7 @@ export function useSaveColleagueFork() {
   const invite = useAtomCommand(inviteCommand, quiet);
   const save = useAtomCommand(saveCommand, quiet);
   const connect = useAtomCommand(connectCommand, quiet);
-  const saveColleague = async (sharer: EnvironmentId): Promise<void> => {
+  const saveColleague = async (sharer: EnvironmentId, colleagueInvite: string): Promise<void> => {
     const own = readPrimaryEnvironmentId();
     if (own === null || own === sharer) return;
     if (!colleaguesServedFork(appAtomRegistry.get(environmentServerConfigsAtom), own)) return;
@@ -100,7 +109,7 @@ export function useSaveColleagueFork() {
       registry: appAtomRegistry,
       atom: environmentServerConfigsAtom,
       predicate: (configs) => configs.has(sharer),
-      timeoutMs: SHARER_CONFIG_TIMEOUT_MS,
+      timeoutMs: SHARER_TIMEOUT_MS,
     });
     const configs = appAtomRegistry.get(environmentServerConfigsAtom);
     const name = readEnvironment(sharer)?.label ?? sharer;
@@ -116,7 +125,7 @@ export function useSaveColleagueFork() {
               children: gt("Retry"),
               onClick: () => {
                 toastManager.close(toastId);
-                void saveColleague(sharer);
+                void saveColleague(sharer, colleagueInvite);
               },
             },
           }),
@@ -134,11 +143,15 @@ export function useSaveColleagueFork() {
       environmentId: own,
       input: { environmentId: sharer, name, ...linkBase(own) },
     });
+    // A link to a sharer already in the catalog reconnects them; their old config is already known.
+    if (invited._tag === "Success" && !(await sharerConnected(sharer))) {
+      return fail(gt("{name} did not answer in time.", { name }));
+    }
     const saved =
       invited._tag === "Success"
         ? await save({
             environmentId: sharer,
-            input: { grant: invited.value, ...linkBase(sharer) },
+            input: { grant: invited.value, invite: colleagueInvite, ...linkBase(sharer) },
           })
         : invited;
     const connected =

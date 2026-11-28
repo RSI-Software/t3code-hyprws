@@ -97,6 +97,13 @@ const FORK_TABLES = [
     grant_session_id TEXT,
     saved_by_session_id TEXT
   )`,
+  // Colleague invites a link carries (colleague-collab), by token digest; a save spends one.
+  `CREATE TABLE IF NOT EXISTS fork_colleague_invites (
+    token_hash TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    name TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`,
   // Collaborator messages waiting for the host to send or dismiss them (colleague-collab).
   `CREATE TABLE IF NOT EXISTS fork_collaborator_messages (
     id TEXT PRIMARY KEY,

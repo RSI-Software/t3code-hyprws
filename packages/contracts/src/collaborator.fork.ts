@@ -48,6 +48,8 @@ export const CollaboratorShareThreadInputFork = Schema.Struct({
   access: Schema.optional(CollaboratorAccessFork),
   /** The origin the sharing client reached the server on; the link's base when public. */
   linkBaseUrl: Schema.optional(Schema.String),
+  /** "Also save as colleague": the link also carries a colleague invite. */
+  colleague: Schema.optional(Schema.Literal(true)),
 });
 export type CollaboratorShareThreadInputFork = typeof CollaboratorShareThreadInputFork.Type;
 
@@ -233,7 +235,8 @@ export class CollaboratorShareErrorFork extends Schema.TaggedError<CollaboratorS
   "CollaboratorShareErrorFork",
   {
     operation: Schema.Literals(["read-thread", "pair", "record-share", "read-shares"]),
-    threadId: ThreadId,
+    /** Absent for a colleague-only invite link. */
+    threadId: Schema.optional(ThreadId),
     cause: Schema.Defect(),
   },
 ) {
@@ -339,10 +342,25 @@ export const ColleagueInviteInputFork = Schema.Struct({
 });
 export type ColleagueInviteInputFork = typeof ColleagueInviteInputFork.Type;
 
+/** Settings → Colleagues → Invite colleague: a link that saves both sides and shares no thread. */
+export const ColleagueInviteLinkInputFork = Schema.Struct({
+  name: CollaboratorNameFork,
+  linkBaseUrl: Schema.optional(Schema.String),
+});
+export type ColleagueInviteLinkInputFork = typeof ColleagueInviteLinkInputFork.Type;
+
+export const ColleagueInviteLinkResultFork = Schema.Struct({
+  pairingUrl: Schema.String,
+  localOnly: Schema.Boolean,
+});
+export type ColleagueInviteLinkResultFork = typeof ColleagueInviteLinkResultFork.Type;
+
 /** Accept step 2, on the sharer's server over the collaborator session: answers with its grant. */
 export const ColleagueSaveInputFork = Schema.Struct({
   grant: ColleagueGrantFork,
   linkBaseUrl: Schema.optional(Schema.String),
+  /** The link's colleague invite; only an already saved colleague saves again without one. */
+  invite: Schema.optional(TrimmedNonEmptyString),
 });
 export type ColleagueSaveInputFork = typeof ColleagueSaveInputFork.Type;
 
@@ -448,12 +466,12 @@ export class ColleagueNotCollaboratorErrorFork extends Schema.TaggedError<Collea
   }
 }
 
-export class ColleagueNoLiveShareErrorFork extends Schema.TaggedError<ColleagueNoLiveShareErrorFork>()(
-  "ColleagueNoLiveShareErrorFork",
+export class ColleagueNotInvitedErrorFork extends Schema.TaggedError<ColleagueNotInvitedErrorFork>()(
+  "ColleagueNotInvitedErrorFork",
   {},
 ) {
   override get message(): string {
-    return "Only a collaborator with a shared thread saves its sharer.";
+    return "This link does not invite you as a colleague, or its invite was already used.";
   }
 }
 
@@ -538,7 +556,7 @@ export const ColleagueErrorFork = Schema.Union([
   ColleagueSelfErrorFork,
   ColleagueOwnGrantErrorFork,
   ColleagueNotCollaboratorErrorFork,
-  ColleagueNoLiveShareErrorFork,
+  ColleagueNotInvitedErrorFork,
   ColleagueNoScopeErrorFork,
   ColleagueSavedAsAnotherErrorFork,
   ColleagueNotHttpErrorFork,
@@ -607,3 +625,6 @@ export const COLLEAGUE_FORGET_ROUTE_FORK = "/api/fork/colleague/forget";
 
 /** Query param on a `t3code://pair` link naming the thread to open after pairing. */
 export const COLLABORATOR_THREAD_LINK_PARAM = "thread";
+
+/** Query param on a `t3code://pair` link holding a colleague invite: accepting saves both sides. */
+export const COLLEAGUE_INVITE_LINK_PARAM = "colleague";

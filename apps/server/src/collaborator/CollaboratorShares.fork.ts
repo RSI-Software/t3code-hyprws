@@ -1,11 +1,12 @@
 // Fork-only (colleague-collab): share one thread with a collaborator through a pairing link.
-// Each session's RPCs adapt to these shares in `CollaboratorSession.fork.ts`; a saved colleague
-// also reads every team project thread there.
-// Unsharing freezes their copy; `approve` access holds messages in `CollaboratorMessages.fork.ts`.
+// It saves a colleague only when it also carries a colleague invite, which the host opts into.
+// Sessions adapt to these shares in `CollaboratorSession.fork.ts`. Unsharing freezes their copy;
+// `approve` access holds messages in `CollaboratorMessages.fork.ts`.
 import {
   AuthOrchestrationReadScope,
   COLLABORATOR_SCOPES,
   COLLABORATOR_THREAD_LINK_PARAM,
+  COLLEAGUE_INVITE_LINK_PARAM,
   CollaboratorAccessFork,
   CollaboratorAccessErrorFork,
   type CollaboratorSetAccessInputFork,
@@ -16,6 +17,9 @@ import {
   type CollaboratorThreadSharesResultFork,
   CollaboratorUnshareErrorFork,
   type CollaboratorUnshareThreadInputFork,
+  type ColleagueInviteLinkInputFork,
+  type ColleagueInviteLinkResultFork,
+  ColleagueStorageErrorFork,
   EnvironmentAuthenticatedPrincipal,
   type EnvironmentAuthorizationError,
   type OrchestrationV2DispatchCommandError,
@@ -25,14 +29,16 @@ import {
 } from "@t3tools/contracts";
 import { isPrivateNetworkHost } from "@t3tools/shared/hostClassification";
 import * as Context from "effect/Context";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Base64Url from "effect/encoding/Base64Url";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -119,6 +125,18 @@ export class CollaboratorSharesFork extends Context.Service<
       CollaboratorShareThreadResultFork,
       CollaboratorShareErrorFork | CollaboratorThreadMissingErrorFork
     >;
+    /** Settings → Invite colleague: a link with a colleague invite and no thread. */
+    readonly inviteColleague: (
+      input: ColleagueInviteLinkInputFork,
+    ) => Effect.Effect<ColleagueInviteLinkResultFork, CollaboratorShareErrorFork>;
+    /** The invited name, while the subject's unexpired, unspent invite has this token. */
+    readonly colleagueInvite: (
+      subject: string,
+      token: string,
+    ) => Effect.Effect<string | undefined, ColleagueStorageErrorFork>;
+    readonly spendColleagueInvite: (
+      token: string,
+    ) => Effect.Effect<void, ColleagueStorageErrorFork>;
     /** Shares with a known subject, such as a saved colleague's, minting no link. */
     readonly shareWith: (input: {
       readonly threadId: string;
@@ -132,8 +150,6 @@ export class CollaboratorSharesFork extends Context.Service<
     readonly nameOf: (subject: string) => string | undefined;
     /** This server's owner, as they named themselves to git; undefined when unset. */
     readonly hostName: Effect.Effect<string | undefined>;
-    /** Whether any thread is shared live with the subject. */
-    readonly sharesLive: (subject: string) => boolean;
     /** The origin other machines reach this server on, as for a share link. */
     readonly publicBaseUrl: (
       linkBaseUrl: string | undefined,
@@ -202,6 +218,11 @@ const make = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const httpClient = yield* HttpClient.HttpClient;
+  const digest = yield* Digest.Digest;
+  // The table keeps only a digest, so a database read cannot spend an invite.
+  const inviteDigest = Effect.fn("CollaboratorSharesFork.inviteDigest")(function* (token: string) {
+    return Base64Url.encode(yield* digest.digest(Digest.sha256, new TextEncoder().encode(token)));
+  });
   // The local tunnel's public hostname, then the origin the sharing client reached, then a guess.
   const pairingBaseUrl = Effect.fn("CollaboratorSharesFork.pairingBaseUrl")(function* (
     linkBaseUrl: string | undefined,
@@ -281,41 +302,117 @@ const make = Effect.gen(function* () {
     );
   });
 
+  /**
+   * A pairing link for the subject. Pairing ignores the query, so the thread and the colleague
+   * invite ride inside the pairing URL to the collaborator's app.
+   */
+  const mintLink = Effect.fn("CollaboratorSharesFork.mintLink")(function* (input: {
+    readonly subject: string;
+    readonly name: string;
+    readonly linkBaseUrl: string | undefined;
+    readonly threadId?: ThreadId;
+    readonly colleague: boolean;
+  }) {
+    const { subject, name, threadId } = input;
+    const fail = (cause: unknown) =>
+      new CollaboratorShareErrorFork({ operation: "pair", ...(threadId && { threadId }), cause });
+    const issued = yield* auth
+      .createPairingLink({
+        subject,
+        label: `Collaborator ${name}`,
+        scopes: COLLABORATOR_SCOPES,
+        ttl: SHARE_LINK_TTL,
+      })
+      .pipe(Effect.mapError(fail));
+    const { base, localOnly } = yield* pairingBaseUrl(input.linkBaseUrl);
+    const pairing = new URL(buildPairingUrl(base, issued.credential));
+    if (threadId) pairing.searchParams.set(COLLABORATOR_THREAD_LINK_PARAM, threadId);
+    if (input.colleague) {
+      const token = Base64Url.encode(yield* random.randomBytes(24).pipe(Effect.mapError(fail)));
+      const tokenHash = yield* inviteDigest(token).pipe(Effect.mapError(fail));
+      const now = yield* DateTime.now;
+      const expiresAt = DateTime.formatIso(DateTime.addDuration(now, SHARE_LINK_TTL));
+      yield* sql`DELETE FROM fork_colleague_invites WHERE expires_at <= ${DateTime.formatIso(now)}`.pipe(
+        Effect.andThen(
+          sql`
+            INSERT INTO fork_colleague_invites (token_hash, subject, name, expires_at)
+            VALUES (${tokenHash}, ${subject}, ${name}, ${expiresAt})
+          `,
+        ),
+        Effect.mapError(fail),
+      );
+      pairing.searchParams.set(COLLEAGUE_INVITE_LINK_PARAM, token);
+    }
+    return { pairingUrl: pairing.toString(), localOnly };
+  });
+
+  // A typed name is always a new person, so it never reaches someone else's grant.
+  const newPersonSubject = Effect.fn("CollaboratorSharesFork.newPersonSubject")(function* (
+    name: string,
+  ) {
+    return `${collaboratorSubject(name)}-${yield* random.uuidV4()}`;
+  });
+
   const share = Effect.fn("CollaboratorSharesFork.share")(function* (
     input: CollaboratorShareThreadInputFork,
   ) {
-    const { threadId } = input;
-    const thread = yield* readThread(threadId);
-    // Only a pick of someone shared before reaches their grant; a typed name is a new person.
+    const thread = yield* readThread(input.threadId);
+    // Only a pick of someone shared before reaches their grant.
     const picked =
       input.subject !== undefined && current.has(input.subject) ? input.subject : undefined;
-    const subject =
-      picked ?? `${collaboratorSubject(input.collaboratorName)}-${yield* random.uuidV4()}`;
+    const subject = picked ?? (yield* newPersonSubject(input.collaboratorName));
     const collaboratorName = current.get(subject)?.name ?? input.collaboratorName;
     const knownCollaborator = yield* auth.listSessions().pipe(
       Effect.map((sessions) => sessions.some((session) => session.subject === subject)),
       Effect.orElseSucceed(() => false),
     );
     // Minted first so a failure grants nothing; a paired collaborator may still need it for a new device.
-    const issued = yield* auth
-      .createPairingLink({
-        subject,
-        label: `Collaborator ${collaboratorName}`,
-        scopes: COLLABORATOR_SCOPES,
-        ttl: SHARE_LINK_TTL,
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) => new CollaboratorShareErrorFork({ operation: "pair", threadId, cause }),
-        ),
-      );
+    const link = yield* mintLink({
+      subject,
+      name: collaboratorName,
+      linkBaseUrl: input.linkBaseUrl,
+      threadId: thread.id,
+      colleague: input.colleague === true,
+    });
     yield* record(thread.id, subject, collaboratorName, input.access ?? null);
-    // Pairing ignores the query, so the thread rides inside the pairing URL to the collaborator's app.
-    const { base, localOnly } = yield* pairingBaseUrl(input.linkBaseUrl);
-    const pairing = new URL(buildPairingUrl(base, issued.credential));
-    pairing.searchParams.set(COLLABORATOR_THREAD_LINK_PARAM, thread.id);
-    return { pairingUrl: pairing.toString(), localOnly, knownCollaborator, collaboratorName };
+    return { ...link, knownCollaborator, collaboratorName };
   });
+
+  const inviteColleague: CollaboratorSharesFork["Service"]["inviteColleague"] = Effect.fn(
+    "CollaboratorSharesFork.inviteColleague",
+  )(function* (input) {
+    return yield* mintLink({
+      subject: yield* newPersonSubject(input.name),
+      name: input.name,
+      linkBaseUrl: input.linkBaseUrl,
+      colleague: true,
+    });
+  });
+
+  const colleagueInvite: CollaboratorSharesFork["Service"]["colleagueInvite"] = Effect.fn(
+    "CollaboratorSharesFork.colleagueInvite",
+  )(
+    function* (subject, token) {
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const tokenHash = yield* inviteDigest(token);
+      const rows = yield* sql<{ readonly name: string }>`
+      SELECT name FROM fork_colleague_invites
+      WHERE token_hash = ${tokenHash} AND subject = ${subject} AND expires_at > ${now}
+    `;
+      return rows[0]?.name;
+    },
+    Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })),
+  );
+
+  const spendColleagueInvite: CollaboratorSharesFork["Service"]["spendColleagueInvite"] = Effect.fn(
+    "CollaboratorSharesFork.spendColleagueInvite",
+  )(
+    function* (token) {
+      const tokenHash = yield* inviteDigest(token);
+      yield* sql`DELETE FROM fork_colleague_invites WHERE token_hash = ${tokenHash}`;
+    },
+    Effect.mapError((cause) => new ColleagueStorageErrorFork({ cause })),
+  );
 
   const shareWith: CollaboratorSharesFork["Service"]["shareWith"] = Effect.fn(
     "CollaboratorSharesFork.shareWith",
@@ -391,10 +488,12 @@ const make = Effect.gen(function* () {
 
   return CollaboratorSharesFork.of({
     share,
+    inviteColleague,
+    colleagueInvite,
+    spendColleagueInvite,
     shareWith,
     unshareAll,
     nameOf: (subject) => current.get(subject)?.name,
-    sharesLive: (subject) => (current.get(subject)?.threadIds.size ?? 0) > 0,
     publicBaseUrl: pairingBaseUrl,
     threadShares,
     unshare,

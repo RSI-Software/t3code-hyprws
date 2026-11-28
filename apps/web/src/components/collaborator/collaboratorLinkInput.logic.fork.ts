@@ -2,6 +2,7 @@
 // until its pairing code is whole, so it asks to open once, not once per keystroke.
 import {
   COLLABORATOR_THREAD_LINK_PARAM,
+  COLLEAGUE_INVITE_LINK_PARAM,
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
 } from "@t3tools/contracts";
@@ -13,7 +14,11 @@ const WHOLE_CODE = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH
 export function collaboratorLinkInputFork(value: string) {
   const link = value.trim();
   const url = URL.parse(link);
-  if (!url?.searchParams.get(COLLABORATOR_THREAD_LINK_PARAM)?.trim())
+  if (
+    url === null ||
+    (!url.searchParams.get(COLLABORATOR_THREAD_LINK_PARAM)?.trim() &&
+      !url.searchParams.get(COLLEAGUE_INVITE_LINK_PARAM)?.trim())
+  )
     return { kind: "other" } as const;
   const code = getPairingTokenFromUrl(url);
   return code !== null && WHOLE_CODE.test(code)

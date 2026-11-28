@@ -1,6 +1,7 @@
 // Fork-only (colleague-collab): share this thread with a collaborator, set whether their messages
-// need approval, and stop sharing, all in one list of people with access. A first share mints a pairing link; a collaborator already
-// paired sees the thread live.
+// need approval, and stop sharing, all in one list of people with access. A first share mints a
+// pairing link, which saves both sides as colleagues only when "Also save as colleague" is ticked;
+// a collaborator already paired sees the thread live.
 import { useAtomValue } from "@effect/atom-react";
 import {
   createEnvironmentRpcCommand,
@@ -33,6 +34,7 @@ import {
 } from "~/state/query";
 import { readPreparedConnection } from "~/state/session";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogDescription,
@@ -127,7 +129,10 @@ type ShareState =
   | { readonly status: "idle" }
   | { readonly status: "creating" }
   | { readonly status: "shared"; readonly name: string }
-  | ({ readonly status: "created" } & CollaboratorShareThreadResultFork)
+  | ({
+      readonly status: "created";
+      readonly colleague: boolean;
+    } & CollaboratorShareThreadResultFork)
   | { readonly status: "failed"; readonly message: string };
 
 function CollaboratorShareDialog({
@@ -161,6 +166,7 @@ function CollaboratorShareDialog({
     target: namedClipboardTarget(gt("collaborator link")),
   });
   const [name, setName] = useState("");
+  const [asColleague, setAsColleague] = useState(false);
   const [state, setState] = useState<ShareState>({ status: "idle" });
   const trimmedName = name.trim();
   const validName = isCollaboratorName(trimmedName);
@@ -202,13 +208,14 @@ function CollaboratorShareDialog({
         threadId: threadRef.threadId,
         collaboratorName,
         ...(subject === undefined ? {} : { subject }),
+        ...(asColleague && { colleague: true as const }),
         ...linkBase(threadRef),
       },
     });
     refreshShares();
     if (result._tag === "Success") {
       setName("");
-      setState({ status: "created", ...result.value });
+      setState({ status: "created", colleague: asColleague, ...result.value });
       return;
     }
     if (isAtomCommandInterrupted(result)) {
@@ -269,6 +276,14 @@ function CollaboratorShareDialog({
                 {busy ? gt("Sharing...") : gt("Share")}
               </Button>
             </form>
+            <label className="-mt-2 flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={asColleague}
+                disabled={busy}
+                onCheckedChange={(checked) => setAsColleague(checked === true)}
+              />
+              {gt("Also save as colleague")}
+            </label>
             {suggestions.colleagues.length > 0 ? (
               <div className="-mt-2 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
                 <span>{m(msg("Colleagues, no link needed:"))}</span>
@@ -313,14 +328,19 @@ function CollaboratorShareDialog({
             {state.status === "created" ? (
               <div className="flex flex-col gap-2">
                 <p className="text-sm">
-                  {state.knownCollaborator
+                  {state.colleague
                     ? gt(
-                        "{name} already sees it in their sidebar. For another device, send this link.",
+                        "Send {name} this link. Opening it in T3 Code opens the thread and saves you as each other's colleagues.",
                         { name: state.collaboratorName },
                       )
-                    : gt("Send {name} this link to open the thread in T3 Code.", {
-                        name: state.collaboratorName,
-                      })}
+                    : state.knownCollaborator
+                      ? gt(
+                          "{name} already sees it in their sidebar. For another device, send this link.",
+                          { name: state.collaboratorName },
+                        )
+                      : gt("Send {name} this link to open the thread in T3 Code.", {
+                          name: state.collaboratorName,
+                        })}
                 </p>
                 <div className="flex items-center gap-2">
                   <Input
