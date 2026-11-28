@@ -15,6 +15,7 @@ import {
   type ColleagueQueuedMessageFork,
   type EnvironmentId,
   MessageId,
+  type OrchestrationV2ThreadShell,
   type ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
@@ -27,12 +28,13 @@ import { useEffect, useRef, useState } from "react";
 import { connectionAtomRuntime } from "~/connection/runtime";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
-import { useQuietThreadShells, useServerConfigs } from "~/state/entities";
+import { useServerConfigs, useThreadShells } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentsWithScope } from "~/state/session";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { MessageCopyButton } from "../chat/MessageCopyButton";
 import { TimelineRowTimestamp } from "../chat/TimelineRowParts";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
@@ -108,7 +110,14 @@ function useOutbox(server: EnvironmentId | null) {
  * not connected), and the queue's changes.
  */
 export function useColleagueOutboxFork(
-  thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined,
+  thread:
+    | {
+        readonly environmentId: EnvironmentId;
+        readonly id: ThreadId;
+        readonly collaboratorFork?: OrchestrationV2ThreadShell["collaboratorFork"];
+      }
+    | null
+    | undefined,
 ) {
   const server = useOutboxServer();
   const { data: colleagues } = useEnvironmentQuery(server === null ? null : colleaguesAtom(server));
@@ -129,6 +138,8 @@ export function useColleagueOutboxFork(
     queued,
     online,
     held: useAtomValue(heldAtom),
+    /** The host took the share away, so what waits here can never send. */
+    unshared: thread?.collaboratorFork === "frozen" || thread?.collaboratorFork === "read",
     name: colleague?.name ?? environment?.label ?? "",
     /** A saved colleague's name; null on a guest link. */
     colleague: colleague?.name ?? null,
@@ -155,6 +166,7 @@ export function QueuedForColleagueFork({
   name,
   online,
   held,
+  unshared,
   onEdit,
   onWithdraw,
 }: {
@@ -164,6 +176,8 @@ export function QueuedForColleagueFork({
   readonly online: boolean;
   /** Messages that failed to send and wait to try again. */
   readonly held: ReadonlyMap<string, unknown>;
+  /** The share is gone: each message says it was not sent, and offers its text to copy. */
+  readonly unshared: boolean;
   readonly onEdit: (message: ColleagueQueuedMessageFork) => void;
   readonly onWithdraw: (message: ColleagueQueuedMessageFork) => void;
 }) {
@@ -190,7 +204,12 @@ export function QueuedForColleagueFork({
                   alwaysVisible
                 />
               </span>
-              {online && held.has(message.id) ? (
+              {unshared ? (
+                <span className="flex items-center gap-1 px-1 text-warning">
+                  <CircleAlertIcon aria-hidden className="size-3" />
+                  {gt("Not sent: no longer shared")}
+                </span>
+              ) : online && held.has(message.id) ? (
                 <span className="flex items-center gap-1 px-1 text-warning">
                   <CircleAlertIcon aria-hidden className="size-3" />
                   {gt("Could not send, retrying")}
@@ -201,35 +220,47 @@ export function QueuedForColleagueFork({
                   {online ? gt("Sending…") : gt("Sends when {name} is back", { name })}
                 </span>
               )}
+              {unshared ? (
+                <MessageCopyButton
+                  text={assistantCitationsToPlainText(message.text)}
+                  size="icon-xs"
+                  variant="ghost"
+                />
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-xs"
+                        variant="ghost-muted"
+                        aria-label={gt("Edit queued message")}
+                        onClick={() => onEdit(message)}
+                      />
+                    }
+                  >
+                    <PencilIcon />
+                  </TooltipTrigger>
+                  <TooltipPopup>{gt("Edit")}</TooltipPopup>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
                       size="icon-xs"
                       variant="ghost-muted"
-                      aria-label={gt("Edit queued message")}
-                      onClick={() => onEdit(message)}
-                    />
-                  }
-                >
-                  <PencilIcon />
-                </TooltipTrigger>
-                <TooltipPopup>{gt("Edit")}</TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      size="icon-xs"
-                      variant="ghost-muted"
-                      aria-label={gt("Withdraw message")}
+                      aria-label={unshared ? gt("Remove message") : gt("Withdraw message")}
                       onClick={() => onWithdraw(message)}
                     />
                   }
                 >
                   <XIcon />
                 </TooltipTrigger>
-                <TooltipPopup>{gt("Withdraw")}</TooltipPopup>
+                <TooltipPopup>
+                  {unshared
+                    ? gt("Remove", { $context: "verb, removes a message that was not sent" })
+                    : gt("Withdraw")}
+                </TooltipPopup>
               </Tooltip>
             </div>
           </li>
@@ -250,7 +281,8 @@ function OutboxFlush({ server }: { readonly server: EnvironmentId }) {
   const queued = useOutbox(server);
   const { environments } = useEnvironments();
   const colleagueNames = useSharerNamesFork();
-  const shells = useQuietThreadShells();
+  // The complete list: a thread the host's tag filter hides from the sidebar still takes its messages.
+  const shells = useThreadShells(queued.length > 0);
   const submit = useAtomCommand(submitMessageCommand, quiet);
   // Only `send` and `approve` threads route here, which browsing their inbox never blocks
   // (`readSendPermittedFork`); the host's server checks each one.
