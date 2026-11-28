@@ -5,6 +5,7 @@ import {
   type RuntimeRequestId,
 } from "@t3tools/contracts";
 import { useState } from "react";
+import { updateWorktrunkDispatchFork } from "./useLocalDispatchState.fork"; // fork-hook: worktrunk-hooks/local-dispatch-update-import
 import { type ComposerSubmissionIntent } from "../../composer-logic";
 import { type SessionPhase, type Thread } from "../../types";
 import {
@@ -53,8 +54,14 @@ export function useLocalDispatchState(input: {
       if (active) {
         const submissionIntent = options?.submissionIntent ?? active.submissionIntent;
         const providerInstanceId = options?.providerInstanceId ?? active.providerInstanceId;
+        const worktrunkUpdate = updateWorktrunkDispatchFork(active, {
+          preparingWorktree,
+          preparingWorktrunk,
+          submissionIntent,
+          providerInstanceId,
+        }); // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-compare
+        if (worktrunkUpdate) return worktrunkUpdate; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-update
         return active.preparingWorktree === preparingWorktree &&
-          Boolean(active.preparingWorktrunk) === preparingWorktrunk && // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-compare
           active.submissionIntent === submissionIntent &&
           active.providerInstanceId === providerInstanceId
           ? active
