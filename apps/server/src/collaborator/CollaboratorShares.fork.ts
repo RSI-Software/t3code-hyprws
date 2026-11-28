@@ -32,6 +32,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -94,7 +95,7 @@ const sharesFromRows = (rows: ReadonlyArray<ShareRow>) => {
       const shell = decodeFrozenShell(row.frozen_shell_json);
       if (Option.isSome(shell)) frozen.set(row.thread_id, shell.value);
     }
-    // The first name sticks: "alex" typed later reaches the same person, who stays "Alex".
+    // The first name sticks, so a person keeps the spelling they were first shared under.
     shares.set(row.subject, { name: prior?.name ?? row.colleague_name, threadIds, frozen, since });
   }
   return shares;
@@ -196,6 +197,7 @@ export class CollaboratorSharesFork extends Context.Service<
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
+  const random = yield* SecureRandom.SecureRandom;
   const config = yield* ServerConfig.ServerConfig;
   const platform = yield* HostProcess.Platform;
   const threads = yield* ThreadManagement.ThreadManagementService;
@@ -284,8 +286,11 @@ const make = Effect.gen(function* () {
   ) {
     const { threadId } = input;
     const thread = yield* readThread(threadId);
-    const subject = collaboratorSubject(input.collaboratorName);
-    // A known colleague keeps their saved spelling, however the host typed it this time.
+    // Only a pick of someone shared before reaches their grant; a typed name is a new person.
+    const picked =
+      input.subject !== undefined && current.has(input.subject) ? input.subject : undefined;
+    const subject =
+      picked ?? `${collaboratorSubject(input.collaboratorName)}-${yield* random.uuidV4()}`;
     const collaboratorName = current.get(subject)?.name ?? input.collaboratorName;
     const knownCollaborator = yield* auth.listSessions().pipe(
       Effect.map((sessions) => sessions.some((session) => session.subject === subject)),

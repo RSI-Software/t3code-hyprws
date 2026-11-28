@@ -828,7 +828,8 @@ Ducking stays fork scope until upstream lowers speaker volume while recording.
 ### Shape
 
 Code says **collaborator**; the subject prefix, tables, and this domain id **keep `colleague`**.
-A pairing link for subject **`colleague:<slug>`** carries only the orchestration read and operate scopes.
+A pairing link for subject **`colleague:<slug>-<uuid>`** carries only the orchestration read and operate scopes.
+A **typed name is always a new subject**; only a pick under **Shared before** sends a subject and reaches that person's grant.
 Sharing or changing access **needs `access:write` plus that grant**, as any pairing link does; unsharing needs `access:write` alone.
 Its session **never expires on time**: a browser session gets a century, a desktop session renews; unsharing or revoking ends access.
 The link token is **single-use**, so a browser already paired opens the thread without spending it.
@@ -839,6 +840,7 @@ Shell items carry **`collaboratorFork`**: `send`, `approve`, `frozen`, or `read`
 A **reply** dispatches the host's text with the message quoted as what it answers, so the agent judges the line as said to that person.
 A waiting message **rides upstream's guest-request state** on the host's card, derived client-side from the host's message stream. A requested thread the shells leave out (older settled) is read **by its thread family**, as an open thread's route reads it.
 `send` dispatches **conversation commands only**; managing the thread **and its queue** stays the host's, except that a collaborator **edits or removes their own** queued messages.
+"Own" is the **subject stored on the line's attribution**, never its name; a line from before the subject existed stays the host's.
 A collaborator's copy **hides host-only controls** (editor, scripts, Git, rewind) and labels the host's messages **by name or "the host"**.
 **Only the server sets** `context.collaboratorFork`; the agent text names the collaborator.
 Unsharing **re-snapshots the shell**, drops waiting messages, and pauses an open thread stream.

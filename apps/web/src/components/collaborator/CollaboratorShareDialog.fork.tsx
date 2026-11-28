@@ -193,13 +193,15 @@ function CollaboratorShareDialog({
     );
   };
 
-  const create = async (collaboratorName: string) => {
+  // A typed name is a new person; only a "Shared before" pick reaches someone's grant.
+  const create = async (collaboratorName: string, subject?: string) => {
     setState({ status: "creating" });
     const result = await share({
       environmentId: threadRef.environmentId,
       input: {
         threadId: threadRef.threadId,
         collaboratorName,
+        ...(subject === undefined ? {} : { subject }),
         ...linkBase(threadRef),
       },
     });
@@ -293,7 +295,7 @@ function CollaboratorShareDialog({
                     size="xs"
                     variant="outline"
                     disabled={!canShare || busy}
-                    onClick={() => void create(collaborator.name)}
+                    onClick={() => void create(collaborator.name, collaborator.subject)}
                   >
                     <PlusIcon />
                     {collaborator.name}

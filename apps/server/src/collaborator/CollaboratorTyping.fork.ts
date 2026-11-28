@@ -108,7 +108,7 @@ export const makeCollaboratorTyping = Effect.gen(function* () {
               )
             : [],
           ...(shared ? { people } : {}),
-          ...(you === undefined ? {} : { you }),
+          ...(you === undefined ? {} : { you, yourSubject: viewer }),
         }),
       ).pipe(Stream.changesWith(sameState)),
   };

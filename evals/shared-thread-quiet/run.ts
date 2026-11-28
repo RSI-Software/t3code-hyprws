@@ -75,7 +75,11 @@ const attributed = (message: SharedThreadMessage) =>
               ? undefined
               : { name: COLLABORATOR, text: message.replyTo },
           ).text
-        : collaboratorAttribution(COLLABORATOR, message.text, message.forced).text;
+        : collaboratorAttribution(
+            { name: COLLABORATOR, subject: "colleague:eval" },
+            message.text,
+            message.forced,
+          ).text;
 
 // Keep the developer's CLAUDE.md, hooks and MCP servers out of the agent's session; auth stays.
 const claudeSettings = process.env.EVAL_CLAUDE_SETTINGS;

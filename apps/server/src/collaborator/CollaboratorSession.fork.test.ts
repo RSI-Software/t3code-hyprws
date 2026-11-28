@@ -48,7 +48,15 @@ import {
   withService,
 } from "./CollaboratorShares.fork.testFixtures.ts";
 
-const collaboratorPrompt = (name: string, text: string) => collaboratorAttribution(name, text).text;
+/** Sam as someone already shared with, so every test reaches the same person. */
+const shareSam = (
+  service: CollaboratorShares.CollaboratorSharesFork["Service"],
+  threadId: string,
+  access?: "send" | "approve",
+) => service.shareWith({ threadId, subject: "colleague:sam", name: "Sam", access });
+
+const collaboratorPrompt = (name: string, text: string) =>
+  collaboratorAttribution({ name, subject: "colleague:sam" }, text).text;
 
 // `outputAfterRevoke` supplies command output.
 const commandOutput: { queue?: Queue.Queue<OrchestrationV2CommandOutputFrame, Cause.Done> } = {};
@@ -182,7 +190,7 @@ database("CollaboratorSessionFork", (it) => {
         );
 
         assert.deepStrictEqual(visibleThreads(yield* Queue.take(items)), []);
-        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+        yield* shareSam(service, shared);
         const afterShare = yield* Queue.take(items);
         assert.deepStrictEqual(visibleThreads(afterShare), [shared]);
         assert.deepStrictEqual(visibleProjects(afterShare), [sharedProject]);
@@ -219,7 +227,7 @@ database("CollaboratorSessionFork", (it) => {
         const afterStop = yield* Queue.take(items);
         assert.deepStrictEqual(frozenThreads(afterStop), [shared]);
         assert.deepStrictEqual(visibleProjects(afterStop), [sharedProject]);
-        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+        yield* shareSam(service, shared);
         const afterReshare = yield* Queue.take(items);
         assert.deepStrictEqual(visibleThreads(afterReshare), [shared]);
         assert.deepStrictEqual(frozenThreads(afterReshare), []);
@@ -299,10 +307,12 @@ database("CollaboratorSessionFork", (it) => {
     withService(
       Effect.gen(function* () {
         const service = yield* CollaboratorShares.CollaboratorSharesFork;
+        yield* shareSam(service, shared, "send");
+        // Picking Sam again mints them a link for another device, under their own grant.
         const result = yield* service.share({
           threadId: shared,
           collaboratorName: "Sam",
-          access: "send",
+          subject: "colleague:sam",
         });
         assert.isFalse(result.knownCollaborator);
         assert.strictEqual(new URL(result.pairingUrl).searchParams.get("thread"), shared);
@@ -314,7 +324,11 @@ database("CollaboratorSessionFork", (it) => {
         const attributed = collaboratorPrompt("Sam", "hi");
         const sent = yield* dispatch(message(shared), undefined as never);
         assert.strictEqual(sentText(sent), attributed);
-        assert.deepStrictEqual(sentAuthor(sent), { name: "Sam", text: "hi" });
+        assert.deepStrictEqual(sentAuthor(sent), {
+          name: "Sam",
+          subject: "colleague:sam",
+          text: "hi",
+        });
         // "Ask the agent" swaps the judging rule for a forced answer, same author and words.
         const forced = yield* dispatch(
           message(shared, "message.dispatch", "hi", {
@@ -327,7 +341,11 @@ database("CollaboratorSessionFork", (it) => {
         assert.include(sentText(forced), "this message is for you: answer it");
         assert.notInclude(sentText(forced), "When the message is not for you");
         assert.isTrue(sentText(forced).endsWith("]\n\nhi"));
-        assert.deepStrictEqual(sentAuthor(forced), { name: "Sam", text: "hi" });
+        assert.deepStrictEqual(sentAuthor(forced), {
+          name: "Sam",
+          subject: "colleague:sam",
+          text: "hi",
+        });
         const refused = yield* Effect.exit(dispatch(message(other), undefined as never));
         assert.isTrue(Exit.isFailure(refused));
         for (const type of [
@@ -351,26 +369,37 @@ database("CollaboratorSessionFork", (it) => {
           const hostOnly = yield* Effect.exit(dispatch(message(shared, type), undefined as never));
           assert.isTrue(Exit.isFailure(hostOnly));
         }
-        // Their own queued message is theirs to remove or reword; an edit stays attributed.
+        // Their own queued message is theirs to remove or reword, under any label; an edit stays
+        // attributed to them.
         const queued = (type: string, runId: string, text = "hi") =>
           ({
             ...(message(shared, type, text) as object),
             runId,
           }) as never as OrchestrationV2Command;
-        const cancelled = yield* dispatch(
-          queued("queued-run.cancel", "run-sam"),
-          undefined as never,
-        );
-        assert.strictEqual(cancelled.type, "queued-run.cancel");
+        for (const runId of ["run-sam", "run-sam-machine"]) {
+          const cancelled = yield* dispatch(queued("queued-run.cancel", runId), undefined as never);
+          assert.strictEqual(cancelled.type, "queued-run.cancel");
+        }
         for (const text of ["hi", attributed]) {
           const edited = yield* dispatch(
             queued("queued-run.edit", "run-sam", text),
             undefined as never,
           );
           assert.strictEqual(sentText(edited), attributed);
-          assert.deepStrictEqual(sentAuthor(edited), { name: "Sam", text: "hi" });
+          assert.deepStrictEqual(sentAuthor(edited), {
+            name: "Sam",
+            subject: "colleague:sam",
+            text: "hi",
+          });
         }
-        for (const runId of ["run-host", "run-pat", "run-missing"]) {
+        // A namesake's line is not theirs, and a line with no stored author stays the host's.
+        for (const runId of [
+          "run-host",
+          "run-pat",
+          "run-sam-namesake",
+          "run-sam-legacy",
+          "run-missing",
+        ]) {
           for (const type of ["queued-run.cancel", "queued-run.edit"]) {
             const notTheirs = yield* Effect.exit(dispatch(queued(type, runId), undefined as never));
             assert.isTrue(Exit.isFailure(notTheirs));
@@ -403,7 +432,7 @@ database("CollaboratorSessionFork", (it) => {
         assert.deepStrictEqual(stopped.sharedWith, []);
         assert.deepStrictEqual(stopped.collaborators, [{ subject: "colleague:sam", name: "Sam" }]);
         // A re-share keeps the access it had.
-        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+        yield* shareSam(service, shared);
         assert.deepStrictEqual((yield* service.threadShares(shared)).sharedWith, [
           { subject: "colleague:sam", name: "Sam", access: "send" },
         ]);
@@ -412,7 +441,11 @@ database("CollaboratorSessionFork", (it) => {
         yield* Fiber.interrupt(open);
 
         pairedSubjects.add("colleague:sam");
-        const again = yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+        const again = yield* service.share({
+          threadId: shared,
+          collaboratorName: "Sam",
+          subject: "colleague:sam",
+        });
         assert.isTrue(again.knownCollaborator);
       }),
     ),
@@ -423,8 +456,8 @@ database("CollaboratorSessionFork", (it) => {
       Effect.gen(function* () {
         const service = yield* CollaboratorShares.CollaboratorSharesFork;
         // The database is shared across tests, where Sam was given send access.
-        yield* service.share({ threadId: shared, collaboratorName: "Sam", access: "approve" });
-        yield* service.share({ threadId: shared, collaboratorName: "Ana" });
+        yield* shareSam(service, shared, "approve");
+        yield* service.shareWith({ threadId: shared, subject: "colleague:ana", name: "Ana" });
         hostDispatches.length = 0;
         const wrapped = { ...handlers };
         Object.assign(wrapped, service.wrapHandlers("colleague:sam", wrapped));
@@ -495,7 +528,12 @@ database("CollaboratorSessionFork", (it) => {
         assert.deepStrictEqual(yield* waiting(host), []);
         assert.deepStrictEqual(
           hostDispatches.map((command) => [sentText(command), sentAuthor(command)]),
-          [[collaboratorPrompt("Sam", "first"), { name: "Sam", text: "first", sentByHost: true }]],
+          [
+            [
+              collaboratorPrompt("Sam", "first"),
+              { name: "Sam", subject: "colleague:sam", text: "first", sentByHost: true },
+            ],
+          ],
         );
         // "Ask the agent" waits with the message; the host's send forces the answer.
         yield* sam["collaborator.submitMessageFork"]({
@@ -511,7 +549,10 @@ database("CollaboratorSessionFork", (it) => {
           decision: "send",
         });
         const forced = hostDispatches.at(-1)!;
-        assert.strictEqual(sentText(forced), collaboratorAttribution("Sam", "thanks", true).text);
+        assert.strictEqual(
+          sentText(forced),
+          collaboratorAttribution({ name: "Sam", subject: "colleague:sam" }, "thanks", true).text,
+        );
         assert.isTrue(sentContext(forced)?.forceReplyFork);
 
         // A dismissal stays with Sam, past a restart, until Sam clears it, and holds no slot.
@@ -620,7 +661,7 @@ database("CollaboratorSessionFork", (it) => {
     withService(
       Effect.gen(function* () {
         const service = yield* CollaboratorShares.CollaboratorSharesFork;
-        yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+        yield* shareSam(service, shared);
         const check = (subject: string, method: string, payload: unknown = {}) =>
           Effect.service(RpcScopeAuthorization).pipe(
             service.guardRpc(subject),
@@ -777,6 +818,7 @@ database("CollaboratorSessionFork", (it) => {
           });
           assert.deepStrictEqual(sentAuthor(hostDispatches[0]!), {
             name: "Alex",
+            subject: "colleague:alex",
             text: "hi",
             sentByHost: true,
           });
@@ -915,7 +957,7 @@ database("CollaboratorSessionFork", (it) => {
       yield* withService(
         Effect.gen(function* () {
           const service = yield* CollaboratorShares.CollaboratorSharesFork;
-          yield* service.share({ threadId: shared, collaboratorName: "Alex" });
+          yield* service.shareWith({ threadId: shared, subject: "colleague:alex", name: "Alex" });
           yield* sql`
             INSERT INTO fork_colleagues (subject, name, environment_id, url, secret_name, saved_at)
             VALUES ('colleague:alex', 'Alex', 'env-alex', 'http://alex', 'secret', '')
@@ -1020,10 +1062,14 @@ database("CollaboratorSessionFork", (it) => {
 
           // Sharing and unsharing reach both sides with nobody typing.
           // Sam's own name rides along, so Sam's client can tell their sent messages apart.
-          const asSam = <S extends object>(state: S) => ({ ...state, you: "Sam" });
+          const asSam = <S extends object>(state: S) => ({
+            ...state,
+            you: "Sam",
+            yourSubject: "colleague:sam",
+          });
           const hostSeen = yield* watch(host);
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(false));
-          yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+          yield* shareSam(service, shared);
           assert.deepStrictEqual(yield* Queue.take(hostSeen), idle(true));
           const samSeen = yield* watch(sam);
           assert.deepStrictEqual(yield* Queue.take(samSeen), asSam(idle(true)));
@@ -1109,17 +1155,21 @@ database("CollaboratorSessionFork", (it) => {
           assert.isTrue(Exit.isFailure(yield* Effect.exit(typing(sam, true))));
 
           // Unsharing drops Sam's typing, so a re-share within the heartbeat shows nobody.
-          yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+          yield* shareSam(service, shared);
           yield* typing(sam, true);
           yield* service.unshare({ threadId: shared, subject: "colleague:sam" });
-          yield* service.share({ threadId: shared, collaboratorName: "Sam" });
+          yield* shareSam(service, shared);
           const again = yield* host["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
             Stream.runHead,
           );
           assert.deepStrictEqual(Option.getOrThrow(again), idle(true));
 
-          // Typing "sam" for another thread reaches the same person, who stays "Sam".
-          const typedLower = yield* service.share({ threadId: other, collaboratorName: "sam" });
+          // Picking Sam for another thread reaches the same person, who stays "Sam".
+          const typedLower = yield* service.share({
+            threadId: other,
+            collaboratorName: "sam",
+            subject: "colleague:sam",
+          });
           assert.strictEqual(typedLower.collaboratorName, "Sam");
           assert.strictEqual(pairingLabels.at(-1), "Collaborator Sam");
           const renamed = yield* sam["collaborator.subscribeTypingFork"]({ threadId: shared }).pipe(
@@ -1128,5 +1178,37 @@ database("CollaboratorSessionFork", (it) => {
           assert.deepStrictEqual(Option.getOrThrow(renamed), asSam(idle(true)));
         }),
       ),
+  );
+
+  it.effect("a typed name is a new person; only picking someone reaches their grant", () =>
+    withService(
+      Effect.gen(function* () {
+        const service = yield* CollaboratorShares.CollaboratorSharesFork;
+        yield* shareSam(service, other);
+        pairedSubjects.add("colleague:sam");
+        const picked = yield* service.share({
+          threadId: other,
+          collaboratorName: "Sam",
+          subject: "colleague:sam",
+        });
+        assert.isTrue(picked.knownCollaborator);
+        assert.deepStrictEqual((yield* service.threadShares(other)).sharedWith.length, 1);
+        const newSams: Array<string | undefined> = [];
+        for (const _ of [1, 2]) {
+          const typed = yield* service.share({ threadId: other, collaboratorName: "Sam" });
+          assert.isFalse(typed.knownCollaborator);
+          newSams.push((yield* service.threadShares(other)).sharedWith.at(-1)?.subject);
+        }
+        assert.strictEqual(new Set(["colleague:sam", ...newSams]).size, 3);
+        assert.isFalse(service.isShared(newSams[0] ?? "", shared));
+        // Picking a subject nobody was shared with mints no grant under it.
+        yield* service.share({
+          threadId: other,
+          collaboratorName: "Pat",
+          subject: "colleague:pat",
+        });
+        assert.isFalse(service.isShared("colleague:pat", other));
+      }),
+    ),
   );
 });

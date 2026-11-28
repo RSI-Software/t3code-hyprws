@@ -16,6 +16,7 @@ Passages either of you cites stay **marked in the transcript** in that person's 
 The link opens in their desktop app or browser; unopened, it **expires after 24 hours**.
 Once they open it, their access **does not expire**; it lasts until you stop sharing or remove their device.
 To share another thread with someone you shared with before, pick their name under **Shared before**; no new link is needed.
+A name you type is always **a new person**, even when it matches someone's.
 
 ## Save each other as colleagues
 
