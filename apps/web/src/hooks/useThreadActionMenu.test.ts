@@ -224,6 +224,7 @@ vi.mock("../state/threadFork.fork", () => ({
 })); // fork-hook: thread-fork/header-test-fork-state
 vi.mock("../components/collaborator/colleagueShare.fork", () => ({
   readColleagueShareTargetsFork: () => [],
+  collaboratorShareOfferedFork: () => false,
   dispatchColleagueShareFork: () => false,
   useColleagueShareTargetsWarmFork: () => undefined,
 })); // fork-hook: colleague-collab/thread-menu-test

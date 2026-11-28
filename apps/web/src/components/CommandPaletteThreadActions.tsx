@@ -7,6 +7,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
+  GitForkIcon, // fork-hook: colleague-collab/palette-fork-icon
   HashIcon,
   type LucideIcon,
   MailOpenIcon,
@@ -36,6 +37,7 @@ const ICONS: Record<string, LucideIcon> = {
   folder: FolderIcon,
   "folder-plus": FolderPlusIcon,
   "git-branch": GitBranchIcon,
+  "git-fork": GitForkIcon, // fork-hook: colleague-collab/palette-fork-icon
   hash: HashIcon,
   "mail-open": MailOpenIcon,
   "message-square": MessageSquareIcon,

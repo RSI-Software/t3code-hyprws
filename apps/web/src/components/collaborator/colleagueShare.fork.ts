@@ -30,6 +30,7 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "~/state/server";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { threadSharesQuery } from "./collaboratorAccess.fork";
+import { canShareWithCollaboratorFork } from "./collaboratorShareDialogState.fork";
 import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import {
   colleagueForMenuId,
@@ -37,6 +38,10 @@ import {
   type ColleagueShareTargetFork,
 } from "./colleagueShare.logic.fork";
 import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
+
+/** The thread menus' Share gate, read from the live server configs. */
+export const collaboratorShareOfferedFork = (environmentId: EnvironmentId) =>
+  canShareWithCollaboratorFork(appAtomRegistry.get(environmentServerConfigsAtom), environmentId);
 
 const refreshShares = (
   { environmentId, input }: { environmentId: EnvironmentId; input: { threadId: ThreadId } },
