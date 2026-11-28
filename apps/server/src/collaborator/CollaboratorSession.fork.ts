@@ -356,6 +356,17 @@ const hostOnly = new EnvironmentAuthorizationError({
   requiredScope: AuthOrchestrationOperateScope,
 });
 
+/** Other threads a message names, which it may change: a plan it completes, a sender to wake. */
+const referencedThreadIds = (command: OrchestrationV2Command): ReadonlyArray<string> => {
+  if (command.type !== "message.dispatch") return [];
+  const source = command.notification?.source;
+  return [
+    command.sourcePlanRef?.threadId,
+    command.senderThreadId,
+    source !== undefined && "childThreadId" in source ? source.childThreadId : undefined,
+  ].filter((id): id is ThreadId => id !== undefined && id !== command.threadId);
+};
+
 const notCollaborator = new EnvironmentAuthorizationError({
   message: "Only a collaborator submits messages for approval.",
   requiredScope: AuthOrchestrationOperateScope,
@@ -783,6 +794,9 @@ export const makeCollaboratorSession = Effect.fn("makeCollaboratorSession")(func
           );
         }
         if (!COLLABORATOR_COMMANDS.has(command.type)) return Effect.fail(hostOnly);
+        if (referencedThreadIds(command).some((id) => share.threadIds.get(id) !== "send")) {
+          return Effect.fail(notShared(AuthOrchestrationOperateScope));
+        }
         if (command.type !== "message.dispatch") return dispatch(command, options);
         return dispatch(attributed({ name: share.name, subject }, command), options);
       },
