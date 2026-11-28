@@ -13,6 +13,12 @@ describe("collaborator link input", () => {
     expect(kinds.slice(kinds.indexOf("partial")).every((kind) => kind !== "other")).toBe(true);
   });
 
+  it("takes a colleague invite with no thread", () => {
+    expect(
+      collaboratorLinkInputFork("http://host.test:8534/pair?colleague=abc#token=K7M2Q9R4T6WX").kind,
+    ).toBe("whole");
+  });
+
   it("leaves a plain pairing link to the upstream field", () => {
     expect(collaboratorLinkInputFork("http://host.test:8534/pair#token=K7M2Q9R4T6WX").kind).toBe(
       "other",

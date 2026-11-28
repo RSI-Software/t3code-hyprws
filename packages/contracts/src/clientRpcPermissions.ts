@@ -115,6 +115,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.collaboratorResolveMessageFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.collaboratorSetTypingFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.colleagueInviteFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard
+  [WS_METHODS.colleagueInviteLinkFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.colleagueSaveFork]: AuthOrchestrationOperateScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.colleagueConnectFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard
   [WS_METHODS.colleagueRemoveFork]: AuthAccessWriteScope, // fork-hook: colleague-collab/rpc-client-guard
@@ -164,6 +165,7 @@ export function clientRpcRequiredScopes(
   if (method === WS_METHODS.collaboratorShareThreadFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   if (method === WS_METHODS.collaboratorSetAccessFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   if (method === WS_METHODS.colleagueInviteFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
+  if (method === WS_METHODS.colleagueInviteLinkFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   if (method === WS_METHODS.colleagueShareThreadFork) return COLLABORATOR_SHARE_SCOPES; // fork-hook: colleague-collab/rpc-share-scopes
   return Object.hasOwn(CLIENT_GUARDED_RPC_SCOPES, method)
     ? [CLIENT_GUARDED_RPC_SCOPES[method as ClientGuardedRpcTag]]

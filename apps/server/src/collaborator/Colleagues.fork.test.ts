@@ -4,8 +4,10 @@ import {
   AuthOrchestrationReadScope,
   type AuthEnvironmentScope,
   AuthSessionId,
+  AuthOrchestrationOperateScope,
   COLLABORATOR_SCOPES,
   COLLEAGUE_FORGET_ROUTE_FORK,
+  COLLEAGUE_INVITE_LINK_PARAM,
   COLLEAGUE_PAIR_CLIENT_ROUTE_FORK,
   type ColleagueErrorFork,
   EnvironmentId,
@@ -259,7 +261,15 @@ const makeServer = Effect.fn("makeServer")(function* (name: string, port: number
 });
 
 /** Sam's app, paired with the host's link: the session its accept steps call the host with. */
-const samApp = { subject: "colleague:sam", sessionId: AuthSessionId.make("sam-app") };
+const samApp = {
+  subject: "colleague:sam",
+  sessionId: AuthSessionId.make("sam-app"),
+  scopes: COLLABORATOR_SCOPES,
+};
+
+/** The colleague invite a link carries; undefined for a plain thread link. */
+const inviteOf = (pairingUrl: string) =>
+  new URL(pairingUrl).searchParams.get(COLLEAGUE_INVITE_LINK_PARAM) ?? undefined;
 
 const asColleague = (subject: string) => ({ subject, scopes: COLLABORATOR_SCOPES });
 
@@ -269,10 +279,18 @@ const subjectsOf = (server: Server) => [...server.sessions.values()].map(({ subj
  * The host shares a thread with Sam through a link; Sam accepts it in their own app, which runs the
  * three accept steps against their own server and the host's, and names the host as its grant does.
  */
-const accept = Effect.fn("accept")(function* (host: Server, sam: Server) {
+const accept = Effect.fn("accept")(function* (
+  host: Server,
+  sam: Server,
+  invite?: string,
+  app = samApp,
+) {
   const samGrant = yield* sam.colleagues.invite({ environmentId: host.environmentId, name: "Jo" });
   assert.isUndefined(samGrant.name);
-  const hostGrant = yield* host.colleagues.save(samApp, { grant: samGrant });
+  const hostGrant = yield* host.colleagues.save(app, {
+    grant: samGrant,
+    ...(invite && { invite }),
+  });
   const name = hostGrant.name ?? "the host's machine";
   return yield* sam.colleagues.connect({ subject: samGrant.subject, name, grant: hostGrant });
 });
@@ -283,14 +301,21 @@ const servers = Effect.gen(function* () {
   const host = yield* makeServer("host", 3801);
   const sam = yield* makeServer("sam", 3802);
   yield* host.shares.shareWith({ threadId: "host-thread", subject: samApp.subject, name: "Sam" });
+  // The host picked Sam under "Shared before" and ticked "Also save as colleague".
+  const { pairingUrl } = yield* host.shares.share({
+    threadId: ThreadId.make("host-thread"),
+    collaboratorName: "Sam",
+    subject: samApp.subject,
+    colleague: true,
+  });
   // Sam's app paired with the link: a collaborator session on the host.
   host.sessions.set("sam-app", { sessionId: "sam-app", subject: "colleague:sam" });
-  return { host, sam };
+  return { host, sam, invite: inviteOf(pairingUrl) };
 });
 
 const acceptedInvite = Effect.gen(function* () {
-  const { host, sam } = yield* servers;
-  yield* accept(host, sam);
+  const { host, sam, invite } = yield* servers;
+  yield* accept(host, sam, invite);
   return { host, sam };
 });
 
@@ -375,7 +400,11 @@ it.effect("an accepted invite saves each side as the other's colleague, fenced p
       // Only a collaborator the host shared with saves back; only a saved colleague gets codes.
       const owner = yield* Effect.exit(
         host.colleagues.save(
-          { subject: "owner", sessionId: AuthSessionId.make("owner-app") },
+          {
+            subject: "owner",
+            sessionId: AuthSessionId.make("owner-app"),
+            scopes: COLLABORATOR_SCOPES,
+          },
           { grant: grantFrom(sam) },
         ),
       );
@@ -384,6 +413,96 @@ it.effect("an accepted invite saves each side as the other's colleague, fenced p
         sam.colleagues.issueClientPairing(asColleague("colleague:eve")),
       );
       assert.isTrue(Exit.isFailure(stranger));
+    }),
+  ),
+);
+
+it.effect("a plain thread link saves no colleague, even when its holder asks", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam } = yield* servers;
+      const plain = yield* host.shares.share({
+        threadId: ThreadId.make("plain-thread"),
+        collaboratorName: "Sam",
+        subject: samApp.subject,
+      });
+      assert.isUndefined(inviteOf(plain.pairingUrl));
+
+      for (const invite of [undefined, "forged"]) {
+        const refused = yield* Effect.flip(accept(host, sam, invite));
+        assert.strictEqual(refused._tag, "ColleagueNotInvitedErrorFork");
+      }
+      assert.deepStrictEqual(yield* host.colleagues.list, []);
+      // Only the session Sam's app paired with: no grant for Sam's server.
+      assert.deepStrictEqual(subjectsOf(host), ["colleague:sam"]);
+      assert.isTrue(host.shares.isShared("colleague:sam", "plain-thread"));
+    }),
+  ),
+);
+
+it.effect("an invite saves once; only a saved colleague saves again without one", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam, invite } = yield* servers;
+      // Another collaborator's session cannot spend Sam's invite.
+      host.sessions.set("eve-app", { sessionId: "eve-app", subject: "colleague:eve" });
+      const stolen = yield* Effect.flip(
+        host.colleagues.save(
+          {
+            subject: "colleague:eve",
+            sessionId: AuthSessionId.make("eve-app"),
+            scopes: COLLABORATOR_SCOPES,
+          },
+          { grant: grantFrom(sam), invite },
+        ),
+      );
+      assert.strictEqual(stolen._tag, "ColleagueNotInvitedErrorFork");
+
+      yield* accept(host, sam, invite);
+      // A retry after a failed last step: Sam is saved, so the spent invite is not needed.
+      yield* accept(host, sam);
+      yield* host.colleagues.remove("colleague:sam");
+      const spent = yield* Effect.flip(accept(host, sam, invite));
+      assert.strictEqual(spent._tag, "ColleagueNotInvitedErrorFork");
+    }),
+  ),
+);
+
+it.effect("Settings' invite link saves a colleague and shares no thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      network.clear();
+      const host = yield* makeServer("host", 3801);
+      const sam = yield* makeServer("sam", 3802);
+      const { pairingUrl } = yield* host.shares.inviteColleague({ name: "Sam" });
+      assert.isFalse(new URL(pairingUrl).searchParams.has("thread"));
+      const { subject } = host.links.at(-1)!;
+      host.sessions.set("sam-app", { sessionId: "sam-app", subject });
+
+      const hostOnSam = yield* accept(host, sam, inviteOf(pairingUrl), { ...samApp, subject });
+      assert.strictEqual(hostOnSam.name, "Jo");
+      const [samOnHost] = yield* host.colleagues.list;
+      assert.deepInclude(samOnHost, { subject, name: "Sam", threadIds: [] });
+
+      // A typed name is always a new person: two "Alex" invites give two subjects.
+      yield* host.shares.inviteColleague({ name: "Alex" });
+      yield* host.shares.inviteColleague({ name: "Alex" });
+      const [first, second] = host.links.slice(-2).map((link) => link.subject);
+      assert.notStrictEqual(first, second);
+    }),
+  ),
+);
+
+it.effect("saving a colleague never grants wider than the calling session holds", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { host, sam, invite } = yield* servers;
+      const operateOnly = { ...samApp, scopes: [AuthOrchestrationOperateScope] };
+      yield* host.colleagues.save(operateOnly, { grant: grantFrom(sam), invite });
+      const grant = [...host.sessions.values()].find(
+        (session) => session.subject === "colleague:sam" && session.sessionId !== "sam-app",
+      );
+      assert.deepStrictEqual(grant?.scopes, [AuthOrchestrationOperateScope]);
     }),
   ),
 );
@@ -442,8 +561,14 @@ it.effect("an agent reads a colleague it names, refused plainly where their serv
       // Jo revoked Sam, and a second Jo refuses: both are tried, and the revoke is the reason.
       const kim = yield* makeServer("kim", 3803);
       yield* kim.shares.shareWith({ threadId: "kim-thread", subject: samApp.subject, name: "Sam" });
+      const kimLink = yield* kim.shares.share({
+        threadId: ThreadId.make("kim-thread"),
+        collaboratorName: "Sam",
+        subject: samApp.subject,
+        colleague: true,
+      });
       kim.sessions.set("sam-app", { sessionId: "sam-app", subject: "colleague:sam" });
-      yield* accept(kim, sam);
+      yield* accept(kim, sam, inviteOf(kimLink.pairingUrl));
       host.sessions.clear();
       calls.length = 0;
       const revoked = yield* Effect.flip(sam.colleagues.threadOf({ colleague: "Jo", threadId }));
@@ -489,7 +614,7 @@ it.effect("accepting again replaces each side's grant instead of adding one", ()
 it.effect("a new colleague never takes over a one-time guest's shares under their name", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const { host, sam } = yield* servers;
+      const { host, sam, invite } = yield* servers;
       // Before accepting, Sam shared by an older link, whose subject came from the name, with a
       // guest also called Jo, and with one holding the suffixed subject a new colleague falls back to.
       yield* sam.shares.shareWith({ threadId: "sam-guest", subject: "colleague:jo", name: "Jo" });
@@ -499,7 +624,7 @@ it.effect("a new colleague never takes over a one-time guest's shares under thei
         name: "Jo env-host",
       });
 
-      const hostOnSam = yield* accept(host, sam);
+      const hostOnSam = yield* accept(host, sam, invite);
       assert.notInclude(["colleague:jo", "colleague:jo-env-host"], hostOnSam.subject);
       assert.isFalse(sam.shares.isShared(hostOnSam.subject, "sam-guest"));
       assert.isFalse(sam.shares.isShared(hostOnSam.subject, "sam-guest-2"));
@@ -512,12 +637,12 @@ it.effect("a new colleague never takes over a one-time guest's shares under thei
 it.effect("the sharer's app can attach the colleague before the accept's last step", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const { host, sam } = yield* servers;
+      const { host, sam, invite } = yield* servers;
       const samGrant = yield* sam.colleagues.invite({
         environmentId: host.environmentId,
         name: "Jo",
       });
-      yield* host.colleagues.save(samApp, { grant: samGrant });
+      yield* host.colleagues.save(samApp, { grant: samGrant, invite });
 
       const pairing = yield* host.colleagues.pairClient("colleague:sam");
       assert.strictEqual(pairing.environmentId, sam.environmentId);
@@ -534,12 +659,25 @@ it.effect("a collaborator cannot save over another colleague's environment", () 
         subject: "colleague:eve",
         name: "Eve",
       });
+      const eveLink = yield* host.shares.share({
+        threadId: ThreadId.make("eve-thread"),
+        collaboratorName: "Eve",
+        subject: "colleague:eve",
+        colleague: true,
+      });
       host.sessions.set("eve-app", { sessionId: "eve-app", subject: "colleague:eve" });
 
       const evicted = yield* Effect.flip(
         host.colleagues.save(
-          { subject: "colleague:eve", sessionId: AuthSessionId.make("eve-app") },
-          { grant: { ...grantFrom(sam), url: "http://127.0.0.1:3899" } },
+          {
+            subject: "colleague:eve",
+            sessionId: AuthSessionId.make("eve-app"),
+            scopes: COLLABORATOR_SCOPES,
+          },
+          {
+            grant: { ...grantFrom(sam), url: "http://127.0.0.1:3899" },
+            invite: inviteOf(eveLink.pairingUrl),
+          },
         ),
       );
       assert.strictEqual(evicted._tag, "ColleagueSavedAsAnotherErrorFork");
@@ -579,8 +717,8 @@ it.effect("a collaborator whose session is revoked loses the colleague grant the
 it.effect("a pairing request is refused once the session that saved the colleague is gone", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const { host, sam } = yield* servers;
-      yield* host.colleagues.save(samApp, { grant: grantFrom(sam) });
+      const { host, sam, invite } = yield* servers;
+      yield* host.colleagues.save(samApp, { grant: grantFrom(sam), invite });
       // Gone without an announcement, as a session that lapsed while this server was down.
       host.sessions.delete("sam-app");
 

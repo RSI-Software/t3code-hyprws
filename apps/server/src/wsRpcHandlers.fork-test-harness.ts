@@ -23,7 +23,6 @@ export const layerUnusedWsRpcServicesFork = Layer.mergeAll(
     guardRpc: () => (self) => self,
     isShared: () => false,
     nameOf: () => undefined,
-    sharesLive: () => false,
     messageHandlers: () => {
       throw new Error("No test sends a collaborator message RPC through this harness.");
     },

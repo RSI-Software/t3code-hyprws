@@ -10,21 +10,48 @@ import { fetchSessionState } from "../../environments/primary/auth";
 import { PairingRouteSurface } from "../auth/PairingRouteSurface";
 import { Button } from "../ui/button";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
-import { linkThreadIdFork, sharedThreadPathFork } from "./collaboratorLink.fork";
+import {
+  linkColleagueInviteFork,
+  linkThreadIdFork,
+  sharedThreadPathFork,
+} from "./collaboratorLink.fork";
 
 interface PairingGate {
   readonly auth: AuthSessionState["auth"];
   readonly errorMessage?: string;
 }
 
-/** A collaborator link opened in a browser: the landing, then pairing that opens the shared thread. */
+/**
+ * A collaborator link opened in a browser: the landing, then pairing that opens the shared thread.
+ * A colleague-only invite needs a T3 Code app of the invitee's own, so it offers only the app.
+ */
 export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): ReactNode | null {
   const gt = useGT();
   // Read once: pairing in this browser strips the token from the URL.
   const [href] = useState(() => window.location.href);
   const [continued, setContinued] = useState(false);
   const threadId = linkThreadIdFork(href);
-  if (gate === undefined || isElectron || !threadId) return null;
+  const invite = linkColleagueInviteFork(href);
+  if (gate === undefined || isElectron || (!threadId && !invite)) return null;
+  const onPhone = /android|iphone|ipad/i.test(navigator.userAgent);
+  const openInApp = (
+    <Button render={<a href={buildPairingAppLink(href)} />}>
+      {onPhone ? gt("Open in app") : gt("Open in desktop app")}
+    </Button>
+  );
+  if (!threadId) {
+    return (
+      <StandalonePage>
+        <StandalonePageHeader
+          title={gt("You are invited as a colleague")}
+          description={gt(
+            "Open this link in your own T3 Code app. You each save the other, then share threads without a link.",
+          )}
+        />
+        <div className="mt-6 flex flex-wrap gap-2">{openInApp}</div>
+      </StandalonePage>
+    );
+  }
   if (continued) {
     return (
       <PairingRouteSurface
@@ -47,7 +74,6 @@ export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): R
           ? sharedThreadPathFork(threadId).then((path) => window.location.replace(path))
           : setContinued(true),
       );
-  const onPhone = /android|iphone|ipad/i.test(navigator.userAgent);
   return (
     <StandalonePage>
       <StandalonePageHeader
@@ -57,9 +83,7 @@ export function useCollaboratorLinkLandingFork(gate: PairingGate | undefined): R
         )}
       />
       <div className="mt-6 flex flex-wrap gap-2">
-        <Button render={<a href={buildPairingAppLink(href)} />}>
-          {onPhone ? gt("Open in app") : gt("Open in desktop app")}
-        </Button>
+        {openInApp}
         <Button variant="outline" onClick={continueInBrowser}>
           {gt("Continue in this browser")}
         </Button>

@@ -195,6 +195,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.collaboratorSetTypingFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.collaboratorSubscribeTypingFork]: "orchestration", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.colleagueInviteFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
+  [WS_METHODS.colleagueInviteLinkFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.colleagueSaveFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.colleagueConnectFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate
   [WS_METHODS.colleagueSubscribeFork]: "auth", // fork-hook: colleague-collab/rpc-aggregate

@@ -374,7 +374,7 @@ const COLLABORATOR_OPEN_RPCS: ReadonlySet<string> = new Set([
   ARCHIVE,
   THREAD,
   MESSAGES,
-  // Accepting an invite saves the host as a colleague; `ColleaguesFork.save` refuses non-sharers.
+  // Accepting a colleague invite saves the host; `ColleaguesFork.save` refuses any other caller.
   WS_METHODS.colleagueSaveFork,
 ]);
 // Sharing a draft needs a live hand share; requests and reads also serve a team thread.

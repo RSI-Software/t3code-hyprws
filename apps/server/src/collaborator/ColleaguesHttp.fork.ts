@@ -49,7 +49,7 @@ const route = <A>(
           ColleagueSelfErrorFork: refused,
           ColleagueOwnGrantErrorFork: refused,
           ColleagueNotCollaboratorErrorFork: refused,
-          ColleagueNoLiveShareErrorFork: refused,
+          ColleagueNotInvitedErrorFork: refused,
           ColleagueNoScopeErrorFork: refused,
           ColleagueSavedAsAnotherErrorFork: refused,
           ColleagueNotHttpErrorFork: refused,
