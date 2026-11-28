@@ -279,6 +279,37 @@ it.live("a forked thread's first message starts a fresh session holding the copi
   ),
 );
 
+it.live(
+  "a person's copied line shows their words under their name; the agent reads who wrote it",
+  () =>
+    scenario("colleague-fork-authors", ({ send, fork, projection }) =>
+      Effect.gen(function* () {
+        yield* fork(
+          input([
+            { role: "user", text: "Ship it?", createdAt: at(1) },
+            {
+              role: "user",
+              text: "Friday",
+              createdAt: at(2),
+              author: "Jordan",
+              replyTo: { name: "Alex", text: "When?" },
+            },
+          ]),
+        );
+        const [, own, reply] = (yield* projection()).visibleTurnItems.map(({ item }) => item);
+        assert.equal(own?.type === "user_message" ? own.text : null, "Ship it?");
+        assert.isUndefined(own?.type === "user_message" ? own.context : null);
+        assert.deepEqual(reply?.type === "user_message" ? reply.context?.collaboratorFork : null, {
+          name: "Jordan",
+          text: "Friday",
+          replyTo: { name: "Alex", text: "When?" },
+        });
+        const [first] = yield* send("Recap");
+        assert.include(first?.text ?? "", "[Jordan wrote the message below, in reply to Alex.]");
+      }),
+    ),
+);
+
 it.live("with no copy, the new thread only links to the original and says so", () =>
   scenario("colleague-fork-linked", ({ send, fork, projection }) =>
     Effect.gen(function* () {

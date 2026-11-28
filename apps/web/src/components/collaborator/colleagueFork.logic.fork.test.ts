@@ -10,6 +10,7 @@ import {
 import { ThreadSnapshotLoader } from "@t3tools/client-runtime/state/threads";
 import {
   ChatAttachmentId,
+  type CollaboratorAttributionFork,
   EnvironmentId,
   MessageId,
   type OrchestrationV2ThreadDetailSnapshot,
@@ -44,7 +45,12 @@ const PROJECTION = makeThreadProjectionFixture();
 const THREAD_ID = PROJECTION.thread.id;
 const AT = DateTime.makeUnsafe("2026-11-27T00:00:00.000Z");
 
-const row = (text: string, ordinal: number, type: "user_message" | "assistant_message") => ({
+const row = (
+  text: string,
+  ordinal: number,
+  type: "user_message" | "assistant_message",
+  said?: CollaboratorAttributionFork,
+) => ({
   position: ordinal,
   visibility: "local" as const,
   sourceThreadId: THREAD_ID,
@@ -72,6 +78,9 @@ const row = (text: string, ordinal: number, type: "user_message" | "assistant_me
           createdBy: "user" as const,
           creationSource: "web" as const,
           inputIntent: "turn_start" as const,
+          ...(said === undefined
+            ? {}
+            : { context: { version: 1 as const, records: [], collaboratorFork: said } }),
           // An empty text stands for an image-only message.
           attachments:
             text === ""
@@ -206,6 +215,7 @@ describe("forking a colleague's thread", () => {
             : attachment.name === "b.pdf"
               ? Effect.fail("host gone")
               : Effect.succeed(null),
+        { host: "Jordan", you: null },
       );
       expect(forked.missingAttachments).toEqual(["b.pdf", "gone.pdf"]);
       expect(
@@ -215,6 +225,52 @@ describe("forking a colleague's thread", () => {
         ["[Not copied: gone.pdf]", undefined],
         ["Read them", undefined],
       ]);
+    }),
+  );
+
+  it.effect("copies what each person typed, under their name, live and from the copy", () =>
+    Effect.gen(function* () {
+      // Alex forks Jordan's thread: Jordan's lines, plain or attributed, are the host's.
+      const items = [
+        row("[Alex, a collaborator…]\n\nShip it?", 1, "user_message", {
+          name: "Alex",
+          text: "Ship it?",
+        }),
+        row("[Jordan, the owner…]\n\nNot yet", 2, "user_message", {
+          name: "Jordan",
+          text: "Not yet",
+          host: true,
+        }),
+        row("[Jordan, the owner… in reply…]\n\nFriday", 3, "user_message", {
+          name: "Jordan",
+          text: "Friday",
+          host: true,
+          replyTo: { name: "Alex", text: "When?" },
+        }),
+        row("Before sharing", 4, "user_message"),
+      ];
+      const thread = {
+        ...snapshot([], false),
+        projection: { ...PROJECTION, visibleTurnItems: items },
+      };
+      for (const source of [{ host: thread }, { copy: thread }]) {
+        const { messages } = yield* read(source);
+        const copy = (you: string | null) =>
+          colleagueForkMessagesFork(messages, () => Effect.succeed(null), { host: "Jordan", you });
+        const lines = (yield* copy("Alex")).messages.map(({ text, author, replyTo }) => [
+          text,
+          author,
+          replyTo?.name,
+        ]);
+        expect(lines).toEqual([
+          ["Ship it?", undefined, undefined],
+          ["Not yet", "Jordan", undefined],
+          ["Friday", "Jordan", "Alex"],
+          ["Before sharing", "Jordan", undefined],
+        ]);
+        // Not knowing who forks, every line keeps its author's name.
+        expect((yield* copy(null)).messages[0]?.author).toBe("Alex");
+      }
     }),
   );
 

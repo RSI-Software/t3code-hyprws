@@ -578,10 +578,15 @@ export type ColleagueThreadOriginFork = typeof ColleagueThreadOriginFork.Type;
 /** One message of a colleague's thread, as this device read it. */
 export const ColleagueThreadMessageFork = Schema.Struct({
   role: Schema.Literals(["user", "assistant"]),
+  /** What the thread showed: a person's own words, never the attributed form the agent read. */
   text: Schema.String,
   createdAt: IsoDateTime,
   /** Copies of the message's images and files, as pending uploads on this server. */
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  /** Who wrote a user message, when not the person forking it. */
+  author: Schema.optional(TrimmedNonEmptyString),
+  /** The waiting message a user message replies to. */
+  replyTo: CollaboratorAttributionFork.fields.replyTo,
 });
 export type ColleagueThreadMessageFork = typeof ColleagueThreadMessageFork.Type;
 

@@ -15,6 +15,7 @@ import * as Option from "effect/Option";
 import { HttpClient } from "effect/http";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
+import { resolveUserMessagePresentation } from "../userMessage.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
@@ -31,6 +32,9 @@ export interface ColleagueReadMessageFork {
   readonly text: string;
   readonly createdAt: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
+  /** A user message's author, as the shared thread named them; absent for the host's own. */
+  readonly author?: string;
+  readonly replyTo?: ColleagueThreadMessageFork["replyTo"];
 }
 
 export interface ColleagueThreadReadFork {
@@ -49,15 +53,28 @@ const colleagueThreadMessagesFork = (
   return items.flatMap((item): ReadonlyArray<ColleagueReadMessageFork> => {
     if (seen.has(item.id)) return [];
     seen.add(item.id);
-    if (item.type !== "user_message" && item.type !== "assistant_message") return [];
-    const attachments = item.type === "user_message" ? item.attachments : [];
-    if (item.text.trim() === "" && attachments.length === 0) return [];
+    const createdAt = DateTime.formatIso(item.startedAt ?? item.updatedAt);
+    if (item.type === "assistant_message") {
+      return item.text.trim() === ""
+        ? []
+        : [{ role: "assistant", text: item.text, createdAt, attachments: [] }];
+    }
+    if (item.type !== "user_message") return [];
+    // The words people saw, not the attributed form the agent read.
+    const shown = resolveUserMessagePresentation({ ...item, id: item.messageId, role: "user" });
+    const text = shown.text.trim() === "" ? "" : shown.text;
+    if (text === "" && item.attachments.length === 0) return [];
+    const replyTo = item.context?.collaboratorFork?.replyTo;
     return [
       {
-        role: item.type === "user_message" ? "user" : "assistant",
-        text: item.text.trim() === "" ? "" : item.text,
-        createdAt: DateTime.formatIso(item.startedAt ?? item.updatedAt),
-        attachments,
+        role: "user",
+        text,
+        createdAt,
+        attachments: item.attachments,
+        ...(shown.guestName === undefined || shown.guestName.trim() === ""
+          ? {}
+          : { author: shown.guestName }),
+        ...(replyTo === undefined ? {} : { replyTo }),
       },
     ];
   });
@@ -66,7 +83,8 @@ const colleagueThreadMessagesFork = (
 /**
  * The messages a fork sends: each with the copies `copy` made of its attachments on this server.
  * An attachment `copy` fails on, or yields null for, is named in its message and in
- * `missingAttachments` instead.
+ * `missingAttachments` instead. Each user message names its author, `people.host` for the host's
+ * own, except the lines of `people.you`, the person forking.
  */
 export const colleagueForkMessagesFork = Effect.fn("ColleagueFork.copyAttachments")(function* <
   E,
@@ -74,6 +92,7 @@ export const colleagueForkMessagesFork = Effect.fn("ColleagueFork.copyAttachment
 >(
   messages: ReadonlyArray<ColleagueReadMessageFork>,
   copy: (attachment: ChatAttachment) => Effect.Effect<ChatAttachment | null, E, R>,
+  people: { readonly host: string; readonly you: string | null },
 ) {
   const copies = yield* Effect.forEach(
     messages,
@@ -94,12 +113,15 @@ export const colleagueForkMessagesFork = Effect.fn("ColleagueFork.copyAttachment
       .filter((part) => part !== "")
       .join("\n\n");
     if (text === "" && copied.length === 0) return [];
+    const author = message.role === "user" ? (message.author ?? people.host) : undefined;
     return [
       {
         role: message.role,
         text,
         createdAt: message.createdAt,
         ...(copied.length === 0 ? {} : { attachments: copied }),
+        ...(author === undefined || author === people.you ? {} : { author }),
+        ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
       },
     ];
   });

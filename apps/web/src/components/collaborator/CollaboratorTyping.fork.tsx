@@ -71,6 +71,25 @@ interface TypingThread {
 export const typingServedFork = (access: OrchestrationV2ThreadShell["collaboratorFork"]) =>
   access !== "frozen" && access !== "read";
 
+/** A collaborator's own name on `thread`, while its host says it; else null. */
+export function useCollaboratorYouFork(thread: TypingThread | null) {
+  const configs = useServerConfigs();
+  const served =
+    thread !== null &&
+    typingServedFork(thread.collaboratorFork) &&
+    configs.get(thread.environmentId)?.environment.capabilities.collaboratorsFork === true;
+  return (
+    useEnvironmentQuery(
+      served
+        ? typingSubscription({
+            environmentId: thread.environmentId,
+            input: { threadId: thread.id },
+          })
+        : null,
+    ).data?.you ?? null
+  );
+}
+
 /** One idle subscription per open thread; heartbeats only while the server says it is shared. */
 export function CollaboratorTypingFork({
   thread,

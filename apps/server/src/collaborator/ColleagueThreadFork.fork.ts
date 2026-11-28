@@ -9,6 +9,7 @@ import {
   CommandId,
   EventId,
   MessageId,
+  type OrchestrationMessageContext,
   type OrchestrationV2DomainEvent,
   type ThreadId,
   TurnItemId,
@@ -59,6 +60,34 @@ const originNoticeFork = (
     .join(" ");
 };
 
+type ForkMessage = ColleagueForkThreadInputFork["messages"][number];
+
+/**
+ * A copied user message as a shared thread holds one: the agent reads who wrote it, and people see
+ * the author's own words under their name, as in the original.
+ */
+const attributedFork = (message: ForkMessage) => {
+  const { author, replyTo, text } = message;
+  if (message.role !== "user" || (author === undefined && replyTo === undefined)) {
+    return { text, context: undefined };
+  }
+  const reply = replyTo === undefined ? "" : `, in reply to ${replyTo.name}`;
+  const context: OrchestrationMessageContext = {
+    version: 1,
+    records: [],
+    collaboratorFork: {
+      name: author ?? "",
+      text,
+      ...(author === undefined ? { host: true as const } : {}),
+      ...(replyTo === undefined ? {} : { replyTo }),
+    },
+  };
+  return {
+    text: author === undefined ? text : `[${author} wrote the message below${reply}.]\n\n${text}`,
+    context,
+  };
+};
+
 /**
  * The events that write the copied history into `threadId`, the notice first. `attachments` holds
  * each message's claimed attachments, by index.
@@ -107,6 +136,8 @@ const historyEventsFork = (
       const sentAt = DateTime.makeUnsafe(message.createdAt);
       const times = { startedAt: sentAt, completedAt: sentAt, updatedAt: sentAt };
       const common = { ...base, ...times, id: itemId, ordinal: index + 1, messageId };
+      const { text, context } = attributedFork(message);
+      const withContext = context === undefined ? {} : { context };
       return [
         {
           id: EventId.make(`${PREFIX}:message:${threadId}:${suffix}`),
@@ -119,7 +150,8 @@ const historyEventsFork = (
             runId: null,
             nodeId: null,
             role: message.role,
-            text: message.text,
+            text,
+            ...withContext,
             attachments: attachments[index] ?? [],
             streaming: false,
             createdBy: message.role === "user" ? "user" : "agent",
@@ -141,7 +173,8 @@ const historyEventsFork = (
                   createdBy: "user",
                   creationSource: "server",
                   inputIntent: "turn_start",
-                  text: message.text,
+                  text,
+                  ...withContext,
                   attachments: attachments[index] ?? [],
                 }
               : { ...common, type: "assistant_message", text: message.text, streaming: false },
