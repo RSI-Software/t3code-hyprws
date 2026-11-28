@@ -75,10 +75,15 @@ const sameShare = (a: CollaboratorShare | undefined, b: CollaboratorShare | unde
   [...(a?.threadIds ?? [])].every(([id, access]) => b?.threadIds.get(id) === access) &&
   sameIds(a?.frozen.keys(), b?.frozen.keys());
 
+/** The collaborator's own name as the host shared with them, so their client knows its lines. */
+const ownName = (share: CollaboratorShare | undefined) =>
+  share === undefined ? {} : { collaboratorNameFork: share.name };
+
 const frozenShells = (share: CollaboratorShare | undefined) =>
   [...(share?.frozen.values() ?? [])].map((thread) => ({
     ...thread,
     collaboratorFork: "frozen" as const,
+    ...ownName(share),
   }));
 
 /** What one collaborator session reads: its hand shares, and the team projects of a colleague. */
@@ -107,7 +112,7 @@ const readableIn =
     const access =
       share?.threadIds.get(thread.id) ??
       (team.has(thread.projectId) ? ("approve" as const) : undefined);
-    return access === undefined ? [] : [{ ...thread, collaboratorFork: access }];
+    return access === undefined ? [] : [{ ...thread, collaboratorFork: access, ...ownName(share) }];
   };
 
 /** Narrows one shell item; an authoritative snapshot resets `visible` to the readable threads'. */

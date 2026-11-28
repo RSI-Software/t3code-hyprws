@@ -27,6 +27,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
+import { replyQuote } from "./CollaboratorMessages.fork.ts";
 
 export class ColleagueThreadForkFork extends Context.Service<
   ColleagueThreadForkFork,
@@ -71,7 +72,10 @@ const attributedFork = (message: ForkMessage) => {
   if (message.role !== "user" || (author === undefined && replyTo === undefined)) {
     return { text, context: undefined };
   }
-  const reply = replyTo === undefined ? "" : `, in reply to ${replyTo.name}`;
+  const reply =
+    replyTo === undefined
+      ? ""
+      : `, in reply to this message from ${replyTo.name}: ${replyQuote(replyTo.text)}`;
   const context: OrchestrationMessageContext = {
     version: 1,
     records: [],

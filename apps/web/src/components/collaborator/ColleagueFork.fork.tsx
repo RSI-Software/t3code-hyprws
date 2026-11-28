@@ -51,7 +51,6 @@ import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { copyColleagueAttachmentFork } from "./colleagueForkAttachments.fork";
 import { colleagueForkDialogThreadAtom } from "./colleagueForkDialogState.fork";
 import { matchingProjectFork } from "./colleagueFork.logic.fork";
-import { useCollaboratorYouFork } from "./CollaboratorTyping.fork";
 import { useSharerNamesFork } from "./SharedThreadCard.fork";
 
 interface ReadInput {
@@ -124,7 +123,7 @@ function ColleagueForkDialog({
   const sharer = useSharerNamesFork().get(threadRef.environmentId);
   const machine = useEnvironment(threadRef.environmentId)?.label;
   const host = sharer ?? machine ?? gt("the host");
-  const you = useCollaboratorYouFork(thread);
+  const you = thread?.collaboratorNameFork ?? null;
   const primary = usePrimaryEnvironmentId();
   const projects = useProjects();
   const local = projects.filter(

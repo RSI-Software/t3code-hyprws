@@ -48,8 +48,11 @@ const forcedRule = (people: string) =>
 
 const PREFIX_ENDS = [`${QUIET_MARKER} and nothing else.]\n\n`, `${FORCED_END}]\n\n`];
 
-// Enough of a waiting message for the agent to tell what the host's reply answers.
+// Enough of a waiting message for the agent to tell what a reply answers.
 const REPLY_QUOTE_MAX = 500;
+
+export const replyQuote = (text: string) =>
+  `"${text.length > REPLY_QUOTE_MAX ? `${text.slice(0, REPLY_QUOTE_MAX)}…` : text}"`;
 
 /**
  * A queued edit starts from the already attributed text, maybe under an older share list or the
@@ -100,7 +103,7 @@ export const hostAttribution = (
     replyTo === undefined
       ? ""
       : ` to ${replyTo.name}, in reply to this message ${replyTo.name} wrote to the owner, which you were not sent: ` +
-        `"${replyTo.text.length > REPLY_QUOTE_MAX ? `${replyTo.text.slice(0, REPLY_QUOTE_MAX)}…` : replyTo.text}". ` +
+        `${replyQuote(replyTo.text)}. ` +
         `It answers ${replyTo.name}, not anything you asked, so it is between people, even when it turns down or puts off what ${replyTo.name} asked for, unless it also asks you to do something. ` +
         `It is addressed to ${replyTo.name}, so "you" in it means ${replyTo.name}, not you: whatever it asks of "you" or hands out is ${replyTo.name}'s or the owner's work, not yours; only what it asks of the agent is yours`;
   const { own, text: prompt } = attributed(

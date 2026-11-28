@@ -983,7 +983,11 @@ database("CollaboratorSessionFork", (it) => {
               undefined as never,
             );
             return {
-              threads: threads.map(({ id, collaboratorFork }) => [id, collaboratorFork]),
+              threads: threads.map(({ id, collaboratorFork, collaboratorNameFork }) => [
+                id,
+                collaboratorFork,
+                collaboratorNameFork,
+              ]),
               projects: projects.map(({ id }) => id),
             };
           });
@@ -1008,9 +1012,10 @@ database("CollaboratorSessionFork", (it) => {
 
           // The hand share keeps its access, the team thread takes requests, the third stays hidden.
           assert.deepStrictEqual(yield* archived("colleague:alex"), {
+            // Each carries the name the host shared with, so Alex's client knows Alex's lines.
             threads: [
-              [shared, "approve"],
-              [other, "approve"],
+              [shared, "approve", "Alex"],
+              [other, "approve", "Alex"],
             ],
             projects: [sharedProject, otherProject],
           });
