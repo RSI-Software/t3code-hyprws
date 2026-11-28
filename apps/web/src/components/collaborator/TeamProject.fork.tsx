@@ -56,7 +56,9 @@ export function TeamProjectSettingsRowFork(props: {
   return (
     <SettingsRow
       title={gt("Team")}
-      description={gt("Marks the project as your team's work.")}
+      description={gt(
+        "Saved colleagues read all its threads, past and archived ones too. Their messages wait for your approval.",
+      )}
       control={
         <Switch
           checked={isTeamProject(props.members)}
