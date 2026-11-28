@@ -1,7 +1,7 @@
-// Fork-only (colleague-collab): saved colleagues. Accepting an invite leaves each server holding
-// the other's collaborator grant, a bearer token kept in the secret store, so either side shares
-// a thread with no link. The grant is the plain collaborator grant: `CollaboratorSession` fences it
-// to the threads shared with its subject, plus read access to every team project thread.
+// Fork-only (colleague-collab): saved colleagues. Accepting a colleague invite, which a link carries
+// only when the host opts in, leaves each server holding the other's collaborator grant (a bearer
+// token in the secret store), so either side shares a thread with no link. `CollaboratorSession`
+// fences it to the threads shared with its subject, plus read access to every team project thread.
 import {
   COLLABORATOR_SCOPES,
   COLLEAGUE_FORGET_ROUTE_FORK,
@@ -17,7 +17,7 @@ import {
   CollaboratorNameFork,
   type CollaboratorShareErrorFork,
   type CollaboratorThreadMissingErrorFork,
-  ColleagueNoLiveShareErrorFork,
+  ColleagueNotInvitedErrorFork,
   ColleagueNoScopeErrorFork,
   ColleagueNotHttpErrorFork,
   ColleagueOwnGrantErrorFork,
@@ -156,7 +156,7 @@ export class ColleagueNoneSavedErrorFork extends Schema.TaggedError<ColleagueNon
   {},
 ) {
   override get message() {
-    return "The user has no saved colleagues. They save one by accepting a share invite.";
+    return "The user has no saved colleagues. They save one by accepting a colleague invite.";
   }
 }
 
@@ -179,9 +179,16 @@ export class ColleaguesFork extends Context.Service<
     readonly invite: (
       input: ColleagueInviteInputFork,
     ) => Effect.Effect<ColleagueGrantFork, ColleagueErrorFork>;
-    /** Accept step 2, called by a collaborator's session: keeps their grant, answers with ours. */
+    /**
+     * Accept step 2, called by a collaborator's session holding a colleague invite, or already
+     * saved: keeps their grant, answers with ours, never wider than the caller's session.
+     */
     readonly save: (
-      caller: { readonly subject: string; readonly sessionId: AuthSessionId },
+      caller: {
+        readonly subject: string;
+        readonly sessionId: AuthSessionId;
+        readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+      },
       input: ColleagueSaveInputFork,
     ) => Effect.Effect<ColleagueGrantFork, ColleagueErrorFork>;
     /** Accept step 3, owner: keeps the sharer's grant under step 1's subject. */
@@ -304,12 +311,13 @@ const make = Effect.gen(function* () {
     subject: string,
     name: string,
     linkBaseUrl: string | undefined,
+    scopes: ReadonlyArray<AuthEnvironmentScope> = COLLABORATOR_SCOPES,
   ) {
     const { base } = yield* shares.publicBaseUrl(linkBaseUrl);
     const issued = yield* auth
       .issueSession({
         subject,
-        scopes: COLLABORATOR_SCOPES,
+        scopes,
         label: `Colleague ${name}'s server`,
         ...collaboratorSessionLifetimeFork(subject),
       })
@@ -430,20 +438,25 @@ const make = Effect.gen(function* () {
   });
 
   const save: ColleaguesFork["Service"]["save"] = Effect.fn("ColleaguesFork.save")(function* (
-    { subject, sessionId: caller },
+    { subject, sessionId: caller, scopes: held },
     input,
   ) {
+    if (!isCollaboratorSubject(subject)) return yield* new ColleagueNotInvitedErrorFork();
+    const invited =
+      input.invite === undefined ? undefined : yield* shares.colleagueInvite(subject, input.invite);
+    // An already saved colleague saves again, as a retry after a failed last step does.
     const name =
-      isCollaboratorSubject(subject) && shares.sharesLive(subject)
-        ? shares.nameOf(subject)
-        : undefined;
-    if (name === undefined) {
-      return yield* new ColleagueNoLiveShareErrorFork();
-    }
-    const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl);
+      invited ?? (yield* SubscriptionRef.get(ref)).find((row) => row.subject === subject)?.name;
+    if (name === undefined) return yield* new ColleagueNotInvitedErrorFork();
+    const scopes = COLLABORATOR_SCOPES.filter((scope) => held.includes(scope));
+    if (scopes.length === 0) return yield* new ColleagueNoScopeErrorFork();
+    const { grant, sessionId } = yield* issueGrant(subject, name, input.linkBaseUrl, scopes);
     yield* store(subject, name, input.grant, sessionId, caller).pipe(
       Effect.onError(() => revoke(sessionId)),
     );
+    if (invited !== undefined && input.invite !== undefined) {
+      yield* shares.spendColleagueInvite(input.invite);
+    }
     return grant;
   }, exclusive);
 

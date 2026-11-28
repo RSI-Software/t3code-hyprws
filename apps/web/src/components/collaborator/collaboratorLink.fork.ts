@@ -1,5 +1,6 @@
-// Fork-only (colleague-collab): a collaborator link offers a shared thread, not a backend, and opens
-// that thread once its pairing succeeds. A plain pairing link falls through to the upstream flow.
+// Fork-only (colleague-collab): a collaborator link offers a shared thread, a colleague invite, or
+// both, not a backend. Once paired it opens the thread; only an invite saves both sides as
+// colleagues. A plain pairing link falls through to the upstream flow.
 import {
   fetchRemoteEnvironmentDescriptor,
   scopeThreadRef,
@@ -8,7 +9,11 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { COLLABORATOR_THREAD_LINK_PARAM, ThreadId } from "@t3tools/contracts";
+import {
+  COLLABORATOR_THREAD_LINK_PARAM,
+  COLLEAGUE_INVITE_LINK_PARAM,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { useGT } from "gt-react";
 import * as Effect from "effect/Effect";
@@ -26,7 +31,11 @@ import { useSaveColleagueFork } from "./colleagues.fork";
 
 /** The shared thread a collaborator link names, if any. */
 export const linkThreadIdFork = (pairingUrl: string) =>
-  URL.parse(pairingUrl)?.searchParams.get(COLLABORATOR_THREAD_LINK_PARAM)?.trim();
+  URL.parse(pairingUrl)?.searchParams.get(COLLABORATOR_THREAD_LINK_PARAM)?.trim() || undefined;
+
+/** The colleague invite a collaborator link carries, if any. */
+export const linkColleagueInviteFork = (pairingUrl: string) =>
+  URL.parse(pairingUrl)?.searchParams.get(COLLEAGUE_INVITE_LINK_PARAM)?.trim() || undefined;
 
 /** The shared thread on this server, or home when the server cannot name its environment. */
 export const sharedThreadPathFork = (threadId: string) =>
@@ -58,14 +67,22 @@ export function useCollaboratorLinkPairingFork() {
     paired = new Set<string>(),
   ): Promise<boolean> => {
     const threadId = linkThreadIdFork(pairingUrl);
-    if (!threadId) return false;
+    const invite = linkColleagueInviteFork(pairingUrl);
+    if (!threadId && !invite) return false;
     const origin = linkOrigin ?? new URL(pairingUrl).origin;
-    const confirmed =
-      (await requestConfirmDialog(
-        gt("Open the thread shared with you from {origin}? Your messages run on their machine.", {
+    const question = !threadId
+      ? gt("Save {origin} as a colleague? You then share threads with each other without a link.", {
           origin,
-        }),
-      )) ?? false;
+        })
+      : invite
+        ? gt(
+            "Open the thread shared with you from {origin}, and save them as a colleague? Your messages run on their machine.",
+            { origin },
+          )
+        : gt("Open the thread shared with you from {origin}? Your messages run on their machine.", {
+            origin,
+          });
+    const confirmed = (await requestConfirmDialog(question)) ?? false;
     if (!confirmed) return true;
     const result = await connect({ pairingUrl });
     if (result._tag === "Failure") {
@@ -73,7 +90,8 @@ export function useCollaboratorLinkPairingFork() {
       return true;
     }
     paired.add(pairingUrl);
-    void saveColleague(result.value);
+    if (invite) void saveColleague(result.value, invite);
+    if (!threadId) return true;
     toastManager.add({
       type: "success",
       title: gt("Shared thread added"),

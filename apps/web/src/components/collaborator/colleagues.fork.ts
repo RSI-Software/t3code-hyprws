@@ -83,7 +83,7 @@ const linkBase = (environmentId: EnvironmentId) => {
 };
 
 /**
- * Returns the accept that runs once a shared thread's environment is paired: each server saves
+ * Returns the accept that runs once a link with a colleague invite is paired: each server saves
  * the other as a colleague. A browser that is only the sharer's guest has no server of its own.
  */
 export function useSaveColleagueFork() {
@@ -92,7 +92,7 @@ export function useSaveColleagueFork() {
   const invite = useAtomCommand(inviteCommand, quiet);
   const save = useAtomCommand(saveCommand, quiet);
   const connect = useAtomCommand(connectCommand, quiet);
-  const saveColleague = async (sharer: EnvironmentId): Promise<void> => {
+  const saveColleague = async (sharer: EnvironmentId, colleagueInvite: string): Promise<void> => {
     const own = readPrimaryEnvironmentId();
     if (own === null || own === sharer) return;
     if (!colleaguesServedFork(appAtomRegistry.get(environmentServerConfigsAtom), own)) return;
@@ -116,7 +116,7 @@ export function useSaveColleagueFork() {
               children: gt("Retry"),
               onClick: () => {
                 toastManager.close(toastId);
-                void saveColleague(sharer);
+                void saveColleague(sharer, colleagueInvite);
               },
             },
           }),
@@ -138,7 +138,7 @@ export function useSaveColleagueFork() {
       invited._tag === "Success"
         ? await save({
             environmentId: sharer,
-            input: { grant: invited.value, ...linkBase(sharer) },
+            input: { grant: invited.value, invite: colleagueInvite, ...linkBase(sharer) },
           })
         : invited;
     const connected =

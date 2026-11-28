@@ -168,6 +168,8 @@ import {
   ColleagueForkThreadInputFork,
   ColleagueGrantFork,
   ColleagueInviteInputFork,
+  ColleagueInviteLinkInputFork,
+  ColleagueInviteLinkResultFork,
   ColleagueQueuedMessageFork,
   ColleagueQueueMessageInputFork,
   ColleagueRemoveResultFork,
@@ -189,6 +191,7 @@ export const collaboratorRpcFork = {
     collaboratorSetTypingFork: "collaborator.setTypingFork",
     collaboratorSubscribeTypingFork: "collaborator.subscribeTypingFork",
     colleagueInviteFork: "colleague.inviteFork",
+    colleagueInviteLinkFork: "colleague.inviteLinkFork",
     colleagueSaveFork: "colleague.saveFork",
     colleagueConnectFork: "colleague.connectFork",
     colleagueSubscribeFork: "colleague.subscribeFork",
@@ -255,6 +258,12 @@ export const collaboratorRpcFork = {
       payload: ColleagueInviteInputFork,
       success: ColleagueGrantFork,
       error: Schema.Union([ColleagueErrorFork, EnvironmentAuthorizationError]),
+    }),
+    // A colleague-only link: accepting it runs the three steps above and shares no thread.
+    Rpc.make("colleague.inviteLinkFork", {
+      payload: ColleagueInviteLinkInputFork,
+      success: ColleagueInviteLinkResultFork,
+      error: Schema.Union([CollaboratorShareErrorFork, EnvironmentAuthorizationError]),
     }),
     Rpc.make("colleague.saveFork", {
       payload: ColleagueSaveInputFork,

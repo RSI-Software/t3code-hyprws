@@ -18,7 +18,14 @@ Once they open it, their access **does not expire**; it lasts until you stop sha
 To share another thread with someone you shared with before, pick their name under **Shared before**; no new link is needed.
 A name you type is always **a new person**, even when it matches someone's.
 
+A plain share link **shares that one thread only**: it saves no colleague.
+
 ## Save each other as colleagues
+
+The sharer **invites you on purpose**, in one of two ways:
+
+- Tick **Also save as colleague** when sharing a thread
+- **Invite colleague** in Settings: **no thread**
 
 Open the link in **your own T3 Code app**: from the desktop app, or pasted into **Settings → Environments → Add environment**.
 You each save the other as a **colleague**, and both apps say so: **Saved Jordan as a colleague**.

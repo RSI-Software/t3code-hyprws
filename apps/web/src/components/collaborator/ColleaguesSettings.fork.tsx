@@ -1,32 +1,157 @@
 // Fork-only (colleague-collab): Settings → Sharing & access lists the colleagues saved on the
-// chosen server, once each, with what it shares with them. Removing one ends their access on both
-// servers; their devices stay listed under Authorized clients until then.
+// chosen server, once each, with what it shares with them, and invites one by a colleague-only
+// link. Removing one ends their access on both servers; their devices stay listed under
+// Authorized clients until then.
+import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { createEnvironmentRpcCommand } from "@t3tools/client-runtime/state/runtime";
+import {
+  createEnvironmentRpcCommand,
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import {
   type ColleagueFork,
+  type ColleagueInviteLinkResultFork,
+  CollaboratorNameFork,
   type EnvironmentId,
   type ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { useGT } from "gt-react";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
 import { connectionAtomRuntime } from "~/connection/runtime";
+import { namedClipboardTarget, useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useQuietThreadShell, useServerConfigs } from "~/state/entities";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
+import { readPreparedConnection } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { useSearchableSetting } from "../settings/settingsSearch";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
+import { collaboratorErrorTextFork } from "./collaboratorErrors.fork";
 import { colleaguesAtom, colleaguesServedFork } from "./colleagues.fork";
 
 const removeColleagueCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "remove colleague",
   tag: WS_METHODS.colleagueRemoveFork,
 });
+const inviteLinkCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "colleagues:invite-link",
+  tag: WS_METHODS.colleagueInviteLinkFork,
+});
+
+const isCollaboratorName = Schema.is(CollaboratorNameFork);
+
+type InviteState =
+  | { readonly status: "closed" }
+  | { readonly status: "open"; readonly error?: string }
+  | { readonly status: "creating" }
+  | ({ readonly status: "created" } & ColleagueInviteLinkResultFork);
+
+/** A link that saves the host and its opener as each other's colleagues and shares no thread. */
+function InviteColleagueRow(props: { readonly environmentId: EnvironmentId }) {
+  const gt = useGT();
+  const canInvite = useAtomValue(inviteLinkCommand.permissionAtom(props.environmentId));
+  const createLink = useAtomCommand(inviteLinkCommand, { reportFailure: false });
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    target: namedClipboardTarget(gt("colleague invite link")),
+  });
+  const [name, setName] = useState("");
+  const [state, setState] = useState<InviteState>({ status: "closed" });
+  const trimmedName = name.trim();
+  if (!canInvite) return null;
+  const create = async () => {
+    setState({ status: "creating" });
+    const linkBaseUrl = readPreparedConnection(props.environmentId)?.httpBaseUrl;
+    const result = await createLink({
+      environmentId: props.environmentId,
+      input: { name: trimmedName, ...(linkBaseUrl === undefined ? {} : { linkBaseUrl }) },
+    });
+    if (result._tag === "Success") {
+      setName("");
+      return setState({ status: "created", ...result.value });
+    }
+    if (isAtomCommandInterrupted(result)) return setState({ status: "open" });
+    setState({
+      status: "open",
+      error:
+        collaboratorErrorTextFork(squashAtomCommandFailure(result)) ??
+        gt("Could not create a colleague invite."),
+    });
+  };
+  return (
+    <SettingsRow
+      title={gt("Invite colleague")}
+      description={gt("A link that saves you as each other's colleagues. It shares no thread.")}
+      control={
+        state.status === "closed" ? (
+          <Button size="sm" variant="outline" onClick={() => setState({ status: "open" })}>
+            {gt("Invite colleague")}
+          </Button>
+        ) : undefined
+      }
+    >
+      {state.status === "closed" ? null : state.status === "created" ? (
+        <div className="flex flex-col gap-2 pt-2">
+          <div className="flex items-center gap-2">
+            <Input
+              readOnly
+              aria-label={gt("Colleague invite link")}
+              value={state.pairingUrl}
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <Button size="sm" variant="outline" onClick={() => copyToClipboard(state.pairingUrl)}>
+              {isCopied ? <CheckIcon /> : <CopyIcon />}
+              {isCopied ? gt("Copied") : gt("Copy")}
+            </Button>
+          </div>
+          {state.localOnly ? (
+            <p role="status" className="text-warning text-xs">
+              {gt("No public address found, so this link works only on your network.")}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <form
+          className="flex flex-col gap-2 pt-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (isCollaboratorName(trimmedName) && state.status === "open") void create();
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Input
+              autoFocus
+              aria-label={gt("Colleague name")}
+              placeholder={gt("Name")}
+              value={name}
+              onChange={(event) => setName(event.currentTarget.value)}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!isCollaboratorName(trimmedName) || state.status === "creating"}
+            >
+              {gt("Create link")}
+            </Button>
+          </div>
+          {state.status === "open" && state.error ? (
+            <p role="alert" className="text-destructive text-xs">
+              {state.error}
+            </p>
+          ) : null}
+        </form>
+      )}
+    </SettingsRow>
+  );
+}
 
 // The shell keeps a loaded thread's title live; the title read covers archived and unloaded ones.
 function SharedThreadTitle(props: {
@@ -127,9 +252,10 @@ export function ColleaguesSettingsFork(props: {
   const colleagues = data ?? [];
   return (
     <SettingsSection {...searchableSetting("colleagues")}>
+      <InviteColleagueRow environmentId={props.environmentId} />
       {colleagues.length === 0 ? (
         <p className="px-4 py-3 text-xs text-muted-foreground">
-          {gt("Colleagues appear here once someone accepts a shared thread.")}
+          {gt("Colleagues appear here once someone accepts your colleague invite.")}
         </p>
       ) : (
         colleagues.map((colleague) => (

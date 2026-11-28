@@ -8346,7 +8346,6 @@
   "06c31cf4047a70f9": "Nada compartido",
   "f31fc70dfbeefc12": "Hilos compartidos con {name}",
   "9ecf2e41287d67a3": "Quitar",
-  "3ae6fec22df37450": "Los colegas aparecen aquí cuando alguien acepta un hilo compartido.",
   "ef3e7f60d52bde99": "Colegas",
   "8b06a1459fec8a97": "colegas guardados personas hilos compartidos quitar colaborador",
   "d86b04ff8ab7a092": "{name} ya no es colega",
@@ -13209,5 +13208,18 @@
   "5807c08e225c6b3d": "Descargar",
   "0d50b5bfe7151ece": "No se pudo descargar el archivo",
   "eb1fd384ad5919dd": "Nota interna",
-  "b45f0b467e9406d0": "Responder al cliente"
+  "b45f0b467e9406d0": "Responder al cliente",
+  "d61f33ec2d59bccf": "Te han invitado como colega",
+  "93bb49dbbb04cdc9": "Abre este enlace en tu propia app de T3 Code. Os guardáis mutuamente y luego compartís hilos sin enlace.",
+  "709c4a8967132934": "Guardar también como colega",
+  "dc36a7ad979cd626": "Envía este enlace a {name}. Al abrirlo en T3 Code, se abre el hilo y os guarda como colegas mutuamente.",
+  "7b63d39a35902fca": "enlace de invitación de colega",
+  "bd9c98bf609843c4": "No se pudo crear una invitación de colega.",
+  "9a1e2e3e7301f5e4": "Invitar a un colega",
+  "260886b4bae03159": "Un enlace que os guarda como colegas mutuamente. No comparte ningún hilo.",
+  "c24c59169e5fb7a1": "Enlace de invitación de colega",
+  "c51bdd4c0e6eb166": "Nombre del colega",
+  "95840d1920445566": "Los colegas aparecen aquí cuando alguien acepta tu invitación de colega.",
+  "bb202476daf7ac6f": "¿Guardar {origin} como colega? Después compartiréis hilos entre vosotros sin enlace.",
+  "bfdcbbacadf35247": "¿Abrir el hilo compartido contigo desde {origin} y guardarlos como colega? Tus mensajes se ejecutan en su máquina."
 }
