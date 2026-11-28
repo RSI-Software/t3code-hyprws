@@ -14,21 +14,30 @@ const EMPTY: JsonObject = {};
 const objectOf = (value: unknown) => Option.getOrElse(asObject(value), () => EMPTY);
 
 interface Format {
-  readonly parse: (text: string) => JsonObject;
+  readonly parse: (text: string) => Option.Option<JsonObject>;
   readonly stringify: (value: JsonObject) => string;
 }
-const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(JsonObject));
 const json: Format = {
-  parse: (text) => Option.getOrElse(decodeJson(text), () => EMPTY),
+  parse: Schema.decodeUnknownOption(Schema.fromJsonString(JsonObject)),
   stringify: Schema.encodeSync(Schema.fromJsonString(JsonObject)),
 };
 const parseTomlOption = Option.liftThrowable(parseToml);
 const toml: Format = {
-  parse: (text) => objectOf(Option.getOrUndefined(parseTomlOption(text))),
+  parse: (text) => Option.flatMap(parseTomlOption(text), asObject),
   stringify: stringifyToml,
 };
 
-type Read = (file: string, format: Format) => Effect.Effect<JsonObject>;
+class MalformedConfig extends Schema.TaggedError<MalformedConfig>()("MalformedConfig", {
+  path: Schema.String,
+}) {
+  override get message(): string {
+    return `${this.path} does not parse; left as is`;
+  }
+}
+
+type PrepareError = PlatformError.PlatformError | MalformedConfig;
+/** Only a missing file reads as empty; a malformed one stops the copy so it is never rewritten. */
+type Read = (file: string, format: Format) => Effect.Effect<JsonObject, PrepareError>;
 interface Homes {
   readonly host: Read;
   readonly dev: Read;
@@ -45,7 +54,7 @@ interface AgentHome {
   readonly hostDir: string;
   /** Off by default in dev: account-level connectors bring the developer's tools back. */
   readonly env: Record<string, string>;
-  readonly copySignIn: (homes: Homes) => Effect.Effect<void, PlatformError.PlatformError>;
+  readonly copySignIn: (homes: Homes) => Effect.Effect<void, PrepareError>;
 }
 
 const claude: AgentHome = {
@@ -138,11 +147,20 @@ export const isolateDevAgentHomes = Effect.fn("dev-runner.isolateDevAgentHomes")
 
     const read =
       (dir: string): Read =>
-      (file, format) =>
-        fs.readFileString(path.join(dir, file)).pipe(
-          Effect.map(format.parse),
-          Effect.orElseSucceed(() => EMPTY),
+      (file, format) => {
+        const filePath = path.join(dir, file);
+        return fs.readFileString(filePath).pipe(
+          Effect.flatMap((text) =>
+            Effect.fromOption(format.parse(text)).pipe(
+              Effect.mapError(() => new MalformedConfig({ path: filePath })),
+            ),
+          ),
+          Effect.catchIf(
+            (error) => error._tag === "PlatformError" && error.reason._tag === "NotFound",
+            () => Effect.succeed(EMPTY),
+          ),
         );
+      };
     yield* fs.makeDirectory(target, { recursive: true }).pipe(
       Effect.andThen(
         home.copySignIn({
