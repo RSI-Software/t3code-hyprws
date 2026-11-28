@@ -25,7 +25,6 @@ export {
   type TerminalOutputUpdate,
 } from "./terminalOutput.ts";
 export { DEFAULT_MAX_TERMINAL_BUFFER_BYTES } from "@t3tools/contracts";
-import * as ManagedTerminalFork from "./terminalSessionManaged.fork.ts"; // fork-hook: zmux-estate/buffer-managed-import
 
 /** The PTY grid every renderer of a shared terminal draws. */
 export interface TerminalGrid {
@@ -40,7 +39,7 @@ export interface TerminalSessionState {
   readonly output: TerminalOutputState;
   /** Null when the server predates shared terminal geometry. */
   readonly grid: TerminalGrid | null;
-  readonly status: TerminalSessionSnapshot["status"] | "suspended" | "closed";
+  readonly status: TerminalSessionSnapshot["status"] | "closed";
   readonly error: string | null;
   readonly hasRunningSubprocess: boolean;
   readonly updatedAt: string | null;
@@ -53,7 +52,7 @@ export interface TerminalBufferState {
   readonly supportsConditionalWrites: boolean;
   readonly output: TerminalOutputState;
   readonly grid: TerminalGrid | null;
-  readonly status: TerminalSessionSnapshot["status"] | "suspended" | "closed";
+  readonly status: TerminalSessionSnapshot["status"] | "closed";
   readonly error: string | null;
   readonly updatedAt: string | null;
   readonly version: number;
@@ -64,7 +63,6 @@ export interface KnownTerminalSessionTarget {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly terminalId: string;
-  readonly attachmentId?: string;
 }
 
 export interface KnownTerminalSession {
@@ -130,7 +128,6 @@ function terminalBufferStateFromSnapshot(
     output: resetOutput(current.output, snapshot, maxBufferBytes),
     grid: nextGrid(current.grid, snapshot),
     status: snapshot.status,
-    ...ManagedTerminalFork.snapshotStatus(snapshot), // fork-hook: zmux-estate/buffer-snapshot-suspended
     error: snapshot.error ?? null,
     updatedAt: snapshot.updatedAt,
     version: current.version + 1,
@@ -158,24 +155,13 @@ export function combineTerminalSessionState(
   summary: TerminalSummary | null,
   buffer: TerminalBufferState,
 ): TerminalSessionState {
-  const managedStatus =
-    summary?.status === "running" && summary.attachmentStatus === "suspended"
-      ? "suspended"
-      : summary?.status;
-  const status =
-    managedStatus === "suspended" ||
-    (buffer.status === "suspended" && summary?.attachmentStatus === "attached")
-      ? (managedStatus ?? buffer.status)
-      : buffer.version > 0
-        ? buffer.status
-        : (managedStatus ?? buffer.status);
   return {
     summary,
     pid: buffer.pid,
     supportsConditionalWrites: buffer.supportsConditionalWrites,
     output: buffer.output,
     grid: buffer.grid,
-    status, // fork-hook: zmux-estate/session-managed-status
+    status: buffer.version > 0 ? buffer.status : (summary?.status ?? buffer.status),
     error: buffer.error,
     hasRunningSubprocess: summary?.hasRunningSubprocess ?? false,
     updatedAt: latestTimestamp(summary?.updatedAt ?? null, buffer.updatedAt),
@@ -248,8 +234,6 @@ export function applyTerminalAttachStreamEvent(
       };
     case "activity": {
       const grid = nextGrid(current.grid, event);
-      const managedFork = ManagedTerminalFork.activityState(current, event, grid); // fork-hook: zmux-estate/buffer-activity-state
-      if (managedFork) return managedFork; // fork-hook: zmux-estate/buffer-activity-status
       return grid === current.grid ? current : { ...current, grid };
     }
   }
@@ -265,16 +249,13 @@ export function applyTerminalMetadataStreamEvent(
   if (event.type === "remove") {
     return current.filter(
       (terminal) =>
-        terminal.threadId !== event.threadId ||
-        terminal.terminalId !== event.terminalId ||
-        (terminal.attachmentId ?? null) !== (event.attachmentId ?? null),
+        terminal.threadId !== event.threadId || terminal.terminalId !== event.terminalId,
     );
   }
   const next = current.filter(
     (terminal) =>
       terminal.threadId !== event.terminal.threadId ||
-      terminal.terminalId !== event.terminal.terminalId ||
-      (terminal.attachmentId ?? null) !== (event.terminal.attachmentId ?? null),
+      terminal.terminalId !== event.terminal.terminalId,
   );
   return [...next, event.terminal];
 }

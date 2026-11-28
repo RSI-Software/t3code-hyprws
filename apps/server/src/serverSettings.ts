@@ -73,8 +73,7 @@ import {
   SECRET_REDACTED,
   type SettingsSecret,
 } from "./settingsSecrets.ts";
-import { migrateLegacyZmuxSettings } from "@t3tools/contracts"; // fork-hook: zmux-estate/legacy-settings-import
-import { migrateLegacySettingsJsonFork } from "./serverSettingsMigration.fork.ts"; // fork-hook: zmux-estate/persisted-server-settings
+import { migrateLegacySettingsJsonFork } from "./serverSettingsMigration.fork.ts"; // fork-hook: worktrunk-hooks/legacy-settings-json-import
 
 export {
   resolveReviewGuideModelSelection,
@@ -504,6 +503,7 @@ function migrateLegacySourceControlSettings(
 const HISTORY_RESTORED_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
   ["cursor", "grok", "opencode"].map((driver) => ProviderDriverKind.make(driver)),
 );
+
 function migrateLegacyProviderSettings(
   settings: ServerSettings,
   legacyProviders: Readonly<Record<string, unknown>>,
@@ -767,7 +767,6 @@ const make = Effect.gen(function* () {
   );
 
   const readRawConfig = fs.readFileString(settingsPath).pipe(
-    migrateLegacySettingsJsonFork(migrateLegacyZmuxSettings), // fork-hook: zmux-estate/decode-server-settings
     migrateLegacySettingsJsonFork(migrateLegacyForkThreadEnvModeSettings), // fork-hook: worktrunk-hooks/legacy-settings-json
     Effect.mapError(
       (cause) =>

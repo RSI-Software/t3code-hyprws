@@ -26,7 +26,7 @@ const makeServerSettingsLayer = () =>
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ManagedPolicy.layerTest()))(
   "server settings",
   (it) => {
-    it.effect("folds a legacy zmuxSessions opt-in into the terminal session mode on load", () =>
+    it.effect("loads legacy settings and keeps unknown project override keys", () =>
       Effect.gen(function* () {
         const serverConfig = yield* ServerConfig.ServerConfig;
         const fileSystem = yield* FileSystem.FileSystem;
@@ -35,7 +35,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ManagedPolicy.laye
           serverConfig.settingsPath,
           `{
           // Legacy settings still accept comments and trailing commas.
-          "zmuxSessions": true,
+          "terminalSessionMode": "zmux",
           "responseStreamingMode": "token",
           "projectSettingsOverrides": {
             "project-a": { "responseStreamingMode": "token", "addedByNewerServer": 3 },
@@ -43,7 +43,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ManagedPolicy.laye
         }`,
         );
         const settings = yield* serverSettings.getSettings;
-        assert.strictEqual(settings.terminalSessionMode, "zmux");
         assert.strictEqual(settings.responseStreamingMode, "paragraph");
         const projectId = ProjectId.make("project-a");
         yield* serverSettings.updateSettings({
@@ -62,19 +61,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ManagedPolicy.laye
             addedByNewerServer: 3,
           },
         });
-      }).pipe(Effect.provide(makeServerSettingsLayer())),
-    );
-    it.effect("keeps an explicit terminal session mode over the legacy zmuxSessions flag", () =>
-      Effect.gen(function* () {
-        const serverConfig = yield* ServerConfig.ServerConfig;
-        const fileSystem = yield* FileSystem.FileSystem;
-        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-        yield* fileSystem.writeFileString(
-          serverConfig.settingsPath,
-          '{"zmuxSessions":true,"terminalSessionMode":"shell"}',
-        );
-        const settings = yield* serverSettings.getSettings;
-        assert.strictEqual(settings.terminalSessionMode, "shell");
       }).pipe(Effect.provide(makeServerSettingsLayer())),
     );
     it.effect("folds a legacy worktrunk project row as the wire env-mode pair", () =>

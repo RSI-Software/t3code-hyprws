@@ -38,7 +38,6 @@ interface Contracts {
   readonly ServerConfig: Codec;
   readonly ServerConfigStreamEvent: Codec;
   readonly VcsStatusStreamEvent: Codec;
-  readonly GitPreparePullRequestThreadResult: Codec;
 }
 
 /**
@@ -61,7 +60,6 @@ const wireSchemas = [
   "ProjectSnapshot",
   "PullRequestDiffResult",
   "VcsStatusStreamEvent",
-  "GitPreparePullRequestThreadResult",
 ] as const;
 
 const repoRoot = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
@@ -259,8 +257,6 @@ const project = {
 const forkSettings = {
   defaultThreadEnvMode: "worktree",
   defaultThreadEnvModeFork: "worktrunk",
-  terminalSessionMode: "zmux",
-  zmuxAutoSessions: true,
   followExternalWorkspaceSymlinks: true,
   projectSettingsOverrides: {
     [project.id]: { defaultThreadEnvMode: "worktree", defaultThreadEnvModeFork: "worktrunk" },
@@ -484,10 +480,6 @@ describe("an upstream client reading a fork server", () => {
     });
     // Upstream retains unknown project override keys, but still drops unknown global settings.
     expect(decoded).not.toHaveProperty("payload.settings.defaultThreadEnvModeFork");
-    const wire = JSON.stringify(decoded);
-    for (const key of ["terminalSessionMode", "zmuxAutoSessions"]) {
-      expect(wire).not.toContain(key);
-    }
   });
 
   it("decodes a VCS status from a Worktrunk worktree", () => {
@@ -506,28 +498,6 @@ describe("an upstream client reading a fork server", () => {
     });
     expect(decoded).toMatchObject({ _tag: "localUpdated", local: { refName: "feature" } });
     expect(JSON.stringify(decoded)).not.toContain("worktrunk");
-  });
-
-  it("decodes a pull request thread result that carries a zmux notice", () => {
-    const decoded = acrossTheWire(
-      fork.GitPreparePullRequestThreadResult,
-      upstream.GitPreparePullRequestThreadResult,
-      {
-        pullRequest: {
-          number: 42,
-          title: "Compat PR",
-          url: "https://github.com/acme/web/pull/42",
-          baseBranch: "main",
-          headBranch: "feature",
-          state: "open",
-        },
-        branch: "feature",
-        worktreePath: "/repo-feature",
-        zmuxSessionNotice: { summary: "zmux unavailable", detail: "No zmux on PATH" },
-      },
-    );
-    expect(decoded).toMatchObject({ branch: "feature", worktreePath: "/repo-feature" });
-    expect(JSON.stringify(decoded)).not.toContain("zmux");
   });
 
   // Durable guard: a fork value in a slot upstream decodes (the Worktrunk env

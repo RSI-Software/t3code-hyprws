@@ -70,7 +70,7 @@ import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
-import * as ThreadLaunchFork from "./ThreadLaunchService.fork.ts"; // fork-hook: zmux-estate/launch-worktree-zmux-bind-import
+import * as ThreadLaunchFork from "./ThreadLaunchService.fork.ts"; // fork-hook: worktrunk-hooks/launch-worktree-create-hooks-import
 import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
 import * as TaskFolders from "../workspace/TaskFolders.ts";
 
@@ -303,7 +303,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const eventSink = yield* EventSink.EventSinkV2;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
-  const worktreeIntegrationsFork = yield* ThreadLaunchFork.makeThreadWorktreeIntegrationsFork; // fork-hook: zmux-estate/launch-worktree-zmux-bind-make
+  const worktreeIntegrationsFork = yield* ThreadLaunchFork.makeThreadWorktreeIntegrationsFork; // fork-hook: worktrunk-hooks/launch-worktree-create-hooks-make
   const taskFolders = yield* TaskFolders.TaskFolders;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -960,7 +960,7 @@ const make = Effect.gen(function* () {
           projectCwd: project.workspaceRoot,
           worktreePath,
           strategy: input.workspaceStrategy, // fork-hook: worktrunk-hooks/launch-worktree-strategy
-        }); // fork-hook: zmux-estate/launch-worktree-zmux-bind
+        }); // fork-hook: worktrunk-hooks/launch-worktree-create-hooks
       }
 
       // Do not rewrite reused worktrees; that could undo the original branch rename.

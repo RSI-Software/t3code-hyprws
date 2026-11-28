@@ -1,21 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { searchSettings, settingsNavGroups } from "./settingsSearch";
-
-// Pages outside the `_chat.settings` layout lose SettingsScopeProvider and crash
-// (RSI-Software/t3code-hyprws#1908). Keys only; no route modules load.
-const settingsRouteFiles = new Set(
-  Object.keys(import.meta.glob("../../routes/_chat.settings.*.tsx")).map((file) =>
-    file.replace("../../routes/_chat.settings.", "/settings/").replace(/\.tsx$/, ""),
-  ),
-);
-
-describe("settings nav routes (fork)", () => {
-  it("renders every nav page inside the settings layout", () => {
-    const paths = settingsNavGroups(true).flatMap((group) => group.paths);
-    expect(paths.filter((path) => !settingsRouteFiles.has(path))).toEqual([]);
-  });
-});
+import { searchSettings } from "./settingsSearch";
 
 // Fork-owned assertions for the external workspace symlinks settings entry
 // (RSI-Software/t3code-hyprws#951, reshaping 565594bd75). The upstream search

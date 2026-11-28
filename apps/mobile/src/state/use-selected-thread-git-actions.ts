@@ -2,7 +2,6 @@ import { useAtomMount } from "@effect/atom-react";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 
 import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { checkoutMoveExpectedRoot } from "@t3tools/client-runtime/state/checkout-move";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {
   createVcsStatusRevalidationAtomFamily,
@@ -71,9 +70,6 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
     reportFailure: false,
   });
   const readRefs = useAtomCommand(vcsEnvironment.readRefs, { reportFailure: false });
-  const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
-    reportFailure: false,
-  });
   const refreshStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const createRef = useAtomCommand(vcsEnvironment.createRef, { reportFailure: false });
@@ -135,11 +131,6 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
         ),
       );
     }
-    const checkoutMove = checkoutMoveRequestFork(thread, nextState, selectedThreadProject); // fork-hook: zmux-estate/mobile-checkout-move
-    if (checkoutMove) {
-      // A new worktree moves through the server, so the thread's sessions follow it.
-      return moveThreadCheckout({ environmentId: thread.environmentId, input: checkoutMove });
-    } // fork-hook: zmux-estate/mobile-checkout-move-result
     return updateThreadMetadata({
       environmentId: thread.environmentId,
       input: {
@@ -285,18 +276,11 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
     };
   }): Promise<AtomCommandResult<void, unknown>> => {
     // Git already changed; refresh even if metadata updates fail so the sheet shows the current branch.
-    const checkoutMoveRequested =
-      input.nextThreadState !== undefined &&
-      checkoutMoveRequestFork(input.thread, input.nextThreadState, selectedThreadProject) !== null; // fork-hook: zmux-estate/mobile-checkout-move
-    const updateResult: AtomCommandResult<unknown, unknown> =
+    const updateResult =
       input.nextThreadState && followsThreadBranch
         ? await updateThreadGitContext(input.thread, input.nextThreadState)
-        : AsyncResult.success(undefined); // fork-hook: zmux-estate/mobile-checkout-move-result
+        : AsyncResult.success(undefined);
     branchState.refresh();
-    if (checkoutMoveRequested)
-      return AsyncResult.isFailure(updateResult)
-        ? AsyncResult.failure(updateResult.cause)
-        : AsyncResult.success(undefined); // fork-hook: zmux-estate/mobile-checkout-move-result
     await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
     return AsyncResult.isFailure(updateResult)
       ? AsyncResult.failure(updateResult.cause)
@@ -477,21 +461,3 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
     onRunSelectedThreadGitAction,
   };
 }
-
-function checkoutMoveRequestFork(
-  thread: EnvironmentThreadShell,
-  nextState: { readonly worktreePath?: string | null },
-  project: EnvironmentProject | null,
-) {
-  // The server checkout move a thread's next worktree needs, or null when it stays put.
-  if (!project || nextState.worktreePath === undefined) return null;
-  if (nextState.worktreePath === thread.worktreePath) return null;
-  return {
-    threadId: thread.id,
-    requestedPath: nextState.worktreePath ?? project.workspaceRoot,
-    expectedCheckoutRoot:
-      (thread.checkoutMove ? checkoutMoveExpectedRoot(thread.checkoutMove) : null) ??
-      thread.worktreePath ??
-      project.workspaceRoot,
-  };
-} // fork-hook: zmux-estate/mobile-checkout-move

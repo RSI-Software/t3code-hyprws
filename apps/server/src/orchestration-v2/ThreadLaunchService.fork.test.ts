@@ -1,7 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   CommandId,
-  type OrchestrationV2ThreadShell,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -14,7 +13,6 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
-import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
@@ -30,23 +28,14 @@ const projectCwd = "/repo/project";
 const worktreePath = "/repo/worktrees/feature";
 
 interface Calls {
-  readonly bind: Array<{ readonly path: string; readonly projectPath: string | undefined }>;
   readonly createHooks: Array<WorktrunkHookRunner.WorktrunkCreateHooksInput>;
 }
 
 const integrationLayers = (options: {
-  readonly bind: ZmuxSessionBinder.ZmuxBindResult;
   readonly createHooks: WorktrunkHookRunner.WorktrunkHookResult;
   readonly calls: Calls;
 }) =>
   Layer.mergeAll(
-    Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
-      bind: (path, bindOptions) =>
-        Effect.sync(() => {
-          options.calls.bind.push({ path, projectPath: bindOptions?.projectPath });
-          return options.bind;
-        }),
-    }),
     Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
       runCreateHooks: (input) =>
         Effect.sync(() => {
@@ -77,18 +66,16 @@ const integrate = (strategy: { readonly type: string; readonly worktrunk?: boole
   });
 
 describe("thread launch worktree integrations (fork)", () => {
-  it.effect("binds the zmux session and runs Worktrunk create hooks for a Worktrunk launch", () => {
-    const calls: Calls = { bind: [], createHooks: [] };
+  it.effect("runs Worktrunk create hooks for a Worktrunk launch", () => {
+    const calls: Calls = { createHooks: [] };
     return integrate({ type: "worktree", worktrunk: true }).pipe(
       Effect.map((checkout) => {
-        assert.deepStrictEqual(calls.bind, [{ path: worktreePath, projectPath: projectCwd }]);
         assert.deepStrictEqual(calls.createHooks, [{ projectCwd, worktreePath }]);
         assert.strictEqual(checkout?.status, "done");
-        assert.strictEqual(checkout?.detail, "zmux session created");
+        assert.strictEqual(checkout?.detail, null);
       }),
       Effect.provide(
         integrationLayers({
-          bind: { status: "bound", target: "project/feature", outcome: "created" },
           createHooks: { status: "completed" },
           calls,
         }),
@@ -96,22 +83,15 @@ describe("thread launch worktree integrations (fork)", () => {
     );
   });
 
-  it.effect("records a bind failure and a hook failure as a checkout warning", () => {
-    const calls: Calls = { bind: [], createHooks: [] };
+  it.effect("records a hook failure as a checkout warning", () => {
+    const calls: Calls = { createHooks: [] };
     return integrate({ type: "worktree", worktrunk: true }).pipe(
       Effect.map((checkout) => {
         assert.strictEqual(checkout?.status, "warning");
-        assert.strictEqual(
-          checkout?.detail,
-          "zmux session failed to bind: branch_conflict; Worktrunk pre-start hook failed: exit 1",
-        );
+        assert.strictEqual(checkout?.detail, "Worktrunk pre-start hook failed: exit 1");
       }),
       Effect.provide(
         integrationLayers({
-          bind: {
-            status: "failed",
-            notice: { summary: "zmux session failed to bind", detail: "branch_conflict" },
-          },
           createHooks: {
             status: "failed",
             operation: "pre-start",
@@ -126,43 +106,18 @@ describe("thread launch worktree integrations (fork)", () => {
   });
 
   it.effect("leaves Worktrunk hooks alone for a plain worktree launch", () => {
-    const calls: Calls = { bind: [], createHooks: [] };
+    const calls: Calls = { createHooks: [] };
     return integrate({ type: "worktree" }).pipe(
       Effect.map((checkout) => {
-        assert.strictEqual(calls.bind.length, 1);
         assert.deepStrictEqual(calls.createHooks, []);
         assert.strictEqual(checkout?.status, "done");
         assert.strictEqual(checkout?.detail, null);
       }),
       Effect.provide(
         integrationLayers({
-          bind: { status: "disabled" },
           createHooks: { status: "completed" },
           calls,
         }),
-      ),
-    );
-  });
-
-  it.effect("leaves a delegated child's zmux session to first terminal open", () => {
-    const calls: Calls = { bind: [], createHooks: [] };
-    const child = { lineage: { relationshipToParent: "subagent" } } as OrchestrationV2ThreadShell;
-    return integrate({ type: "worktree" }).pipe(
-      Effect.map((checkout) => {
-        assert.deepStrictEqual(calls.bind, []);
-        assert.strictEqual(checkout?.status, "done");
-      }),
-      Effect.provide(
-        Layer.merge(
-          integrationLayers({
-            bind: { status: "bound", target: "project/feature", outcome: "created" },
-            createHooks: { status: "completed" },
-            calls,
-          }),
-          Layer.mock(ThreadManagement.ThreadManagementService)({
-            getThreadShell: () => Effect.succeed(child),
-          }),
-        ),
       ),
     );
   });
@@ -232,27 +187,17 @@ const integrateStored = Effect.gen(function* () {
 });
 
 describe("thread launch worktree integration notices (fork)", () => {
-  it.effect("persists a bind and hook failure as a stored thread notice", () => {
-    const calls: Calls = { bind: [], createHooks: [] };
+  it.effect("persists a hook failure as a stored thread notice", () => {
+    const calls: Calls = { createHooks: [] };
     return integrateStored.pipe(
       Effect.map((notices) => {
         assert.deepStrictEqual(
           notices.map((notice) => ({ runId: notice.runId, message: notice.message })),
-          [
-            {
-              runId: null,
-              message:
-                "zmux session failed to bind: branch_conflict; Worktrunk pre-start hook failed: exit 1",
-            },
-          ],
+          [{ runId: null, message: "Worktrunk pre-start hook failed: exit 1" }],
         );
       }),
       Effect.provide(
         persistedLayers({
-          bind: {
-            status: "failed",
-            notice: { summary: "zmux session failed to bind", detail: "branch_conflict" },
-          },
           createHooks: {
             status: "failed",
             operation: "pre-start",
@@ -260,20 +205,6 @@ describe("thread launch worktree integration notices (fork)", () => {
             exitCode: 1,
             timedOut: false,
           },
-          calls,
-        }),
-      ),
-    );
-  });
-
-  it.effect("stores no notice when the session binds and the hooks pass", () => {
-    const calls: Calls = { bind: [], createHooks: [] };
-    return integrateStored.pipe(
-      Effect.map((notices) => assert.deepStrictEqual(notices, [])),
-      Effect.provide(
-        persistedLayers({
-          bind: { status: "bound", target: "project/feature", outcome: "created" },
-          createHooks: { status: "completed" },
           calls,
         }),
       ),

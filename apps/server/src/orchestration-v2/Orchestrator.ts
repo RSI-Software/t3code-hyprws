@@ -230,17 +230,10 @@ import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { pullRequestWatchWakePrefix } from "./pullRequestWatch.ts";
 import { threadArtifactsDispatchFork } from "./ThreadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestrator-artifacts-import
 import { threadArtifactNoOpAcceptedFork } from "./ThreadArtifacts.fork.ts"; // fork-hook: thread-artifacts/orchestrator-empty-plan-import
-import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
 import {
   cancelStoppedRuntimeRequestsFork,
   finishedRunIdsFork,
 } from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/stopped-request-import
-import {
-  checkoutMoveMetadataFork,
-  detachesCheckoutRecoveryInlineFork,
-  refuseCheckoutMoveDuringRunFork,
-} from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
-import { refuseStaleBranchFork } from "./metadataBranchGuard.fork.ts"; // fork-hook: zmux-estate/decider-expected-branch-import
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
 import { refuseStaleExternalSendFork } from "./steerTarget.fork.ts"; // fork-hook: device-auth/dispatch-send-guard-import
@@ -4688,26 +4681,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} worktree changed before the metadata update could be applied.`,
       });
     }
-    yield* refuseCheckoutMoveDuringRunFork(
-      command,
-      projectionStore.getThreadRecords(command.threadId, ["runs"]).pipe(mapDispatchError(command)),
-      (cause) =>
-        new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause,
-        }),
-    ); // fork-hook: zmux-estate/decider-checkout-move-run-guard
-    yield* refuseStaleBranchFork(
-      command,
-      thread.branch,
-      (cause) =>
-        new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause,
-        }),
-    ); // fork-hook: zmux-estate/decider-expected-branch
     if (
       command.type === "thread.metadata.update" &&
       command.expectedBranch !== undefined &&
@@ -5421,7 +5394,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 ? { titleRegeneration: null }
                 : {}),
             updatedAt: now,
-            ...checkoutMoveMetadataFork(command, thread), // fork-hook: zmux-estate/decider-checkout-move
           };
         }
         case "thread.pull-request.link":
@@ -5841,15 +5813,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       occurredAt: now,
       payload: updatedThread,
     });
-    yield* recordCheckoutRecoveryFork({
-      command,
-      thread: updatedThread,
-      readRuns: projectionStore.getThreadRecords(command.threadId, ["runs"]),
-      runtimePolicy,
-      checkpointService,
-      emit: emit(events, command),
-      now,
-    }).pipe(mapDispatchError(command)); // fork-hook: zmux-estate/decider-recovery-record
     // Archiving ends the guest share, so its waiting files go too.
     yield* releaseGuestAttachments(command, thread.guestShare, updatedThread.guestShare, effects);
 
@@ -6077,12 +6040,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               },
             } satisfies PendingOrchestrationEffectV2;
             yield* Ref.update(effects, (existing) => [...existing, pendingEffect]);
-            yield* detachesCheckoutRecoveryInlineFork(
-              command,
-              projectionStore.getThreadRecords(command.threadId, ["runs"]),
-              effects,
-              pendingEffect,
-            ).pipe(mapDispatchError(command)); // fork-hook: zmux-estate/decider-recovery-inline-detach
           }),
         { concurrency: 1, discard: true },
       );

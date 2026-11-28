@@ -19,7 +19,6 @@ import { AppAtomRegistryProvider, appAtomRegistry } from "../rpc/atomRegistry";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { extractTerminalLinks } from "../terminal-links";
-import { terminalAttachmentId } from "../terminalAttachmentIdentity"; // fork-hook: zmux-estate/terminal-resize-test-attachment
 import { expect, it, vi } from "vite-plus/test";
 import { act, fakeTimers, render } from "../../test/render";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -250,7 +249,6 @@ vi.mock("../hooks/useSettings", async () => {
   return {
     useClientSettings: <T,>(select: (settings: typeof DEFAULT_CLIENT_SETTINGS) => T) =>
       select(DEFAULT_CLIENT_SETTINGS),
-    useEnvironmentSettings: () => undefined, // fork-hook: zmux-estate/session-mode-drawer-test-mock
     ensureClientSettingsHydrated: async () => {},
     getClientSettings: () => DEFAULT_CLIENT_SETTINGS,
   };
@@ -685,6 +683,5 @@ it("resends a failed resize once in each writable session", async () => {
     environmentId: threadRef.environmentId,
     input: { threadId: threadRef.threadId, terminalId: "term-1", cols: 57, rows: 41 },
   };
-  Object.assign(resize.input, { attachmentId: terminalAttachmentId("term-1") }); // fork-hook: zmux-estate/terminal-resize-test-attachment
   expect(resizes).toEqual([resize, resize, resize]);
 });

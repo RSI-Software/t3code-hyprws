@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - runs before `vp i`, so only Node built-ins exist.
 /**
- * Fork seams for `scripts/setup-worktree.ts`. Managed zmux sessions type the
- * setup command into a long-lived shell that never received the runner's
- * `T3CODE_PROJECT_ROOT`, so the main checkout falls back to Git discovery.
+ * Fork seams for `scripts/setup-worktree.ts`. A setup command typed into a
+ * long-lived shell never received the runner's `T3CODE_PROJECT_ROOT`, so the
+ * main checkout falls back to Git discovery.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
